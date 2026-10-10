@@ -15,7 +15,7 @@ const handlers = new Map<string, Handler[]>();
 const pi = { on: (name: string, h: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), h]) };
 symbiosis(pi as never);
 
-const ctx = { cwd: process.argv[2] };
+const ctx = { cwd: process.argv[2], isIdle: () => true };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function fire(name: string, event: unknown) {
 	for (const h of handlers.get(name) ?? []) await h(event, ctx);
@@ -42,6 +42,18 @@ async function call(id: string, name: 'write' | 'edit', args: Record<string, unk
 
 const dir = process.argv[2];
 const a = join(dir, 'todo.ts');
+await fire('session_start', {});
+// The plugin picks this session as the owner within a second or so.
+const owned = Date.now() + 4000;
+const owner = () => {
+	try {
+		return JSON.parse(readFileSync(join(process.env.TTT_CONFIG_DIR ?? '', 'plugins/symbiosis/ttt.json'), 'utf-8')).owner;
+	} catch {
+		return undefined;
+	}
+};
+while (!owner() && Date.now() < owned) await sleep(100);
+console.log(`owner: ${owner() ?? 'none'}`);
 await fire('agent_start', {});
 await call('c1', 'write', { path: 'todo.ts', content: readFileSync(new URL('./todo-v1.ts', import.meta.url), 'utf-8') }, () => {
 	writeFileSync(a, readFileSync(new URL('./todo-v1.ts', import.meta.url), 'utf-8'));
@@ -59,4 +71,6 @@ await call('c2', 'edit', { path: a, edits }, () => {
 });
 await fire('turn_end', {});
 await fire('agent_end', {});
+await sleep(300);
+await fire('session_shutdown', {});
 console.log('drive: done');

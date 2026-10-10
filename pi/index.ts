@@ -1,16 +1,21 @@
 // symbiosis, the pi side: streams each write and edit into the ttt editor
 // while the model writes it, and follows the result.
 //
-// One pi session at a time: the last writer wins. Without the plugin folder
-// (ttt or the plugin not installed) this extension writes nothing.
+// Many pi sessions can run. Each writes a session record; the plugin picks the
+// one the editor follows (the owner) and only the owner writes events and
+// gets the AI!/AI? markers. Without the plugin folder (ttt or the plugin not
+// installed) this extension writes nothing.
 import { existsSync, readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
-import { Channel } from './channel.ts';
+import { Channel, type PluginState, type Session } from './channel.ts';
 import { findMarkers, suggestionMessage } from './suggest.ts';
 import { absolutePath, adler32, type ChannelEvent, firstLine, pluginDir, type Tool, Tracker } from './stream.ts';
 
 /** At most one text write per call in this time: the plugin polls every 40 ms. */
 const FLUSH_MS = 40;
+/** The channel protocol. The plugin flags a session with another one: "/reload". */
+export const PROTOCOL = 3;
 
 interface Live {
 	tracker: Tracker;
@@ -30,16 +35,57 @@ export default function symbiosis(pi: ExtensionAPI) {
 	let session: ExtensionContext | undefined;
 	let lastRequest: string | undefined;
 	let poll: ReturnType<typeof setInterval> | undefined;
+	let ticks = 0;
+	const id = `${process.pid}-${Date.now().toString(36)}`;
+	const record: Session = {
+		id,
+		version: PROTOCOL,
+		pane: process.env.HERDR_PANE_ID || null,
+		cwd: process.cwd(),
+		name: basename(process.cwd()),
+		pid: process.pid,
+		t: 0,
+		active: 0,
+		working: false,
+	};
 
-	/** ctrl+k e in ttt: every AI!/AI? marker goes to the agent as one message. */
+	function beat(): void {
+		record.t = Date.now() / 1000;
+		try {
+			channel.writeSession(record);
+		} catch {
+			// A missed heartbeat is not worth failing a turn for.
+		}
+	}
+
+	// The plugin's state, read at most every 200 ms: message_update comes often.
+	let state: PluginState = { alive: false, pinned: false };
+	let stateAt = 0;
+	function plugin(): PluginState {
+		if (Date.now() - stateAt > 200) {
+			state = channel.plugin();
+			stateAt = Date.now();
+		}
+		return state;
+	}
+
+	/** True when the editor follows this session: only then does it write events. */
+	function owner(): boolean {
+		if (!channel.enabled()) return false;
+		const p = plugin();
+		return p.alive && p.owner === id;
+	}
+
+	/** ctrl+k d in ttt: every AI!/AI? marker goes to the owner's agent as one message. */
 	function checkRequest(): void {
 		if (!session || !channel.enabled()) return;
 		const request = channel.request();
 		if (!request || request.id === lastRequest) return;
 		lastRequest = request.id;
+		if (request.to !== id) return;
 		const markers = findMarkers(session.cwd, request.path ? [request.path] : []);
 		const busy = !session.isIdle();
-		channel.emit({ op: 'sent', count: markers.length, busy });
+		channel.emit({ op: 'sent', count: markers.length, busy, session: id });
 		if (markers.length === 0) return;
 		const text = suggestionMessage(markers, session.cwd);
 		if (busy) pi.sendUserMessage(text, { deliverAs: 'followUp' });
@@ -48,16 +94,25 @@ export default function symbiosis(pi: ExtensionAPI) {
 
 	pi.on('session_start', (_event, ctx) => {
 		session = ctx;
+		record.cwd = ctx.cwd;
+		record.name = basename(ctx.cwd);
+		record.active = Date.now() / 1000;
 		// A request from before this session is old: do not send it again.
 		lastRequest = channel.enabled() ? channel.request()?.id : undefined;
+		if (channel.enabled()) channel.pruneSessions();
+		beat();
 		clearInterval(poll);
-		poll = setInterval(checkRequest, 250);
+		poll = setInterval(() => {
+			checkRequest();
+			if (++ticks % 4 === 0) beat();
+		}, 250);
 		poll.unref?.();
 	});
 
 	pi.on('session_shutdown', () => {
 		clearInterval(poll);
 		poll = undefined;
+		channel.removeSession(id);
 	});
 
 	/** Sends what changed since the last flush, starting the call once its path is complete. */
@@ -88,7 +143,10 @@ export default function symbiosis(pi: ExtensionAPI) {
 	}
 
 	pi.on('agent_start', () => {
-		if (channel.enabled()) channel.rotate();
+		record.active = Date.now() / 1000;
+		record.working = true;
+		beat();
+		if (owner()) channel.rotate();
 	});
 
 	pi.on('message_update', (event, ctx) => {
@@ -99,7 +157,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		if (!block || block.type !== 'toolCall' || !isTool(block.name)) return;
 		let entry = live.get(block.id);
 		if (!entry) {
-			if (channel.plugin().pinned) return;
+			if (!owner() || plugin().pinned) return;
 			entry = { tracker: new Tracker(block.id, block.name), args: {}, last: 0 };
 			live.set(block.id, entry);
 		}
@@ -124,7 +182,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		if (!entry.tracker.started) return undefined;
 		entry.tracker.readied = true;
 		channel.emit({ op: 'ready', call: entry.tracker.id });
-		if (channel.plugin().alive) await channel.waitAck(entry.tracker.id);
+		if (plugin().alive) await channel.waitAck(entry.tracker.id);
 		return undefined;
 	});
 
@@ -132,7 +190,8 @@ export default function symbiosis(pi: ExtensionAPI) {
 		if (!isTool(event.toolName) || !channel.enabled()) return undefined;
 		const path = (event.input as { path?: unknown }).path;
 		if (typeof path !== 'string' || path === '') return undefined;
-		live.delete(event.toolCallId);
+		const streamed = live.delete(event.toolCallId);
+		if (!streamed && !owner()) return undefined;
 		const done = { op: 'done' as const, call: event.toolCallId, tool: event.toolName, path: absolutePath(path, ctx.cwd), line: firstLine(event.toolName, event.details), ok: !event.isError };
 		if (done.ok) last = { path: done.path, line: done.line };
 		channel.emit(done);
@@ -144,8 +203,10 @@ export default function symbiosis(pi: ExtensionAPI) {
 	});
 
 	pi.on('agent_end', () => {
+		record.working = false;
+		beat();
 		if (!channel.enabled()) return;
 		abortOpen();
-		if (last) channel.emit({ op: 'stop', ...last });
+		if (last && owner()) channel.emit({ op: 'stop', ...last });
 	});
 }

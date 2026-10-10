@@ -54,13 +54,28 @@ leaves a clean but stale buffer. That is why the order in step 3 is fixed.
 - Between the undo and the reload, the old text shows for up to ~1.5 s.
 - A new file: ttt shows "New file", and after the undo the plugin opens the
   file again so ttt reads it from disk.
-- One pi session at a time: the last writer wins.
+- Two sessions in the same folder: the most recent one wins until you choose.
 
-## Slice 2: chat and suggestions
+## Slice 2: sessions and suggestions
 
-**Chat.** pi runs in ttt's own terminal, docked to the right. `ctrl+k h`
-opens it (and docks it the first time). It is a full shell: you start `pi`
-there. The plugin does not start pi for you.
+**Sessions.** pi runs in any terminal; you watch it there. (A chat panel in
+ttt was tried and dropped: it took space from the code.) Each pi writes
+`sessions/<id>.json` every second: id, protocol version, herdr pane
+(`HERDR_PANE_ID`), folder, working or idle. The plugin picks one session, the
+**owner**, and writes its id to `ttt.json`:
+
+1. the session you chose with `ctrl+k n` (it cycles through the sessions, then
+   back to automatic);
+2. else the session whose folder holds the open file: the deepest folder, then
+   the most recent;
+3. else, with no file open, the most recent session.
+
+Only the owner writes events and gets the markers. The status bar shows it:
+`π symbiosis ● working`, `π none`, or `π tosak-docs · old, /reload` for an
+extension with another protocol. `ctrl+k g` or a click runs
+`herdr agent focus <pane>` (the plugin's `system.exec` permission allows
+`herdr` only). When the owner changes, its first event starts the log again,
+so `head.json` and the log always agree.
 
 **Suggestions.** You write a comment that ends in `AI!` (make this change) or
 `AI?` (answer this). Where the comment is sets its reach:
@@ -72,7 +87,9 @@ there. The plugin does not start pi for you.
 | On its own line at the top of the file, a blank line after it | the whole file |
 
 The plugin marks each one with an info diagnostic. `ctrl+k d` saves the file
-and writes `request.json`. The extension finds every marker (`git grep` over
+and writes `request.json` addressed to the owner (`to`). No owner: the plugin
+says so and sends nothing. No answer in 3 s: the plugin says so. The owner's
+extension finds every marker (`git grep` over
 the workspace, plus the saved file), sends ONE user message to pi (as a
 follow-up when pi is busy), and writes a `sent` event back. The message tells
 pi to delete each marker when it is done, so a closed suggestion leaves no
@@ -81,7 +98,8 @@ trace in the code.
 Found in the spike, ttt 1.7.1: `gmatch("[^\n]*\n")` crashes with a nil
 pointer on text that has an empty line. The plugin splits lines with `find`.
 Keys `ctrl+k e t i j o r u` belong to ttt; plugin chords that work are
-`a d g h n q v w x z`.
+`a d g h n q v w x z`. A `local ready` flag once hid the `ready` handler:
+Lua locals shadow quietly.
 
 ## The cost
 

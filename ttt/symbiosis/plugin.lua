@@ -10,20 +10,26 @@
 -- means no preview and no jumps, but the end of the turn (a stop) moves the
 -- editor anyway; a key press in the editor ends the preview. See docs/design.md.
 --
--- Also: ctrl+k h opens pi's chat (ttt's own terminal, docked right), and
--- ctrl+k d sends every AI!/AI? marker comment to pi (pi/suggest.ts). Open
--- markers in this buffer show as diagnostics.
+-- Sessions: each pi writes sessions/<id>.json. The editor follows one of them,
+-- the owner: the session whose folder holds the open file (the most recent
+-- one if several do), or the one you chose with ctrl+k n. Only the owner
+-- writes events and gets the markers. ctrl+k g goes to its herdr pane.
+--
+-- Suggestions: ctrl+k d sends every AI!/AI? marker comment to the owner
+-- (pi/suggest.ts). Open markers in this buffer show as diagnostics.
 local ttt = require("ttt")
 local editor = require("ttt.editor")
 local fs = require("ttt.fs")
 local json = require("ttt.json")
 local events = require("ttt.events")
 local diagnostics = require("ttt.diagnostics")
+local system = require("ttt.system")
 
 local DIR = ttt.plugin_dir()
 local HEAD, EVENTS, ACK, ALIVE = DIR .. "/head.json", DIR .. "/events.jsonl", DIR .. "/ack.json", DIR .. "/ttt.json"
-local REQUEST = DIR .. "/request.json"
+local REQUEST, SESSIONS = DIR .. "/request.json", DIR .. "/sessions"
 local POLL_MS = 40
+local PROTOCOL = 3     -- the channel protocol of pi/index.ts
 
 local gen, offset = nil, 0
 local pinned = false
@@ -32,7 +38,10 @@ local active = nil     -- the call whose undo group is open
 local acks = {}        -- the last call ids acknowledged
 local here = nil       -- {path, line, mark}: what the status bar shows
 local editing = false  -- true while this plugin changes the buffer
-local toggle_pin, end_preview
+local sessions = {}    -- the live pi sessions, by name
+local owner = nil      -- the session the editor follows
+local chosen = nil     -- the id you chose with ctrl+k n; nil = by the open file
+local toggle_pin, end_preview, heartbeat, go_session
 
 -- Positions -----------------------------------------------------------------
 
@@ -89,6 +98,18 @@ end
 -- The view ------------------------------------------------------------------
 
 local function name(path) return path:match("[^/]+$") or path end
+
+local function show_session()
+	local text
+	if not owner then
+		text = #sessions == 0 and "π none" or "π none for this file"
+	else
+		text = "π " .. owner.name .. (owner.working and " ● working" or " ○ idle")
+		if owner.version ~= PROTOCOL then text = "π " .. owner.name .. " · old, /reload" end
+		if chosen then text = text .. " (chosen)" end
+	end
+	ttt.set_status_item("left", "symbiosis.session", text, { priority = 900, on_click = function() go_session() end })
+end
 
 local function show(text)
 	local mode = pinned and "pinned" or "following"
@@ -265,6 +286,93 @@ local function stop(ev)
 	show()
 end
 
+-- Sessions ------------------------------------------------------------------
+
+local function starts_with(s, p) return s:sub(1, #p) == p end
+
+-- Reads sessions/: the records with a heartbeat in the last 3 seconds.
+local function load_sessions()
+	local list = {}
+	local entries = fs.list(SESSIONS) or {}
+	for _, e in ipairs(entries) do
+		if not e.is_dir and e.name:match("%.json$") then
+			local raw = fs.read(SESSIONS .. "/" .. e.name)
+			local ok, rec = pcall(json.decode, raw or "")
+			if ok and type(rec) == "table" and rec.id and type(rec.t) == "number" and os.time() - rec.t < 4 then
+				table.insert(list, rec)
+			end
+		end
+	end
+	table.sort(list, function(a, b)
+		if a.name ~= b.name then return a.name < b.name end
+		return a.id < b.id
+	end)
+	return list
+end
+
+-- The session the editor follows: the one you chose, else the one whose folder
+-- holds the open file (the deepest folder, then the most recent), else, with
+-- no file open, the most recent one.
+local function pick()
+	for _, rec in ipairs(sessions) do
+		if rec.id == chosen then return rec end
+	end
+	chosen = nil
+	local path = editor.file_path() or ""
+	local best = nil
+	for _, rec in ipairs(sessions) do
+		local fits = path == "" or starts_with(path, rec.cwd .. "/")
+		if fits and (not best or #rec.cwd > #best.cwd or (#rec.cwd == #best.cwd and (rec.active or 0) > (best.active or 0))) then
+			best = rec
+		end
+	end
+	return best
+end
+
+local function refresh_sessions()
+	sessions = load_sessions()
+	local before = owner and owner.id
+	owner = pick()
+	if (owner and owner.id) ~= before then heartbeat() end
+	show_session()
+end
+
+-- ctrl+k n: the next session takes over; after the last one, back to "by the open file".
+local function next_session()
+	sessions = load_sessions()
+	if #sessions == 0 then
+		ttt.notify("symbiosis: no pi session is running", "warning")
+		return refresh_sessions()
+	end
+	local i = 0
+	for k, rec in ipairs(sessions) do
+		if rec.id == chosen then i = k end
+	end
+	local nxt = sessions[i + 1]
+	chosen = nxt and nxt.id or nil
+	refresh_sessions()
+	if chosen then
+		ttt.notify("symbiosis: pi " .. owner.name .. " takes over (chosen)", "info")
+	else
+		ttt.notify("symbiosis: back to the session of the open file" .. (owner and (": " .. owner.name) or ": none"), "info")
+	end
+end
+
+-- ctrl+k g, or a click on "π ...": go to the owner's pane in herdr.
+go_session = function()
+	if not owner then
+		return ttt.notify("symbiosis: no pi session for this file (ctrl+k n chooses one)", "warning")
+	end
+	if not owner.pane then
+		return ttt.notify("symbiosis: pi " .. owner.name .. " does not run in herdr", "warning")
+	end
+	system.exec_async("herdr", { "agent", "focus", owner.pane }, function(result)
+		if result.exit_code ~= 0 then
+			ttt.notify("symbiosis: herdr could not focus " .. owner.pane .. ": " .. (result.stderr or ""), "error")
+		end
+	end)
+end
+
 -- Suggestions: AI!/AI? comments -------------------------------------------
 
 local OPENERS = { "<!--", "/*", "//", "--", "#", ";" }
@@ -292,7 +400,7 @@ local function refresh_markers()
 		if kind then
 			table.insert(items, {
 				line = n, col = 1, end_col = runes(line) + 1, severity = "info", source = "symbiosis",
-				message = (kind == "!" and "change for pi" or "question for pi") .. " · ctrl+k d sends all markers",
+				message = (kind == "!" and "change for pi" or "question for pi") .. " · send all: ctrl+k, then d",
 			})
 		end
 	end
@@ -312,16 +420,32 @@ local function refresh_soon()
 end
 
 local sends = 0
+local waiting = nil   -- the timer that says pi did not answer
 local function send_markers()
+	refresh_sessions()
+	if not owner then
+		return ttt.notify("symbiosis: no pi session for this file. Start pi in its folder, or choose one with ctrl+k n", "warning")
+	end
+	if owner.version ~= PROTOCOL then
+		return ttt.notify("symbiosis: pi " .. owner.name .. " runs an old symbiosis: /reload it", "warning")
+	end
 	local path = editor.file_path()
 	-- pi reads the file from disk: save your changes first.
 	if path and path ~= "" then ttt.exec_command("file.save") end
 	sends = sends + 1
-	fs.write(REQUEST, json.encode({ id = os.time() .. "-" .. sends, path = path or "" }))
-	show("⇢ sending suggestions")
+	fs.write(REQUEST, json.encode({ id = os.time() .. "-" .. sends, path = path or "", to = owner.id }))
+	show("⇢ sending suggestions to " .. owner.name)
+	if waiting then ttt.clear_timeout(waiting) end
+	local name_ = owner.name
+	waiting = ttt.set_timeout(3000, function()
+		waiting = nil
+		ttt.notify("symbiosis: pi " .. name_ .. " did not answer", "error")
+		show()
+	end)
 end
 
 local function sent(ev)
+	if waiting then ttt.clear_timeout(waiting) waiting = nil end
 	if ev.count == 0 then
 		ttt.notify("symbiosis: no AI! or AI? markers found", "info")
 	else
@@ -329,17 +453,6 @@ local function sent(ev)
 		ttt.notify(string.format("symbiosis: %d suggestion%s sent to pi%s", ev.count, s, ev.busy and ", after the current turn" or ""), "info")
 	end
 	show()
-end
-
--- Chat: pi runs in ttt's own terminal ----------------------------------------
-
-local function open_chat()
-	-- Docked right once; after that the panel stays where you put it.
-	if not fs.exists(DIR .. "/docked") then
-		ttt.exec_command("panel.dockRight")
-		fs.write(DIR .. "/docked", "right\n")
-	end
-	ttt.exec_command("focus.terminal")
 end
 
 local handlers = {
@@ -382,21 +495,23 @@ local function poll()
 	end
 end
 
-local function heartbeat()
-	fs.write(ALIVE, json.encode({ t = os.time(), pinned = pinned }))
+heartbeat = function()
+	fs.write(ALIVE, json.encode({ t = os.time(), pinned = pinned, owner = owner and owner.id or nil }))
 end
 
 ttt.register({
 	commands = {
 		{ id = "symbiosis.togglePin", title = "symbiosis: Pin / Unpin the Editor", handler = toggle_pin },
 		{ id = "symbiosis.goToAgent", title = "symbiosis: Go to the Agent's Last Edit", handler = go },
-		{ id = "symbiosis.openChat", title = "symbiosis: Open the Agent Chat", handler = open_chat },
 		{ id = "symbiosis.sendMarkers", title = "symbiosis: Send AI!/AI? Markers to the Agent", handler = send_markers },
+		{ id = "symbiosis.nextSession", title = "symbiosis: Next pi Session Takes Over", handler = next_session },
+		{ id = "symbiosis.goToSession", title = "symbiosis: Go to the pi Session (herdr)", handler = go_session },
 	},
 	keybindings = {
 		{ key = "ctrl+k a", command = "symbiosis.togglePin" },
-		{ key = "ctrl+k h", command = "symbiosis.openChat" },
 		{ key = "ctrl+k d", command = "symbiosis.sendMarkers" },
+		{ key = "ctrl+k n", command = "symbiosis.nextSession" },
+		{ key = "ctrl+k g", command = "symbiosis.goToSession" },
 	},
 })
 
@@ -406,17 +521,25 @@ events.on("key.press", function(key)
 	return false
 end)
 
-events.on("file.open", refresh_soon)
-events.on("tab.change", refresh_soon)
+local function on_file()
+	refresh_soon()
+	if loaded then refresh_sessions() end
+end
+events.on("file.open", on_file)
+events.on("tab.change", on_file)
 events.on("file.save", refresh_soon)
 events.on("editor.change", refresh_soon)
 
 -- fs.read and the status bar are not ready while the plugin loads.
 ttt.set_timeout(100, function()
 	loaded = true
+	refresh_sessions()
 	refresh_soon()
 	show()
 	heartbeat()
 	ttt.set_interval(POLL_MS, poll)
-	ttt.set_interval(1000, heartbeat)
+	ttt.set_interval(1000, function()
+		refresh_sessions()
+		heartbeat()
+	end)
 end)

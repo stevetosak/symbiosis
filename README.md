@@ -3,8 +3,9 @@
 The [pi](https://github.com/earendil-works/pi) coding agent works inside the
 [ttt](https://tttedit.dev) editor. Each file the agent writes or edits types
 itself into your editor while the model writes it. Then the editor goes to the
-changed line. You read the code as it comes. You talk to pi in a terminal
-docked in the editor, and you leave it suggestions as comments in the code.
+changed line. You read the code as it comes. pi runs in any terminal; the
+status bar shows which pi session the editor follows, and you leave that
+session suggestions as comments in the code.
 
 Status: the first slice. Built, then used, then changed. See
 [docs/design.md](docs/design.md).
@@ -30,15 +31,17 @@ allow the plugin's permissions.
 - Command palette: `symbiosis: Go to the Agent's Last Edit`.
 - Press a key in the buffer during a preview: the preview stops, the buffer
   is yours.
-- `ctrl+k h`: the chat, ttt's terminal docked right. Start `pi` in it.
+- Status bar `π symbiosis ● working`: the pi session the editor follows, by
+  the folder of the open file. Click it or `ctrl+k g` to go to its herdr
+  pane. `ctrl+k n`: the next session takes over (then back to automatic).
 - Write a comment that ends in `AI!` (change this) or `AI?` (answer this),
   after a line, above a block, or at the top of a file. `ctrl+k d` sends all
-  of them to pi in one message. pi deletes each marker when it is done.
+  of them to that session in one message. pi deletes each marker when it is done.
 
 ## Test
 
 ```bash
 npm test          # unit tests
 npm run e2e       # a fake pi against a headless ttt; prints the output folder
-bash test/e2e/suggest.sh   # the same, for suggestions and the chat
+bash test/e2e/suggest.sh   # the same, for sessions and suggestions
 ```

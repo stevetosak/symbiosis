@@ -24,8 +24,8 @@ export type ChannelEvent =
 	| { op: 'done'; call: string; tool: Tool; path: string; line: number; ok: boolean }
 	/** The agent's turn ended; the editor goes to the last edit even when pinned. */
 	| { op: 'stop'; path: string; line: number }
-	/** pi read a send request (ctrl+k e) and sent `count` markers to the agent. */
-	| { op: 'sent'; count: number; busy: boolean };
+	/** Session `session` read a send request (ctrl+k d) and sent `count` markers to its agent. */
+	| { op: 'sent'; count: number; busy: boolean; session: string };
 
 export interface EditArg {
 	oldText?: unknown;
