@@ -1,4 +1,4 @@
-# symbiosis: the design of the first slice
+# symbiosis: the design
 
 ## The goal
 
@@ -13,7 +13,8 @@ Then the editor shows the result at the changed line.
 | pi extension | `pi/index.ts` | Reads the tool calls while they stream. Writes events. |
 | Events | `pi/stream.ts` | Pure: turns growing arguments into small `text` events. |
 | Channel | `pi/channel.ts` | Files in the plugin folder: `events.jsonl`, `head.json`, `ttt.json`, `ack.json`. |
-| ttt plugin | `ttt/symbiosis/plugin.lua` | Polls every 40 ms. Shows the preview. Follows the result. |
+| Suggestions | `pi/suggest.ts` | Pure: finds `AI!` and `AI?` comments, writes the message for pi. |
+| ttt plugin | `ttt/symbiosis/plugin.lua` | Polls every 40 ms. Shows the preview. Follows the result. Marks suggestions. Opens the chat. |
 
 A ttt plugin cannot open a socket and can read only its own folder and the
 workspace. Thus the channel is files in the plugin folder.
@@ -55,6 +56,35 @@ leaves a clean but stale buffer. That is why the order in step 3 is fixed.
   file again so ttt reads it from disk.
 - One pi session at a time: the last writer wins.
 
+## Slice 2: chat and suggestions
+
+**Chat.** pi runs in ttt's own terminal, docked to the right. `ctrl+k h`
+opens it (and docks it the first time). It is a full shell: you start `pi`
+there. The plugin does not start pi for you.
+
+**Suggestions.** You write a comment that ends in `AI!` (make this change) or
+`AI?` (answer this). Where the comment is sets its reach:
+
+| Where | Reach |
+|---|---|
+| After code on the same line | that line |
+| On its own line | the block below it (function, class, ...) |
+| On its own line at the top of the file, a blank line after it | the whole file |
+
+The plugin marks each one with an info diagnostic. `ctrl+k d` saves the file
+and writes `request.json`. The extension finds every marker (`git grep` over
+the workspace, plus the saved file), sends ONE user message to pi (as a
+follow-up when pi is busy), and writes a `sent` event back. The message tells
+pi to delete each marker when it is done, so a closed suggestion leaves no
+trace in the code.
+
+Found in the spike, ttt 1.7.1: `gmatch("[^\n]*\n")` crashes with a nil
+pointer on text that has an empty line. The plugin splits lines with `find`.
+Keys `ctrl+k e t i j o r u` belong to ttt; plugin chords that work are
+`a d g h n q v w x z`.
+
 ## The cost
 
-No model tokens: the extension reads what pi streams anyway.
+Streaming: no model tokens, the extension reads what pi streams anyway.
+Suggestions: one user message per `ctrl+k d`, about 40 tokens plus ~20 per
+marker.

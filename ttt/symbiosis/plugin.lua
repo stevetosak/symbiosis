@@ -9,14 +9,20 @@
 -- Rules: a buffer with unsaved changes is never touched; pinned (ctrl+k a)
 -- means no preview and no jumps, but the end of the turn (a stop) moves the
 -- editor anyway; a key press in the editor ends the preview. See docs/design.md.
+--
+-- Also: ctrl+k h opens pi's chat (ttt's own terminal, docked right), and
+-- ctrl+k d sends every AI!/AI? marker comment to pi (pi/suggest.ts). Open
+-- markers in this buffer show as diagnostics.
 local ttt = require("ttt")
 local editor = require("ttt.editor")
 local fs = require("ttt.fs")
 local json = require("ttt.json")
 local events = require("ttt.events")
+local diagnostics = require("ttt.diagnostics")
 
 local DIR = ttt.plugin_dir()
 local HEAD, EVENTS, ACK, ALIVE = DIR .. "/head.json", DIR .. "/events.jsonl", DIR .. "/ack.json", DIR .. "/ttt.json"
+local REQUEST = DIR .. "/request.json"
 local POLL_MS = 40
 
 local gen, offset = nil, 0
@@ -29,6 +35,19 @@ local editing = false  -- true while this plugin changes the buffer
 local toggle_pin, end_preview
 
 -- Positions -----------------------------------------------------------------
+
+-- Each line of `text` that ends in "\n", with its "\n". Not gmatch("[^\n]*\n"):
+-- in ttt 1.7.1 that crashes (nil pointer) on text with an empty line.
+local function lines(text)
+	local i = 1
+	return function()
+		local j = text:find("\n", i, true)
+		if not j then return nil end
+		local line = text:sub(i, j)
+		i = j + 1
+		return line
+	end
+end
 
 -- Characters (not bytes) in a UTF-8 string: editor columns count characters.
 local function runes(s)
@@ -246,6 +265,83 @@ local function stop(ev)
 	show()
 end
 
+-- Suggestions: AI!/AI? comments -------------------------------------------
+
+local OPENERS = { "<!--", "/*", "//", "--", "#", ";" }
+
+-- The kind ("!" or "?") when the line is a comment that ends in AI! or AI?.
+local function marker(line)
+	local body = line:gsub("%s*%*/%s*$", "")
+	body = body:gsub("%s*%-%->%s*$", "")
+	local kind = body:match("AI([!?])%s*$")
+	if not kind then return nil end
+	for _, o in ipairs(OPENERS) do
+		if body:find(o, 1, true) then return kind end
+	end
+	return nil
+end
+
+local function refresh_markers()
+	local path = editor.file_path()
+	if not path or path == "" then return end
+	local items, n = {}, 0
+	for full in lines(editor.buffer_text() .. "\n") do
+		local line = full:sub(1, -2)
+		n = n + 1
+		local kind = marker(line)
+		if kind then
+			table.insert(items, {
+				line = n, col = 1, end_col = runes(line) + 1, severity = "info", source = "symbiosis",
+				message = (kind == "!" and "change for pi" or "question for pi") .. " · ctrl+k d sends all markers",
+			})
+		end
+	end
+	diagnostics.publish(path, items)
+end
+
+local loaded = false    -- the editor API is usable only after the plugin loaded
+local refresh_timer = nil
+local function refresh_soon()
+	if not loaded then return end
+	if refresh_timer then ttt.clear_timeout(refresh_timer) end
+	refresh_timer = ttt.set_timeout(300, function()
+		refresh_timer = nil
+		local ok, err = pcall(refresh_markers)
+		if not ok then ttt.log("error", "symbiosis markers: " .. tostring(err)) end
+	end)
+end
+
+local sends = 0
+local function send_markers()
+	local path = editor.file_path()
+	-- pi reads the file from disk: save your changes first.
+	if path and path ~= "" then ttt.exec_command("file.save") end
+	sends = sends + 1
+	fs.write(REQUEST, json.encode({ id = os.time() .. "-" .. sends, path = path or "" }))
+	show("⇢ sending suggestions")
+end
+
+local function sent(ev)
+	if ev.count == 0 then
+		ttt.notify("symbiosis: no AI! or AI? markers found", "info")
+	else
+		local s = ev.count == 1 and "" or "s"
+		ttt.notify(string.format("symbiosis: %d suggestion%s sent to pi%s", ev.count, s, ev.busy and ", after the current turn" or ""), "info")
+	end
+	show()
+end
+
+-- Chat: pi runs in ttt's own terminal ----------------------------------------
+
+local function open_chat()
+	-- Docked right once; after that the panel stays where you put it.
+	if not fs.exists(DIR .. "/docked") then
+		ttt.exec_command("panel.dockRight")
+		fs.write(DIR .. "/docked", "right\n")
+	end
+	ttt.exec_command("focus.terminal")
+end
+
 local handlers = {
 	start = start,
 	text = text,
@@ -253,13 +349,18 @@ local handlers = {
 	abort = function(ev) ready(ev, false) end,
 	done = done,
 	stop = stop,
+	sent = sent,
 }
 
 -- The loop ------------------------------------------------------------------
 
 local function poll()
 	local raw = fs.read(HEAD)
-	if not raw then return end
+	-- No log when ttt starts: whatever comes later is new, not history.
+	if not raw then
+		if gen == nil then gen = "" end
+		return
+	end
 	local head = json.decode(raw)
 	if not head or not head.gen then return end
 	if head.gen ~= gen then
@@ -271,7 +372,7 @@ local function poll()
 	local log = fs.read(EVENTS)
 	if not log then return end
 	local chunk = log:sub(offset + 1)
-	for line in chunk:gmatch("[^\n]*\n") do
+	for line in lines(chunk) do
 		offset = offset + #line
 		local ok, ev = pcall(json.decode, line)
 		if ok and ev and handlers[ev.op] then
@@ -289,9 +390,13 @@ ttt.register({
 	commands = {
 		{ id = "symbiosis.togglePin", title = "symbiosis: Pin / Unpin the Editor", handler = toggle_pin },
 		{ id = "symbiosis.goToAgent", title = "symbiosis: Go to the Agent's Last Edit", handler = go },
+		{ id = "symbiosis.openChat", title = "symbiosis: Open the Agent Chat", handler = open_chat },
+		{ id = "symbiosis.sendMarkers", title = "symbiosis: Send AI!/AI? Markers to the Agent", handler = send_markers },
 	},
 	keybindings = {
 		{ key = "ctrl+k a", command = "symbiosis.togglePin" },
+		{ key = "ctrl+k h", command = "symbiosis.openChat" },
+		{ key = "ctrl+k d", command = "symbiosis.sendMarkers" },
 	},
 })
 
@@ -301,8 +406,15 @@ events.on("key.press", function(key)
 	return false
 end)
 
+events.on("file.open", refresh_soon)
+events.on("tab.change", refresh_soon)
+events.on("file.save", refresh_soon)
+events.on("editor.change", refresh_soon)
+
 -- fs.read and the status bar are not ready while the plugin loads.
 ttt.set_timeout(100, function()
+	loaded = true
+	refresh_soon()
 	show()
 	heartbeat()
 	ttt.set_interval(POLL_MS, poll)

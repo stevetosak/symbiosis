@@ -7,6 +7,7 @@
 //                 pi started the log again from empty.
 //   ttt.json      {t, pinned}: the plugin's heartbeat, every second.
 //   ack.json      [call ids]: the previews the plugin has undone.
+//   request.json  {id, path}: the plugin asks pi to send the AI!/AI? markers.
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChannelEvent } from './stream.ts';
@@ -68,6 +69,13 @@ export class Channel {
 	acked(call: string): boolean {
 		const acks = readJson<unknown[]>(join(this.dir, 'ack.json'));
 		return Array.isArray(acks) && acks.includes(call);
+	}
+
+	/** The last send request of the plugin, if any. */
+	request(): { id: string; path?: string } | undefined {
+		const r = readJson<{ id?: unknown; path?: unknown }>(join(this.dir, 'request.json'));
+		if (typeof r?.id !== 'string') return undefined;
+		return { id: r.id, path: typeof r.path === 'string' && r.path !== '' ? r.path : undefined };
 	}
 
 	/** Waits until the plugin has undone the preview of `call`, or the timeout passes. True when it did. */

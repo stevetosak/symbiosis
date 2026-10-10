@@ -4,8 +4,9 @@
 // One pi session at a time: the last writer wins. Without the plugin folder
 // (ttt or the plugin not installed) this extension writes nothing.
 import { existsSync, readFileSync } from 'node:fs';
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Channel } from './channel.ts';
+import { findMarkers, suggestionMessage } from './suggest.ts';
 import { absolutePath, adler32, type ChannelEvent, firstLine, pluginDir, type Tool, Tracker } from './stream.ts';
 
 /** At most one text write per call in this time: the plugin polls every 40 ms. */
@@ -26,6 +27,38 @@ export default function symbiosis(pi: ExtensionAPI) {
 	const channel = new Channel(pluginDir());
 	const live = new Map<string, Live>();
 	let last: { path: string; line: number } | undefined;
+	let session: ExtensionContext | undefined;
+	let lastRequest: string | undefined;
+	let poll: ReturnType<typeof setInterval> | undefined;
+
+	/** ctrl+k e in ttt: every AI!/AI? marker goes to the agent as one message. */
+	function checkRequest(): void {
+		if (!session || !channel.enabled()) return;
+		const request = channel.request();
+		if (!request || request.id === lastRequest) return;
+		lastRequest = request.id;
+		const markers = findMarkers(session.cwd, request.path ? [request.path] : []);
+		const busy = !session.isIdle();
+		channel.emit({ op: 'sent', count: markers.length, busy });
+		if (markers.length === 0) return;
+		const text = suggestionMessage(markers, session.cwd);
+		if (busy) pi.sendUserMessage(text, { deliverAs: 'followUp' });
+		else pi.sendUserMessage(text);
+	}
+
+	pi.on('session_start', (_event, ctx) => {
+		session = ctx;
+		// A request from before this session is old: do not send it again.
+		lastRequest = channel.enabled() ? channel.request()?.id : undefined;
+		clearInterval(poll);
+		poll = setInterval(checkRequest, 250);
+		poll.unref?.();
+	});
+
+	pi.on('session_shutdown', () => {
+		clearInterval(poll);
+		poll = undefined;
+	});
 
 	/** Sends what changed since the last flush, starting the call once its path is complete. */
 	function flush(entry: Live, cwd: string, final: boolean): void {

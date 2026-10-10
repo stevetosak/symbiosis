@@ -23,7 +23,9 @@ export type ChannelEvent =
 	/** The tool ran. `line` is the first changed line. */
 	| { op: 'done'; call: string; tool: Tool; path: string; line: number; ok: boolean }
 	/** The agent's turn ended; the editor goes to the last edit even when pinned. */
-	| { op: 'stop'; path: string; line: number };
+	| { op: 'stop'; path: string; line: number }
+	/** pi read a send request (ctrl+k e) and sent `count` markers to the agent. */
+	| { op: 'sent'; count: number; busy: boolean };
 
 export interface EditArg {
 	oldText?: unknown;
