@@ -14,6 +14,7 @@
 //   sessions/<id>.json  one Session per running pi, written every second.
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Step } from './plan.ts';
 import type { ChannelEvent } from './stream.ts';
 
 /** The log starts again from empty at the start of a turn once it is this big. */
@@ -41,6 +42,8 @@ export interface Session {
 	/** When the agent last started work. */
 	active: number;
 	working: boolean;
+	/** pi's plan, shown as the timeline. Empty when pi has not sent one. */
+	plan: Step[];
 }
 
 export class Channel {

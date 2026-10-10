@@ -101,8 +101,32 @@ Keys `ctrl+k e t i j o r u` belong to ttt; plugin chords that work are
 `a d g h n q v w x z`. A `local ready` flag once hid the `ready` handler:
 Lua locals shadow quietly.
 
+## Slice 3: the timeline
+
+The operator wants to see the flow of the work: what pi did, what it does
+now, what it does next. Not its thinking: a human cannot read that as fast as
+the model writes it.
+
+pi keeps the plan itself, with a tool of its own, `plan` (`pi/plan.ts`).
+Each call sends the whole list, `{steps: [{text, state: done|now|next}]}`.
+The tool only records it: the session record carries it to the plugin with
+the next heartbeat (at most 1 s). After `/reload` or a resume, the last
+`plan` result in the session branch comes back. Chosen over reading pi's
+`todo` list (no extra tokens, but pi makes one only when it wants to) and
+over a list built from tool calls (it has no "next").
+
+The plugin shows the owner's plan in the status bar, cut to about 56
+characters: done steps become a count, later next steps drop off as `+k`.
+`ctrl+k v` or a click opens a drawer with the whole list. The drawer takes
+the keys while it is open, so a plugin key cannot close it: Esc does, as in
+every ttt drawer. When the editor moved after the drawer opened (a stop),
+`ctrl+k v` gives the drawer the focus again.
+
 ## The cost
 
 Streaming: no model tokens, the extension reads what pi streams anyway.
 Suggestions: one user message per `ctrl+k d`, about 40 tokens plus ~20 per
 marker.
+Timeline: the `plan` tool is in every request, about 150 tokens (schema,
+one-line snippet, one guideline). Each call costs the steps it sends, about
+10 tokens a step, plus a one-line result.

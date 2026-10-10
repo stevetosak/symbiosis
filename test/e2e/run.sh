@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End to end against a headless ttt: a throw-away config with the plugin
 # installed and allowed, a throw-away workspace, the pi side driven by
-# drive.ts. Screenshots every 250 ms go to $OUT/shot-NN.txt, the editor state
+# drive.ts (HOLD_MS keeps the session alive at the end). Screenshots every 250 ms go to $OUT/shot-NN.txt, the editor state
 # to $OUT/debug.json. Usage: test/e2e/run.sh [out-dir]
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -13,7 +13,12 @@ echo "[{\"name\":\"symbiosis\",\"displayName\":\"symbiosis\",\"version\":\"0.1.0
 printf 'notes\n' > "$OUT/ws/notes.txt"
 
 steps="wait 1500"
-for i in $(seq -w 1 ${SHOTS:-40}); do steps="$steps; screenshot $OUT/shot-$i.txt; wait ${SHOT_MS:-250}"; done
+for i in $(seq -w 1 ${SHOTS:-40}); do
+	steps="$steps; screenshot $OUT/shot-$i.txt; wait ${SHOT_MS:-250}"
+	# PLAN_AT=N: open the plan drawer (ctrl+k v) after shot N; PLAN_CLOSE_AT: ctrl+k v (focus it again), then Esc.
+	if [ "$((10#$i))" = "${PLAN_AT:-0}" ]; then steps="$steps; key ctrl+k v; wait 300"; fi
+	if [ "$((10#$i))" = "${PLAN_CLOSE_AT:-0}" ]; then steps="$steps; key ctrl+k v; wait 300; key escape; wait 300"; fi
+done
 steps="$steps; debug $OUT/debug.json; quit"
 
 cd "$OUT/ws"

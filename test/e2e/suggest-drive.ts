@@ -7,6 +7,7 @@ const handlers = new Map<string, Handler[]>();
 const sent: string[] = [];
 const pi = {
 	on: (name: string, h: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), h]),
+	registerTool: () => {},
 	sendUserMessage: (text: string, options?: unknown) => sent.push(`${JSON.stringify(options ?? null)}\n${text}`),
 };
 symbiosis(pi as never);

@@ -12,7 +12,12 @@ const { parseStreamingJson } = (await import(parser)) as { parseStreamingJson: (
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 const handlers = new Map<string, Handler[]>();
-const pi = { on: (name: string, h: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), h]) };
+type Tool = { execute: (id: string, params: unknown) => Promise<unknown> };
+const tools = new Map<string, Tool>();
+const pi = {
+	on: (name: string, h: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), h]),
+	registerTool: (t: Tool & { name: string }) => tools.set(t.name, t),
+};
 symbiosis(pi as never);
 
 const ctx = { cwd: process.argv[2], isIdle: () => true };
@@ -55,10 +60,16 @@ const owner = () => {
 while (!owner() && Date.now() < owned) await sleep(100);
 console.log(`owner: ${owner() ?? 'none'}`);
 await fire('agent_start', {});
+/** The model calls the plan tool: here, straight to execute. */
+const plan = (...steps: [string, 'done' | 'now' | 'next'][]) => tools.get('plan')?.execute('p', { steps: steps.map(([text, state]) => ({ text, state })) });
+await plan(['Write the to-do store', 'now'], ['Add done() to the store', 'next'], ['Note that ids start at 1', 'next'], ['Run the tests', 'next'], ['Update the README', 'next']);
+await sleep(1200);
 await call('c1', 'write', { path: 'todo.ts', content: readFileSync(new URL('./todo-v1.ts', import.meta.url), 'utf-8') }, () => {
 	writeFileSync(a, readFileSync(new URL('./todo-v1.ts', import.meta.url), 'utf-8'));
 });
 await sleep(1500);
+await plan(['Write the to-do store', 'done'], ['Add done() to the store', 'now'], ['Note that ids start at 1', 'next'], ['Run the tests', 'next'], ['Update the README', 'next']);
+await sleep(1200);
 const edits = [
 	{ oldText: '\tlist(): Todo[] {\n\t\treturn [...this.todos];\n\t}', newText: '\tlist(): Todo[] {\n\t\treturn [...this.todos];\n\t}\n\n\tdone(id: number): Todo | undefined {\n\t\tconst todo = this.todos.find((t) => t.id === id);\n\t\tif (todo) todo.done = true;\n\t\treturn todo;\n\t}' },
 	{ oldText: '// A to-do list kept in memory.', newText: '// A to-do list kept in memory. Ids start at 1.' },
@@ -69,6 +80,9 @@ await call('c2', 'edit', { path: a, edits }, () => {
 	writeFileSync(a, text);
 	return { firstChangedLine: 1 };
 });
+await plan(['Write the to-do store', 'done'], ['Add done() to the store', 'done'], ['Note that ids start at 1', 'done'], ['Run the tests', 'now'], ['Update the README', 'next']);
+// Time for run.sh to open the plan drawer (ctrl+k v) and take a screenshot.
+await sleep(Number(process.env.HOLD_MS ?? 0));
 await fire('turn_end', {});
 await fire('agent_end', {});
 await sleep(300);

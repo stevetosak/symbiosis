@@ -37,11 +37,16 @@ allow the plugin's permissions.
 - Write a comment that ends in `AI!` (change this) or `AI?` (answer this),
   after a line, above a block, or at the top of a file. `ctrl+k d` sends all
   of them to that session in one message. pi deletes each marker when it is done.
+- Status bar `✓ 3 › ▶ Run the tests › Update the README +1`: pi's plan as a
+  timeline, done › now › next. pi sends it with its `plan` tool for a task
+  with several steps. `ctrl+k v` (or a click) shows the whole plan in a
+  drawer; Esc closes it.
 
 ## Test
 
 ```bash
 npm test          # unit tests
 npm run e2e       # a fake pi against a headless ttt; prints the output folder
+PLAN_AT=26 PLAN_CLOSE_AT=34 HOLD_MS=4000 npm run e2e   # also opens the plan drawer
 bash test/e2e/suggest.sh   # the same, for sessions and suggestions
 ```

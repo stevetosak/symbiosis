@@ -9,13 +9,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Channel, type PluginState, type Session } from './channel.ts';
+import { cleanSteps, PLAN_DESCRIPTION, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
 import { findMarkers, suggestionMessage } from './suggest.ts';
 import { absolutePath, adler32, type ChannelEvent, firstLine, pluginDir, type Tool, Tracker } from './stream.ts';
 
 /** At most one text write per call in this time: the plugin polls every 40 ms. */
 const FLUSH_MS = 40;
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 3;
+export const PROTOCOL = 4;
 
 interface Live {
 	tracker: Tracker;
@@ -47,7 +48,25 @@ export default function symbiosis(pi: ExtensionAPI) {
 		t: 0,
 		active: 0,
 		working: false,
+		plan: [],
 	};
+
+	// pi's plan, shown in ttt as the timeline. The tool only records it: the
+	// next heartbeat carries it to the plugin.
+	pi.registerTool({
+		name: 'plan',
+		label: 'Plan',
+		description: PLAN_DESCRIPTION,
+		promptSnippet: PLAN_SNIPPET,
+		promptGuidelines: PLAN_GUIDELINES,
+		// Plain JSON Schema: pi accepts it, and the extension needs no typebox.
+		parameters: PLAN_PARAMETERS as any,
+		async execute(_id: string, params: unknown) {
+			record.plan = cleanSteps(params);
+			beat();
+			return { content: [{ type: 'text' as const, text: planSummary(record.plan) }], details: { steps: record.plan } };
+		},
+	});
 
 	function beat(): void {
 		record.t = Date.now() / 1000;
@@ -97,6 +116,12 @@ export default function symbiosis(pi: ExtensionAPI) {
 		record.cwd = ctx.cwd;
 		record.name = basename(ctx.cwd);
 		record.active = Date.now() / 1000;
+		// After /reload or a resume: the last plan in this session comes back.
+		try {
+			record.plan = planFromBranch(ctx.sessionManager.getBranch()) ?? [];
+		} catch {
+			record.plan = [];
+		}
 		// A request from before this session is old: do not send it again.
 		lastRequest = channel.enabled() ? channel.request()?.id : undefined;
 		if (channel.enabled()) channel.pruneSessions();

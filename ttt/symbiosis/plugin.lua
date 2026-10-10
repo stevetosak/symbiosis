@@ -29,7 +29,8 @@ local DIR = ttt.plugin_dir()
 local HEAD, EVENTS, ACK, ALIVE = DIR .. "/head.json", DIR .. "/events.jsonl", DIR .. "/ack.json", DIR .. "/ttt.json"
 local REQUEST, SESSIONS = DIR .. "/request.json", DIR .. "/sessions"
 local POLL_MS = 40
-local PROTOCOL = 3     -- the channel protocol of pi/index.ts
+local PROTOCOL = 4     -- the channel protocol of pi/index.ts
+local PLAN_WIDTH = 56  -- the timeline in the status bar, in characters
 
 local gen, offset = nil, 0
 local pinned = false
@@ -41,7 +42,9 @@ local editing = false  -- true while this plugin changes the buffer
 local sessions = {}    -- the live pi sessions, by name
 local owner = nil      -- the session the editor follows
 local chosen = nil     -- the id you chose with ctrl+k n; nil = by the open file
-local toggle_pin, end_preview, heartbeat, go_session
+local plan_seen = nil  -- the plan as last shown, to redraw only on a change
+local drawer = nil     -- the plan drawer's panel, once opened: redrawn on a change
+local toggle_pin, end_preview, heartbeat, go_session, open_plan
 
 -- Positions -----------------------------------------------------------------
 
@@ -109,6 +112,95 @@ local function show_session()
 		if chosen then text = text .. " (chosen)" end
 	end
 	ttt.set_status_item("left", "symbiosis.session", text, { priority = 900, on_click = function() go_session() end })
+end
+
+-- The timeline -------------------------------------------------------------
+-- pi's plan (the `plan` tool, pi/plan.ts) comes in the owner's session record.
+
+local function plan_of(rec)
+	return rec and type(rec.plan) == "table" and rec.plan or {}
+end
+
+-- The first `n` characters of `s`, with "…" when cut.
+local function cut(s, n)
+	if runes(s) <= n then return s end
+	local out, count = {}, 0
+	for ch in s:gmatch("[^\128-\191][\128-\191]*") do
+		if count == n - 1 then break end
+		table.insert(out, ch)
+		count = count + 1
+	end
+	return table.concat(out) .. "…"
+end
+
+-- One line: "✓ 3 › ▶ now › next › next +2". Done steps are a count; "next"
+-- steps drop off at the right when the line is full.
+local function plan_line(steps)
+	if #steps == 0 then return nil end
+	local done, now, nexts = 0, nil, {}
+	for _, s in ipairs(steps) do
+		if s.state == "done" then done = done + 1
+		elseif s.state == "now" and not now then now = s.text
+		else table.insert(nexts, s.text) end
+	end
+	if not now and #nexts == 0 then return "✓ " .. done .. " done" end
+	local line = done > 0 and ("✓ " .. done) or ""
+	local function add(part)
+		line = line == "" and part or (line .. " › " .. part)
+	end
+	if now then add("▶ " .. cut(now, 28)) end
+	local shown = 0
+	for i, text in ipairs(nexts) do
+		local part = cut(text, 20)
+		local rest = #nexts - i
+		local room = PLAN_WIDTH - runes(line) - 3 - (rest > 0 and 3 or 0)
+		if shown > 0 and runes(part) > room then break end
+		add(part)
+		shown = shown + 1
+	end
+	if shown < #nexts then line = line .. " +" .. (#nexts - shown) end
+	return line
+end
+
+local function render_plan(panel)
+	drawer = panel
+	local steps = plan_of(owner)
+	panel:title({ text = "pi plan", badge = owner and owner.name or "no session" })
+	if #steps == 0 then
+		panel:label({ text = "No plan yet. pi sends one for a task with several steps.", style = "muted" })
+	end
+	for _, s in ipairs(steps) do
+		if s.state == "done" then
+			panel:label({ text = "✓ " .. s.text, style = "muted" })
+		elseif s.state == "now" then
+			panel:label({ text = "▶ " .. s.text, style = "bold" })
+		else
+			panel:label({ text = "· " .. s.text })
+		end
+	end
+	panel:label({ text = "Esc closes", style = "muted", margin_top = 1 })
+end
+
+-- Shows the owner's plan; only when it changed, so the drawer does not flicker.
+local function show_plan()
+	local steps = plan_of(owner)
+	local seen = (owner and owner.id or "") .. json.encode(steps)
+	if seen == plan_seen then return end
+	plan_seen = seen
+	local line = plan_line(steps)
+	if line then
+		ttt.set_status_item("left", "symbiosis.plan", line, { priority = 950, on_click = function() open_plan() end })
+	else
+		ttt.remove_status_item("symbiosis.plan")
+	end
+	if drawer then drawer:redraw() end
+end
+
+-- ctrl+k v, or a click on the timeline: the whole plan in a drawer. The
+-- drawer takes the keys while it is open, so Esc closes it (as every ttt
+-- drawer); a plugin key cannot reach it, and the editor cannot keep the focus.
+open_plan = function()
+	ttt.open_drawer({ width = 48, min_width = 30, side = "right", render = render_plan })
 end
 
 local function show(text)
@@ -335,6 +427,7 @@ local function refresh_sessions()
 	owner = pick()
 	if (owner and owner.id) ~= before then heartbeat() end
 	show_session()
+	show_plan()
 end
 
 -- ctrl+k n: the next session takes over; after the last one, back to "by the open file".
@@ -506,12 +599,14 @@ ttt.register({
 		{ id = "symbiosis.sendMarkers", title = "symbiosis: Send AI!/AI? Markers to the Agent", handler = send_markers },
 		{ id = "symbiosis.nextSession", title = "symbiosis: Next pi Session Takes Over", handler = next_session },
 		{ id = "symbiosis.goToSession", title = "symbiosis: Go to the pi Session (herdr)", handler = go_session },
+		{ id = "symbiosis.showPlan", title = "symbiosis: Show pi's Plan", handler = function() open_plan() end },
 	},
 	keybindings = {
 		{ key = "ctrl+k a", command = "symbiosis.togglePin" },
 		{ key = "ctrl+k d", command = "symbiosis.sendMarkers" },
 		{ key = "ctrl+k n", command = "symbiosis.nextSession" },
 		{ key = "ctrl+k g", command = "symbiosis.goToSession" },
+		{ key = "ctrl+k v", command = "symbiosis.showPlan" },
 	},
 })
 
