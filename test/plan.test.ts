@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cleanSteps, planFromBranch, planSummary } from '../pi/plan.ts';
+import { cleanSteps, planFromBranch, planSummary, prepareArguments } from '../pi/plan.ts';
 
 test('steps are trimmed, empty ones dropped, an unknown state is next', () => {
 	const steps = cleanSteps({ steps: [{ text: '  write   tests ', state: 'done' }, { text: ' ', state: 'now' }, { text: 'ship', state: 'later' }] });
@@ -43,4 +43,20 @@ test('the last plan in the branch comes back after a reload', () => {
 	];
 	assert.deepEqual(planFromBranch(branch), [{ text: 'new', state: 'now' }]);
 	assert.equal(planFromBranch([]), undefined);
+});
+
+test('arguments as models really send them become {steps}', () => {
+	const want = [
+		{ text: 'a', state: 'done' },
+		{ text: 'b', state: 'now' },
+		{ text: 'c', state: 'next' },
+	];
+	const prepared = (args: unknown) => prepareArguments(args).steps;
+	// Seen in a session: the array as a JSON string, with other field names.
+	assert.deepEqual(prepared({ steps: '[{"label": "a", "status": "done"}, {"label": "b", "status": "now"}, {"label": "c", "status": "next"}]' }), want);
+	assert.deepEqual(prepared({ steps: '["[done] a", "[now] b", "[next] c"]' }), want);
+	assert.deepEqual(prepared({ done: '["a"]', now: 'b', next: '["c"]' }), want);
+	assert.deepEqual(prepared({ steps: want }), want);
+	assert.deepEqual(prepared({ steps: [{ text: 'a', status: 'completed' }, { text: 'b', status: 'in_progress' }, { text: 'c', status: 'pending' }] }), want);
+	assert.deepEqual(prepared('not json'), []);
 });

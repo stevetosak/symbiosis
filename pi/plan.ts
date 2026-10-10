@@ -40,6 +40,55 @@ export const PLAN_GUIDELINES = [
 	'For a task with two or more steps, call plan when you start and each time a step is done. Labels are short (at most 8 words). While you work, exactly one step is now.',
 ];
 
+/** A JSON string becomes its value; anything else stays as it is. */
+function unstring(value: unknown): unknown {
+	if (typeof value !== 'string') return value;
+	const t = value.trim();
+	if (!t.startsWith('[') && !t.startsWith('{')) return value;
+	try {
+		return JSON.parse(t);
+	} catch {
+		return value;
+	}
+}
+
+const STATES: Record<string, StepState> = { done: 'done', now: 'now', next: 'next', completed: 'done', in_progress: 'now', current: 'now', pending: 'next', todo: 'next' };
+
+/** One step from what a model sends: `{text, state}`, `{label, status}`, or "[done] text". */
+function toStep(item: unknown, state?: StepState): { text: unknown; state: unknown } {
+	const value = unstring(item);
+	if (typeof value === 'string') {
+		const m = value.match(/^\s*\[?(done|now|next|completed|in_progress|current|pending|todo)\]?\s*[:\-]?\s+(.*)$/i);
+		if (m) return { text: m[2], state: state ?? STATES[m[1].toLowerCase()] };
+		return { text: value, state: state ?? 'next' };
+	}
+	const o = (value ?? {}) as Record<string, unknown>;
+	const raw = o.state ?? o.status;
+	return {
+		text: o.text ?? o.label ?? o.title ?? o.step ?? o.content,
+		state: state ?? (typeof raw === 'string' ? (STATES[raw.toLowerCase()] ?? raw) : raw),
+	};
+}
+
+/**
+ * Runs before pi validates the arguments. A model that meets this tool in the
+ * middle of a conversation (added by /reload) has sent the array as a JSON
+ * string, and has guessed other field names ({done, now, next}, {label,
+ * status}, "[done] text"). All of these become `{steps}`.
+ */
+export function prepareArguments(args: unknown): { steps: Step[] } {
+	const a = (unstring(args) ?? {}) as Record<string, unknown>;
+	const steps = unstring(a.steps);
+	if (Array.isArray(steps)) return { steps: cleanSteps({ steps: steps.map((s) => toStep(s)) }) };
+	const out: { text: unknown; state: unknown }[] = [];
+	for (const state of ['done', 'now', 'next'] as const) {
+		const v = unstring(a[state]);
+		for (const item of Array.isArray(v) ? v : v === undefined ? [] : [v]) out.push(toStep(item, state));
+	}
+	// Clean here: pi validates what this returns, so it must match the schema.
+	return { steps: cleanSteps({ steps: out }) };
+}
+
 /** The steps as given, made safe: trimmed, cut, at most one `now` (later ones become `next`). */
 export function cleanSteps(input: unknown): Step[] {
 	const raw = (input as { steps?: unknown })?.steps;

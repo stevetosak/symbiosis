@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Channel, type PluginState, type Session } from './channel.ts';
-import { cleanSteps, PLAN_DESCRIPTION, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
+import { cleanSteps, PLAN_DESCRIPTION, prepareArguments, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
 import { findMarkers, suggestionMessage } from './suggest.ts';
 import { absolutePath, adler32, type ChannelEvent, firstLine, pluginDir, type Tool, Tracker } from './stream.ts';
 
@@ -61,6 +61,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		promptGuidelines: PLAN_GUIDELINES,
 		// Plain JSON Schema: pi accepts it, and the extension needs no typebox.
 		parameters: PLAN_PARAMETERS as any,
+		prepareArguments,
 		async execute(_id: string, params: unknown) {
 			record.plan = cleanSteps(params);
 			beat();
