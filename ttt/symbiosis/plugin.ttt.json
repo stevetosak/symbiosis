@@ -1,0 +1,17 @@
+{
+  "name": "symbiosis",
+  "displayName": "symbiosis",
+  "description": "The pi coding agent writes into this editor: each write and edit types itself into the buffer while the model writes it, then the editor follows the result. ctrl+k a pins the editor.",
+  "version": "0.1.0",
+  "author": "stevetosak",
+  "entry": "plugin.lua",
+  "api": 1,
+  "permissions": {
+    "editor.read": true,
+    "editor.write": true,
+    "fs.read": true,
+    "fs.write": true,
+    "commands": true,
+    "keybindings": true
+  }
+}

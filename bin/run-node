@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Runs a .ts file with the Node major in .nvmrc. Hooks and git hooks start in
+# whatever shell Claude Code or git gives them, where `node` is the nvm default
+# (20 on the laptop) and cannot strip TypeScript types.
+set -euo pipefail
+
+repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+want=$(tr -dc '0-9' < "$repo/.nvmrc")
+
+if command -v node > /dev/null && [[ "$(node -p 'process.versions.node.split(".")[0]')" == "$want" ]]; then
+	exec node "$@"
+fi
+newest=$(compgen -G "${NVM_DIR:-$HOME/.nvm}/versions/node/v$want.*" | sort -V | tail -n 1 || true)
+if [[ -z "$newest" ]]; then
+	echo "run-node: Node $want (from .nvmrc) is not installed; try: nvm install $want" >&2
+	exit 1
+fi
+exec "$newest/bin/node" "$@"
