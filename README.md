@@ -32,7 +32,8 @@ allow the plugin's permissions.
 - Press a key in the buffer during a preview: the preview stops, the buffer
   is yours.
 - Status bar `π symbiosis ● working`: the pi session the editor follows, by
-  the folder of the open file. Click it or `ctrl+k g` to go to its herdr
+  the open file: the session that wrote it, else the one whose folder holds
+  it, else the most recent one. Click it or `ctrl+k g` to go to its herdr
   pane. `ctrl+k n`: the next session takes over (then back to automatic).
 - Write a comment that ends in `AI!` (change this) or `AI?` (answer this),
   after a line, above a block, or at the top of a file. `ctrl+k d` sends all

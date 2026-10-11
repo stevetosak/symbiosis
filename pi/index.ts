@@ -17,7 +17,9 @@ import { absolutePath, adler32, type ChannelEvent, firstLine, pluginDir, type To
 /** At most one text write per call in this time: the plugin polls every 40 ms. */
 const FLUSH_MS = 40;
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 4;
+export const PROTOCOL = 5;
+/** The files a session record lists as written by it. */
+const MAX_FILES = 20;
 
 interface Live {
 	tracker: Tracker;
@@ -54,7 +56,16 @@ export default function symbiosis(pi: ExtensionAPI) {
 		active: 0,
 		working: false,
 		plan: [],
+		files: [],
 	};
+
+	/** pi writes `path`: the editor follows this session for it. Beats at once,
+	 * so the session record has the file before the editor opens it. */
+	function wrote(path: string): void {
+		if (record.files[record.files.length - 1] === path) return;
+		record.files = [...record.files.filter((p) => p !== path), path].slice(-MAX_FILES);
+		beat();
+	}
 
 	// pi's plan, shown in ttt as the timeline. The tool only records it: the
 	// next heartbeat carries it to the plugin.
@@ -158,6 +169,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 			if (!path) return;
 			t.path = absolutePath(path, cwd);
 			t.started = true;
+			wrote(t.path);
 			events.push({ op: 'start', call: t.id, tool: t.tool, path: t.path, sum: existsSync(t.path) ? adler32(readFileSync(t.path)) : null });
 		}
 		events.push(...t.update(entry.args, final));
@@ -229,6 +241,8 @@ export default function symbiosis(pi: ExtensionAPI) {
 	// and ttt reloads it.
 	pi.on('tool_call', async (event, ctx) => {
 		if (!isTool(event.toolName) || !channel.enabled()) return undefined;
+		const target = (event.input as { path?: unknown })?.path;
+		if (typeof target === 'string' && target !== '') wrote(absolutePath(target, ctx.cwd));
 		keepBefore(event.input, ctx.cwd);
 		const entry = live.get(event.toolCallId);
 		if (!entry) return undefined;

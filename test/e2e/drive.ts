@@ -2,10 +2,11 @@
 // arguments arrive in small JSON chunks, parsed by pi's own partial parser.
 // The real tool step is played here too (write the file, then tool_result).
 // Used by test/e2e/run.sh against a headless ttt. Needs TTT_CONFIG_DIR.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import symbiosis from '../../pi/index.ts';
+import { pluginDir } from '../../pi/stream.ts';
 
 const parser = join(homedir(), '.pi/agent/install/releases/1.1.0/node_modules/@earendil-works/pi-ai/dist/utils/json-parse.js');
 const { parseStreamingJson } = (await import(parser)) as { parseStreamingJson: (s: string) => Record<string, unknown> };
@@ -86,5 +87,10 @@ await sleep(Number(process.env.HOLD_MS ?? 0));
 await fire('turn_end', {});
 await fire('agent_end', {});
 await sleep(300);
+// The session record lists the files pi wrote: the editor follows it for them.
+const records = readdirSync(join(pluginDir(), 'sessions')).filter((f) => f.endsWith('.json'));
+const files: string[] = JSON.parse(readFileSync(join(pluginDir(), 'sessions', records[0]), 'utf-8')).files;
+if (files.length === 0) throw new Error('drive: the session record lists no files');
+console.log(`drive: session wrote ${files.map((f) => f.slice(f.lastIndexOf('/') + 1)).join(', ')}`);
 await fire('session_shutdown', {});
 console.log('drive: done');

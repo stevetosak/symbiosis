@@ -44,6 +44,9 @@ export interface Session {
 	working: boolean;
 	/** pi's plan, shown as the timeline. Empty when pi has not sent one. */
 	plan: Step[];
+	/** The files this session wrote or edited, the last one last. The editor
+	 * follows the session that wrote the open file. */
+	files: string[];
 }
 
 export class Channel {

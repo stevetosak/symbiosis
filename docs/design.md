@@ -66,9 +66,15 @@ ttt was tried and dropped: it took space from the code.) Each pi writes
 
 1. the session you chose with `ctrl+k n` (it cycles through the sessions, then
    back to automatic);
-2. else the session whose folder holds the open file: the deepest folder, then
+2. else the session that wrote or edited the open file (each session record
+   lists its last 20 files; pi adds a file when it starts to write it, before
+   the editor opens it), the most recent;
+3. else the session whose folder holds the open file: the deepest folder, then
    the most recent;
-3. else, with no file open, the most recent session.
+4. else the most recent session, with `(outside its folder)` in the status
+   bar. The editor and the agent stay coupled: there is no "none" while a
+   session runs. (Before, a file outside every folder gave "none for this
+   file", also a file pi itself had just written in `/tmp`.)
 
 Only the owner writes events and gets the markers. The status bar shows it:
 `π symbiosis ● working`, `π none`, or `π tosak-docs · old, /reload` for an

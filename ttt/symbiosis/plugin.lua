@@ -29,7 +29,7 @@ local DIR = ttt.plugin_dir()
 local HEAD, EVENTS, ACK, ALIVE = DIR .. "/head.json", DIR .. "/events.jsonl", DIR .. "/ack.json", DIR .. "/ttt.json"
 local REQUEST, SESSIONS, CHANGES = DIR .. "/request.json", DIR .. "/sessions", DIR .. "/changes"
 local POLL_MS = 40
-local PROTOCOL = 4     -- the channel protocol of pi/index.ts
+local PROTOCOL = 5     -- the channel protocol of pi/index.ts
 local PLAN_WIDTH = 56  -- the timeline in the status bar, in characters
 
 local gen, offset = nil, 0
@@ -42,6 +42,7 @@ local editing = false  -- true while this plugin changes the buffer
 local sessions = {}    -- the live pi sessions, by name
 local owner = nil      -- the session the editor follows
 local chosen = nil     -- the id you chose with ctrl+k n; nil = by the open file
+local outside = false  -- the owner is only the most recent session, not this file's
 local plan_seen = nil  -- the plan as last shown, to redraw only on a change
 local drawer = nil     -- the plan drawer's panel, once opened: redrawn on a change
 local toggle_pin, end_preview, heartbeat, go_session, open_plan
@@ -105,11 +106,12 @@ local function name(path) return path:match("[^/]+$") or path end
 local function show_session()
 	local text
 	if not owner then
-		text = #sessions == 0 and "π none" or "π none for this file"
+		text = "π none"
 	else
 		text = "π " .. owner.name .. (owner.working and " ● working" or " ○ idle")
 		if owner.version ~= PROTOCOL then text = "π " .. owner.name .. " · old, /reload" end
-		if chosen then text = text .. " (chosen)" end
+		if chosen then text = text .. " (chosen)"
+		elseif outside then text = text .. " (outside its folder)" end
 	end
 	ttt.set_status_item("left", "symbiosis.session", text, { priority = 900, on_click = function() go_session() end })
 end
@@ -402,23 +404,41 @@ local function load_sessions()
 	return list
 end
 
--- The session the editor follows: the one you chose, else the one whose folder
--- holds the open file (the deepest folder, then the most recent), else, with
--- no file open, the most recent one.
+local function wrote(rec, path)
+	if type(rec.files) ~= "table" then return false end
+	for _, p in ipairs(rec.files) do
+		if p == path then return true end
+	end
+	return false
+end
+
+-- The session the editor follows, for the open file:
+--   1. the one you chose (ctrl+k n);
+--   2. else the one that wrote or edited the file, the most recent;
+--   3. else the one whose folder holds the file, the deepest folder, then the
+--      most recent;
+--   4. else the most recent one: the editor stays with the agent. `outside`
+--      is then set, for the status bar.
 local function pick()
+	outside = false
 	for _, rec in ipairs(sessions) do
 		if rec.id == chosen then return rec end
 	end
 	chosen = nil
 	local path = editor.file_path() or ""
-	local best = nil
+	local writer, best, latest = nil, nil, nil
 	for _, rec in ipairs(sessions) do
-		local fits = path == "" or starts_with(path, rec.cwd .. "/")
-		if fits and (not best or #rec.cwd > #best.cwd or (#rec.cwd == #best.cwd and (rec.active or 0) > (best.active or 0))) then
+		local active = rec.active or 0
+		if not latest or active > (latest.active or 0) then latest = rec end
+		if path ~= "" and wrote(rec, path) and (not writer or active > (writer.active or 0)) then writer = rec end
+		if path ~= "" and starts_with(path, rec.cwd .. "/")
+			and (not best or #rec.cwd > #best.cwd or (#rec.cwd == #best.cwd and active > (best.active or 0))) then
 			best = rec
 		end
 	end
-	return best
+	if writer or best then return writer or best end
+	outside = latest ~= nil and path ~= ""
+	return latest
 end
 
 local function refresh_sessions()
@@ -454,7 +474,7 @@ end
 -- ctrl+k g, or a click on "π ...": go to the owner's pane in herdr.
 go_session = function()
 	if not owner then
-		return ttt.notify("symbiosis: no pi session for this file (ctrl+k n chooses one)", "warning")
+		return ttt.notify("symbiosis: no pi session is running", "warning")
 	end
 	if not owner.pane then
 		return ttt.notify("symbiosis: pi " .. owner.name .. " does not run in herdr", "warning")
@@ -562,7 +582,7 @@ local waiting = nil   -- the timer that says pi did not answer
 local function send_markers()
 	refresh_sessions()
 	if not owner then
-		return ttt.notify("symbiosis: no pi session for this file. Start pi in its folder, or choose one with ctrl+k n", "warning")
+		return ttt.notify("symbiosis: no pi session is running", "warning")
 	end
 	if owner.version ~= PROTOCOL then
 		return ttt.notify("symbiosis: pi " .. owner.name .. " runs an old symbiosis: /reload it", "warning")
