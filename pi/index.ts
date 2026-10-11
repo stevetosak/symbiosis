@@ -12,6 +12,7 @@ import { Changes } from './changes.ts';
 import { Channel, type PluginState, type Session } from './channel.ts';
 import { cleanSteps, PLAN_DESCRIPTION, prepareArguments, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
 import { askMessage, HELP_SYSTEM, type HelpRequest, helpPrompt, lastAssistantText, parseAnswer } from './help.ts';
+import { syncTttPlugin } from './setup.ts';
 import { absolutePath, adler32, BEFORE_MAX, type ChannelEvent, firstLine, pluginDir, type Tool, Tracker } from './stream.ts';
 
 /** At most one text write per call in this time: the plugin polls every 40 ms. */
@@ -212,6 +213,16 @@ export default function symbiosis(pi: ExtensionAPI) {
 
 	pi.on('session_start', (_event, ctx) => {
 		session = ctx;
+		// The ttt plugin travels in this package: bring ttt's copy up to date.
+		try {
+			const synced = syncTttPlugin();
+			if (synced && ctx.hasUI) {
+				const how = synced.state === 'create' ? 'start ttt again and allow its permissions' : 'run "Plugins: Reload" in ttt';
+				ctx.ui.notify(`symbiosis: ${synced.state === 'create' ? 'installed' : 'updated'} the ttt plugin; ${how}`, 'info');
+			}
+		} catch (error) {
+			if (ctx.hasUI) ctx.ui.notify(`symbiosis: could not copy the ttt plugin: ${error instanceof Error ? error.message : String(error)}`, 'warning');
+		}
 		record.cwd = ctx.cwd;
 		record.name = basename(ctx.cwd);
 		record.active = Date.now() / 1000;

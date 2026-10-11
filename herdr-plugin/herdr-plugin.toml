@@ -1,0 +1,18 @@
+id = "symbiosis"
+name = "symbiosis"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "The pi coding agent works inside the ttt editor: you watch every write as it happens"
+platforms = ["linux", "macos"]
+
+# Once, at install and update: ttt and pi if missing, the pi package, the ttt plugin.
+[[build]]
+command = ["sh", "scripts/build.sh"]
+platforms = ["linux", "macos"]
+
+# A new tab in the workspace folder: ttt on the left, pi on the right.
+[[actions]]
+id = "open"
+title = "Open symbiosis"
+contexts = ["workspace"]
+command = ["sh", "scripts/open.sh"]
