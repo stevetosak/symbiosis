@@ -1367,6 +1367,7 @@ end
 
 local KEYS = {
 	{ key = "ctrl+k h", value = "this panel" },
+	{ key = "ctrl+k q", value = "prompt pi (under symbiosis)" },
 	{ key = "ctrl+k a", value = "pin / unpin the editor" },
 	{ key = "ctrl+k - / =", value = "preview slower / faster" },
 	{ key = "ctrl+k space", value = "pause the replay" },
@@ -1434,6 +1435,157 @@ local function open_help()
 	ttt.open_drawer({ width = 52, min_width = 36, side = "right", render = render_help })
 end
 
+-- The backend ---------------------------------------------------------------
+-- Under the `symbiosis` command, pi runs behind ttt in RPC mode (launcher/).
+-- SYMBIOSIS_BACKEND names the bridge's folder: backends/<id>/ui.json is the
+-- launcher's (pi's state, the dialog pi waits on, pi's notices), and
+-- backends/<id>/ttt.json is ours (your prompts, your answers). Each has an
+-- id; the launcher acts on an id once. pi's dialogs (a guard's "Allow?")
+-- open in ttt's command line: pi waits until you answer.
+
+local BACKEND = nil -- the bridge folder; nil when ttt runs on its own
+local back = {
+	prompts = {}, answers = {}, -- what we sent, the last 20 of each
+	shown = nil,                -- the id of the dialog in the command line
+	answered = {},              -- dialog ids answered, until the launcher drops them
+	noticed = {},               -- notice ids shown
+	state = nil,                -- pi: "starting", "ready", "exited"; nil = no launcher
+	working = false,
+	n = 0,
+}
+
+local function back_id()
+	back.n = back.n + 1
+	return tostring(os.time()) .. "-" .. back.n
+end
+
+local function back_write()
+	local function last(list)
+		while #list > 20 do table.remove(list, 1) end
+		return list
+	end
+	fs.write(BACKEND .. "/ttt.json", json.encode({ prompts = last(back.prompts), answers = last(back.answers) }))
+end
+
+local function back_answer(id, fields)
+	fields.id = id
+	table.insert(back.answers, fields)
+	back.answered[id] = true
+	if back.shown == id then back.shown = nil end
+	back_write()
+end
+
+local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
+
+-- The dialog's question, on one line.
+local function dialog_head(d)
+	local text = "pi: " .. (d.title or "pi asks")
+	if d.message and d.message ~= "" then text = text .. " " .. d.message:gsub("%s*\n%s*", " ") end
+	return text
+end
+
+local show_dialog -- forward: a wrong answer shows the dialog again
+
+show_dialog = function(d)
+	local function cancel() back_answer(d.id, { cancelled = true }) end
+	local config = { on_cancel = cancel }
+	if d.method == "confirm" then
+		config.prefix = dialog_head(d) .. "  y/n: "
+		config.on_key = function(ev)
+			local r = tostring(ev.rune or ""):lower()
+			if r == "y" or r == "n" then
+				ttt.command_line.hide()
+				back_answer(d.id, { confirmed = r == "y" })
+				return true
+			end
+			return false
+		end
+		config.on_submit = function(text)
+			local t = trim(text):lower()
+			if t == "y" or t == "yes" then back_answer(d.id, { confirmed = true })
+			elseif t == "n" or t == "no" then back_answer(d.id, { confirmed = false })
+			else show_dialog(d) end
+		end
+	elseif d.method == "select" then
+		local options = d.options or {}
+		local parts = {}
+		for i, o in ipairs(options) do table.insert(parts, i .. " " .. o) end
+		config.prefix = dialog_head(d) .. "  " .. table.concat(parts, " · ") .. "  number: "
+		config.on_key = function(ev)
+			local i = tonumber(ev.rune or "")
+			if #options <= 9 and i and options[i] then
+				ttt.command_line.hide()
+				back_answer(d.id, { value = options[i] })
+				return true
+			end
+			return false
+		end
+		config.on_submit = function(text)
+			local t = trim(text)
+			local pick = options[tonumber(t) or 0]
+			for _, o in ipairs(options) do if o == t then pick = o end end
+			if pick then back_answer(d.id, { value = pick }) else show_dialog(d) end
+		end
+	else
+		-- input and editor: one line here; a line break shows as ⏎.
+		config.prefix = dialog_head(d) .. (d.placeholder and (" (" .. d.placeholder .. ")") or "") .. ": "
+		config.text = (d.prefill or ""):gsub("\n", " ⏎ ")
+		config.on_submit = function(text)
+			back_answer(d.id, { value = (text:gsub(" ?⏎ ?", "\n")) })
+		end
+	end
+	ttt.command_line.show(config)
+	-- show() does nothing while another overlay is up: try again on the next poll.
+	if ttt.command_line.active() then back.shown = d.id end
+end
+
+local function poll_backend()
+	if not BACKEND then return end
+	local raw = fs.read(BACKEND .. "/ui.json")
+	local ok, ui = pcall(json.decode, raw or "")
+	if not raw or not ok or type(ui) ~= "table" then
+		back.state = nil
+		return
+	end
+	back.state = ui.pi
+	back.working = ui.working == true
+	local last_notice = nil
+	for _, n in ipairs(ui.notices or {}) do
+		if not back.noticed[n.id] then
+			back.noticed[n.id] = true
+			last_notice = n
+		end
+	end
+	if last_notice then ttt.notify("pi: " .. last_notice.text, last_notice.level) end
+	local d = type(ui.dialog) == "table" and ui.dialog or nil
+	if back.shown and (not d or d.id ~= back.shown) then
+		-- pi stopped waiting (its timeout), or the dialog was answered.
+		if ttt.command_line.active() then ttt.command_line.hide() end
+		back.shown = nil
+	end
+	if d and not back.shown and not back.answered[d.id] then show_dialog(d) end
+end
+
+-- ctrl+k q: a prompt for the pi behind ttt (a one-line stand-in for the chat panel).
+local function prompt_pi()
+	if not BACKEND then
+		ttt.notify("symbiosis: no pi behind this ttt; start it with the symbiosis command", "warning")
+		return
+	end
+	if back.state ~= "ready" then
+		ttt.notify("symbiosis: pi is " .. (back.state or "not running"), "warning")
+		return
+	end
+	ttt.command_line.show({
+		prefix = back.working and "pi (working; waits) › " or "pi › ",
+		on_submit = function(text)
+			if trim(text) == "" then return end
+			table.insert(back.prompts, { id = back_id(), text = text })
+			back_write()
+		end,
+	})
+end
+
 ttt.register({
 	sidebar = { title = "pi files", render = render_tree },
 	commands = {
@@ -1448,6 +1600,7 @@ ttt.register({
 		{ id = "symbiosis.pause", title = "symbiosis: Pause / Go On (pi waits)", handler = toggle_pause },
 		{ id = "symbiosis.rush", title = "symbiosis: Show the Rest of the Preview Now", handler = rush_now },
 		{ id = "symbiosis.help", title = "symbiosis: Settings, Sessions and Keys", handler = open_help },
+		{ id = "symbiosis.prompt", title = "symbiosis: Prompt the pi Behind ttt", handler = prompt_pi },
 	},
 	keybindings = {
 		{ key = "ctrl+k a", command = "symbiosis.togglePin" },
@@ -1460,6 +1613,7 @@ ttt.register({
 		{ key = "ctrl+k space", command = "symbiosis.pause" },
 		{ key = "ctrl+k .", command = "symbiosis.rush" },
 		{ key = "ctrl+k h", command = "symbiosis.help" },
+		{ key = "ctrl+k q", command = "symbiosis.prompt" },
 	},
 })
 
@@ -1520,6 +1674,8 @@ events.on("editor.change", function() help_soon() end)
 -- fs.read and the status bar are not ready while the plugin loads.
 ttt.set_timeout(100, function()
 	loaded = true
+	local fine, id = pcall(system.env, "SYMBIOSIS_BACKEND")
+	if fine and id and id ~= "" and id:match("^[%w%-]+$") then BACKEND = DIR .. "/backends/" .. id end
 	load_settings()
 	refresh_sessions()
 	show()
@@ -1528,6 +1684,10 @@ ttt.set_timeout(100, function()
 		ticks = ticks + 1
 		poll()
 		pace()
+		if ticks % 3 == 0 then
+			local ok, err = pcall(poll_backend)
+			if not ok then ttt.log("error", "symbiosis backend: " .. tostring(err)) end
+		end
 		local fine, err = pcall(spin_loader)
 		if not fine then editing = false ttt.log("error", "symbiosis helpi! spinner: " .. tostring(err)) end
 	end)

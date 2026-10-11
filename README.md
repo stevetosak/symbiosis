@@ -72,6 +72,21 @@ loads the code from the checkout, copies the ttt plugin, and removes the link
 `~/.pi/agent/extensions/symbiosis` that older versions made (with it, pi would
 load the extension twice). `/reload` in pi after a change.
 
+## The symbiosis command (in progress)
+
+`bin/symbiosis [folder]` opens ttt in the whole pane, with pi working behind
+it in RPC mode (`docs/plan-app.md`). The folder is the git root, else this
+folder. `-c` continues pi's last session there, `--new` opens a second one,
+`-- <args>` go to pi. Config: `~/.config/symbiosis/config.json`
+`{"open": "here" | "tab", "piArgs": [...]}`. When ttt quits, pi stops.
+
+- `ctrl+k q`: a prompt for the pi behind ttt (a one-line stand-in until the
+  chat panel comes).
+- pi's questions (a guard's "Allow this one call?", a select, an input) open
+  in ttt's command line: `y`/`n`, an option's number, or a typed line. Esc
+  cancels. pi waits for your answer.
+- pi's notices show in ttt's status bar.
+
 ## Use
 
 - `ctrl+k h`: the symbiosis panel. Settings you change in place (Enter
@@ -143,5 +158,6 @@ bash test/e2e/help.sh      # helpi!: code, note, ask, Esc; only the session the 
 bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the workspace tests must pass
 bash test/e2e/lag.sh       # the replay behind pi (LAG=-1, SPEED=80); typing waits; buffer = disk at the end
 bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel shows a file outside the folder
+bash test/e2e/app.sh       # the symbiosis command with a fake RPC pi: prompts, dialogs in the command line, pi stops with ttt
 sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi): with and without herdr
 ```

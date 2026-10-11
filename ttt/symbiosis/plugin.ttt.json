@@ -1,8 +1,8 @@
 {
   "name": "symbiosis",
   "displayName": "symbiosis",
-  "description": "The pi coding agent works in this editor: each write and edit types itself into the buffer while the model writes it, then the editor follows the result. The status bar shows the pi session the editor follows. ctrl+k a pins the editor, ctrl+k n lets the next session take over, ctrl+k g goes to the session's herdr pane. The status bar also shows pi's plan as a timeline (done › now › next); ctrl+k v shows the whole plan. ctrl+k w shows what pi changed in the open file in its last turn, as a diff. The \"pi files\" panel in the sidebar shows the files each pi session changed, by its folder, at any path; ttt's file tree opens to the file pi changes. A comment that ends in helpi! asks that session at once: its answer (a note, or the code for that place) is written there.",
-  "version": "0.11.1",
+  "description": "The pi coding agent works in this editor: each write and edit types itself into the buffer while the model writes it, then the editor follows the result. The status bar shows the pi session the editor follows. ctrl+k a pins the editor, ctrl+k n lets the next session take over, ctrl+k g goes to the session's herdr pane. The status bar also shows pi's plan as a timeline (done › now › next); ctrl+k v shows the whole plan. ctrl+k w shows what pi changed in the open file in its last turn, as a diff. The \"pi files\" panel in the sidebar shows the files each pi session changed, by its folder, at any path; ttt's file tree opens to the file pi changes. A comment that ends in helpi! asks that session at once: its answer (a note, or the code for that place) is written there. Under the symbiosis command, pi runs behind ttt: ctrl+k q sends it a prompt, and its questions (a guard's \"Allow?\") open in the command line.",
+  "version": "0.12.0",
   "author": "stevetosak",
   "entry": "plugin.lua",
   "api": 1,
@@ -19,6 +19,7 @@
     "system.exec": [
       "herdr"
     ],
-    "panel.sidebar": true
+    "panel.sidebar": true,
+    "system.env": true
   }
 }
