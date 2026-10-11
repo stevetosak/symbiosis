@@ -4,6 +4,15 @@
 	"private": true,
 	"license": "MIT",
 	"description": "The pi coding agent works inside the ttt editor: you watch every write as it happens.",
+	"keywords": [
+		"pi-package",
+		"ttt",
+		"herdr"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/stevetosak/symbiosis.git"
+	},
 	"type": "module",
 	"scripts": {
 		"test": "bin/run-node --test 'test/**/*.test.ts'",
@@ -13,5 +22,13 @@
 	},
 	"engines": {
 		"node": ">=24"
+	},
+	"pi": {
+		"extensions": [
+			"./pi/index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
 	}
 }

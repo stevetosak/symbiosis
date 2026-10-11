@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFil
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { planPiLink, planTttPlugin } from '../install.ts';
+import { hasPackage, planOldLink, planTttPlugin } from '../install.ts';
+import { syncTttPlugin } from '../pi/setup.ts';
 import { Channel } from '../pi/channel.ts';
 
 const temp = () => mkdtempSync(join(tmpdir(), 'symbiosis-'));
@@ -116,17 +117,40 @@ test('pi waits only while more changes than the limit are not shown', async () =
 	assert.ok(Date.now() - t >= 150);
 });
 
-test('install links the extension once and leaves a foreign path alone', () => {
+test('install removes only its own old link', () => {
 	const ext = join(temp(), 'extensions');
-	const first = planPiLink(ext, '/repo/pi');
-	assert.equal(first.state, 'create');
-	first.run?.();
-	assert.equal(planPiLink(ext, '/repo/pi').state, 'ok');
-	assert.equal(planPiLink(ext, '/other/pi').state, 'skip');
-	const other = join(temp(), 'extensions');
-	mkdirSync(other);
-	symlinkSync('/somewhere', join(other, 'symbiosis'));
-	assert.equal(planPiLink(other, '/repo/pi').state, 'skip');
+	mkdirSync(ext);
+	assert.equal(planOldLink(ext, '/repo').state, 'ok');
+	symlinkSync('/repo/pi', join(ext, 'symbiosis'));
+	const old = planOldLink(ext, '/repo');
+	assert.equal(old.state, 'remove');
+	old.run?.();
+	assert.equal(planOldLink(ext, '/repo').state, 'ok');
+	symlinkSync('/somewhere', join(ext, 'symbiosis'));
+	assert.equal(planOldLink(ext, '/repo').state, 'skip');
+});
+
+test('install finds the pi package by path or GitHub URL', () => {
+	assert.equal(hasPackage({ packages: ['npm:x', '/repo'] }, '/repo'), true);
+	assert.equal(hasPackage({ packages: [{ source: 'git:github.com/stevetosak/symbiosis@v1' }] }, '/repo'), true);
+	assert.equal(hasPackage({ packages: ['https://github.com/stevetosak/symbiosis'] }, '/repo'), true);
+	assert.equal(hasPackage({ packages: ['npm:symbiosis-other'] }, '/repo'), false);
+	assert.equal(hasPackage({}, '/repo'), false);
+	// As pi writes it: relative to ~/.pi/agent.
+	assert.equal(hasPackage({ packages: ['../../work/symbiosis'] }, '/home/u/work/symbiosis', '/home/u/.pi/agent'), true);
+});
+
+test('pi copies the plugin when it starts, only when ttt is there', () => {
+	const src = temp();
+	writeFileSync(join(src, 'plugin.lua'), 'a');
+	const home = temp();
+	assert.equal(syncTttPlugin({}, home, src), undefined);
+	mkdirSync(join(home, '.config', 'ttt'), { recursive: true });
+	assert.equal(syncTttPlugin({}, home, src)?.state, 'create');
+	assert.equal(readFileSync(join(home, '.config', 'ttt', 'plugins', 'symbiosis', 'plugin.lua'), 'utf-8'), 'a');
+	assert.equal(syncTttPlugin({}, home, src), undefined);
+	writeFileSync(join(src, 'plugin.lua'), 'b');
+	assert.equal(syncTttPlugin({}, home, src)?.state, 'update');
 });
 
 test('install copies only changed plugin files and keeps runtime files', () => {

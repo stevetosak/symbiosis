@@ -1,45 +1,63 @@
-// Installs symbiosis on this machine:
-//   * the pi extension: a link ~/.pi/agent/extensions/symbiosis -> <repo>/pi
-//   * the ttt plugin: a COPY in ~/.config/ttt/plugins/symbiosis (a ttt plugin
-//     cannot read through a link out of its folder). Run again after changing
-//     the plugin. ttt asks you to allow its permissions on the next start.
+// Installs this checkout on this machine, for work on symbiosis itself:
+//   * the pi package: `pi install <this folder>` (pi loads it from here, no copy)
+//   * the ttt plugin: a COPY in ~/.config/ttt/plugins/symbiosis. pi also does
+//     this copy each time it starts, so this is only for the first time.
+//   * removes the old link ~/.pi/agent/extensions/symbiosis -> <repo>/pi, which
+//     would load the extension a second time.
+// Users install with install.sh or `pi install git:github.com/stevetosak/symbiosis`.
 // Honours PI_CODING_AGENT_DIR and TTT_CONFIG_DIR. Usage: bin/run-node install.ts [--check]
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, symlinkSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { lstatSync, readFileSync, readlinkSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PLUGIN_SOURCE, planTttPlugin, type Step } from './pi/setup.ts';
 import { pluginDir } from './pi/stream.ts';
 
-export type Step = { what: string; state: 'create' | 'update' | 'ok' | 'skip'; why?: string; run?: () => void };
+export { planTttPlugin, type Step };
 
-/** The link pi loads the extension from. A path that exists and is not our link is left alone. */
-export function planPiLink(extensionsDir: string, target: string): Step {
+/** The link an older install made. Removed only when it points into this checkout. */
+export function planOldLink(extensionsDir: string, repo: string): Step {
 	const link = join(extensionsDir, 'symbiosis');
-	const what = `pi extension ${link} -> ${target}`;
-	let current: string | undefined;
+	const what = `old pi extension link ${link}`;
+	let target: string;
 	try {
-		current = lstatSync(link).isSymbolicLink() ? readlinkSync(link) : '';
+		if (!lstatSync(link).isSymbolicLink()) return { what, state: 'skip', why: 'exists and is not a link; remove it by hand' };
+		target = readlinkSync(link);
 	} catch {
-		return { what, state: 'create', run: () => (mkdirSync(extensionsDir, { recursive: true }), symlinkSync(target, link)) };
+		return { what, state: 'ok' };
 	}
-	if (current === target) return { what, state: 'ok' };
-	return { what, state: 'skip', why: current ? `links to ${current}` : 'exists and is not a link' };
+	if (resolve(extensionsDir, target) !== join(repo, 'pi')) return { what, state: 'skip', why: `links to ${target}; remove it by hand` };
+	return { what, state: 'remove', run: () => unlinkSync(link) };
 }
 
-/** The plugin files copied into ttt's plugin folder. Runtime files there (events, heartbeat) are kept. */
-export function planTttPlugin(dest: string, source: string): Step {
-	const what = `ttt plugin ${dest}`;
-	const files = readdirSync(source);
-	const stale = files.filter((f) => !existsSync(join(dest, f)) || !readFileSync(join(dest, f)).equals(readFileSync(join(source, f))));
-	if (stale.length === 0) return { what, state: 'ok' };
-	const state = existsSync(dest) ? 'update' : 'create';
+/**
+ * True when pi's settings already list this package, by path or by the GitHub
+ * URL. pi writes a local path relative to the settings file's folder (`base`).
+ */
+export function hasPackage(settings: unknown, repo: string, base = '/'): boolean {
+	const list = (settings as { packages?: unknown })?.packages;
+	if (!Array.isArray(list)) return false;
+	return list.some((p) => {
+		const source = typeof p === 'string' ? p : (p as { source?: unknown })?.source;
+		if (typeof source !== 'string') return false;
+		return resolve(base, source) === repo || /github\.com\/stevetosak\/symbiosis(\.git)?(@.*)?$/.test(source);
+	});
+}
+
+export function planPiPackage(piDir: string, repo: string, pi = 'pi'): Step {
+	const what = `pi package ${repo}`;
+	let settings: unknown = {};
+	try {
+		settings = JSON.parse(readFileSync(join(piDir, 'settings.json'), 'utf-8'));
+	} catch {}
+	if (hasPackage(settings, repo, piDir)) return { what, state: 'ok' };
 	return {
 		what,
-		state,
-		why: stale.join(', '),
+		state: 'create',
 		run: () => {
-			mkdirSync(dest, { recursive: true });
-			for (const f of stale) copyFileSync(join(source, f), join(dest, f));
+			const r = spawnSync(pi, ['install', repo], { stdio: 'inherit' });
+			if (r.status !== 0) throw new Error(`${pi} install ${repo} failed`);
 		},
 	};
 }
@@ -47,7 +65,7 @@ export function planTttPlugin(dest: string, source: string): Step {
 if (import.meta.main) {
 	const repo = dirname(fileURLToPath(import.meta.url));
 	const piDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), '.pi', 'agent');
-	const steps = [planPiLink(join(piDir, 'extensions'), join(repo, 'pi')), planTttPlugin(pluginDir(), join(repo, 'ttt', 'symbiosis'))];
+	const steps = [planOldLink(join(piDir, 'extensions'), repo), planPiPackage(piDir, repo), planTttPlugin(pluginDir(), PLUGIN_SOURCE)];
 	const check = process.argv.includes('--check');
 	for (const s of steps) {
 		console.log(`${s.state.padEnd(6)} ${s.what}${s.why ? ` (${s.why})` : ''}`);

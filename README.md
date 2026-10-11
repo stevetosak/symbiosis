@@ -13,16 +13,49 @@ Status: the first slice. Built, then used, then changed. See
 
 ## Install
 
-Needs Node 24, pi 1.1 and ttt 1.7.
+On Linux or macOS, one line:
 
 ```bash
-bin/run-node install.ts          # --check shows what it would do
+curl -fsSL https://raw.githubusercontent.com/stevetosak/symbiosis/main/install.sh | sh
 ```
 
-This links `~/.pi/agent/extensions/symbiosis` to `pi/` and copies
-`ttt/symbiosis/` to `~/.config/ttt/plugins/symbiosis`. Run it again after you
-change the plugin. Then `/reload` in pi and start ttt again; ttt asks you to
-allow the plugin's permissions.
+- **Without [herdr](https://herdr.dev):** it installs herdr, ttt and pi, then
+  the symbiosis herdr plugin.
+- **With herdr:** it adds the plugin, and installs ttt or pi only if one is
+  missing.
+
+It uses each tool's own official installer. Each one is a script from the
+internet that runs on your machine, as this one does; read
+[install.sh](install.sh) first if you want to. It asks one question: whether
+to install herdr's pi integration, which shows pi's state (working, idle) in
+herdr's sidebar. symbiosis works without it. To answer before it asks, set
+`SYMBIOSIS_HERDR_INTEGRATION=yes` or `=no`.
+
+Then, in herdr, run the action **Open symbiosis** (or
+`herdr plugin action invoke symbiosis.open`). A tab opens in the folder of the
+focused pane: ttt on the left, pi on the right. Two steps the first time:
+
+- ttt asks you to allow the plugin's permissions.
+- pi needs a model: `/login`, or an API key.
+
+**If you already use herdr:** `herdr plugin install stevetosak/symbiosis/herdr-plugin`
+does the same, but cannot install pi (pi's installer asks questions on the
+terminal, and herdr runs the plugin's build without one).
+
+**Without herdr:** install [ttt](https://tttedit.dev) and
+[pi](https://pi.dev), then `pi install git:github.com/stevetosak/symbiosis`.
+Start `ttt .` and `pi` in two terminals in the same folder. Everything works
+but the jump from ttt's bar to pi's pane.
+
+**What goes where:** the pi package holds the extension and the ttt plugin.
+Each time pi starts, it copies the plugin into `~/.config/ttt/plugins/symbiosis`
+when ttt's copy differs, and says so; then run "Plugins: Reload" in ttt.
+
+**From a checkout** (to work on symbiosis): `npm run install:local`
+(`--check` shows what it would do). It runs `pi install <checkout>`, so pi
+loads the code from the checkout, copies the ttt plugin, and removes the link
+`~/.pi/agent/extensions/symbiosis` that older versions made (with it, pi would
+load the extension twice). `/reload` in pi after a change.
 
 ## Use
 
@@ -95,4 +128,5 @@ bash test/e2e/help.sh      # helpi!: code, note, ask, Esc; only the session the 
 bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the workspace tests must pass
 bash test/e2e/lag.sh       # the replay behind pi (LAG=-1, SPEED=80); typing waits; buffer = disk at the end
 bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel shows a file outside the folder
+sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi): with and without herdr
 ```
