@@ -47,6 +47,8 @@ export interface Session {
 	/** The files this session wrote or edited, the last one last. The editor
 	 * follows the session that wrote the open file. */
 	files: string[];
+	/** pi's session name (`/name`), to tell sessions in one folder apart. */
+	title: string | null;
 }
 
 export class Channel {

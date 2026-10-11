@@ -17,7 +17,7 @@ import { absolutePath, adler32, type ChannelEvent, firstLine, pluginDir, type To
 /** At most one text write per call in this time: the plugin polls every 40 ms. */
 const FLUSH_MS = 40;
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 6;
+export const PROTOCOL = 7;
 /** The files a session record lists as written by it. */
 const MAX_FILES = 20;
 
@@ -57,6 +57,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		working: false,
 		plan: [],
 		files: [],
+		title: null,
 	};
 
 	/** pi writes `path`: the editor follows this session for it. Beats at once,
@@ -142,6 +143,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		// A request from before this session is old: do not send it again.
 		lastRequest = channel.enabled() ? channel.request()?.id : undefined;
 		if (channel.enabled()) channel.pruneSessions();
+		record.title = pi.getSessionName?.() ?? null;
 		beat();
 		clearInterval(poll);
 		poll = setInterval(() => {
@@ -149,6 +151,11 @@ export default function symbiosis(pi: ExtensionAPI) {
 			if (++ticks % 4 === 0) beat();
 		}, 250);
 		poll.unref?.();
+	});
+
+	pi.on('session_info_changed', (event) => {
+		record.title = event.name ?? null;
+		beat();
 	});
 
 	pi.on('session_shutdown', () => {

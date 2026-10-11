@@ -63,6 +63,31 @@ all. The agent is that much slower: a 3 KB write at 160/s takes about 19 s.
 Operator's choice (A + C): pi waits for the preview, plus a pause key; the
 speed is adjustable, the start value not chosen yet.
 
+## The panel, autosave, names
+
+Operator feedback: the keys were not visible anywhere, and each setting key
+showed a ttt notice that covers the whole status bar for about 4 s (measured),
+so the new value was hidden. Now:
+
+- `ctrl+k h` opens a drawer: Settings (a `list`; Enter cycles the value,
+  `-`/`=` step the speed), pi sessions (Enter follows one, or "automatic"),
+  and a key list. ttt calls a drawer's render on every frame, so render
+  reads no files. Measured in ttt 1.7.1: a `button` keeps its first label
+  after a redraw, a `list` item does not, so the settings are list items;
+  Enter on a list item comes as `on_command("activate")`, `on_select` fires
+  when the highlight moves.
+- No notice for a setting or a session change: the status bar shows it at
+  once. The speed has its own status item; a click cycles it.
+- Autosave (ttt has none): after a key that changes text (a character,
+  Enter, Tab, Backspace, Delete; no ctrl or alt), the plugin saves the file
+  after 1 s (or 3 s, or off), only if the file is still open and pi has no
+  change to it under way (no preview, no queued event, no open call). A clean
+  buffer is what the preview and ttt's reload need.
+- Session names: the record carries pi's session name (`title`, from
+  `pi.getSessionName()` and `session_info_changed`). The plugin shows the
+  title, else the folder, and adds the herdr pane (or pid) when two sessions
+  would show the same name.
+
 ## The other rules
 
 - Pinned (`ctrl+k a`, or click the status item): no preview and no jumps.

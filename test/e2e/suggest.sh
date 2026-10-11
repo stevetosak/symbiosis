@@ -31,7 +31,7 @@ ws_pid=$!
 TTT_CONFIG_DIR="$OUT/cfg" "$repo/bin/run-node" "$repo/test/e2e/suggest-drive.ts" "$OUT/other" 9000 > "$OUT/pi-other.txt" &
 other_pid=$!
 sleep 0.5
-TTT_CONFIG_DIR="$OUT/cfg" ttt --size 110x24 store.ts --exec "wait 2000; screenshot $OUT/1-markers.txt; key ctrl+k d; wait 900; screenshot $OUT/2-sent.txt; key ctrl+k n; wait 600; screenshot $OUT/3-chosen.txt; debug $OUT/debug.json; quit" > /dev/null 2>&1 || true
+TTT_CONFIG_DIR="$OUT/cfg" ttt --size 110x24 store.ts --exec "wait 2000; screenshot $OUT/1-markers.txt; key ctrl+k d; wait 900; screenshot $OUT/2-sent.txt; key ctrl+k n; wait 4500; screenshot $OUT/3-chosen.txt; debug $OUT/debug.json; quit" > /dev/null 2>&1 || true
 wait $ws_pid $other_pid || true
 echo "== ws session"; cat "$OUT/pi-ws.txt"
 echo "== other session"; cat "$OUT/pi-other.txt"

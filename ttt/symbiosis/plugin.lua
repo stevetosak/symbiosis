@@ -32,8 +32,10 @@ local SETTINGS = DIR .. "/settings.json"
 -- Typing speeds of the preview, in characters per second; 0 = as fast as pi sends.
 local SPEEDS = { 10, 20, 40, 80, 160, 320, 640, 1280, 0 }
 local SPEED = 5        -- the speed before you choose one: 160 characters per second
+-- Autosave: milliseconds after your last key press; 0 = off.
+local AUTOSAVES = { 0, 1000, 3000 }
 local POLL_MS = 40
-local PROTOCOL = 6     -- the channel protocol of pi/index.ts
+local PROTOCOL = 7     -- the channel protocol of pi/index.ts
 local PLAN_WIDTH = 56  -- the timeline in the status bar, in characters
 
 local gen, offset = nil, 0
@@ -51,6 +53,8 @@ local plan_seen = nil  -- the plan as last shown, to redraw only on a change
 local drawer = nil     -- the plan drawer's panel, once opened: redrawn on a change
 local speed = SPEED    -- index in SPEEDS; ctrl+k - and ctrl+k = change it, settings.json keeps it
 local paused = false   -- ctrl+k space: the preview stops, and pi waits
+local autosave = 2     -- index in AUTOSAVES: 1 s
+local save_timer = nil
 local queue = {}       -- the events read from the log, not yet applied
 local qhead = 1
 local budget = 0       -- the characters the preview may type now
@@ -221,8 +225,11 @@ local function pace_text()
 	return cps == 0 and "▶ max" or string.format("▶ %d/s", cps)
 end
 
+local cycle_speed
+
 local function show(text)
-	local mode = (pinned and "pinned" or "following") .. " · " .. pace_text()
+	local mode = pinned and "pinned" or "following"
+	ttt.set_status_item("left", "symbiosis.speed", pace_text(), { priority = 1001, on_click = function() cycle_speed() end })
 	if text then
 		ttt.set_status_item("left", "symbiosis", "pi " .. text .. " · " .. mode, { on_click = function() toggle_pin() end })
 	elseif here then
@@ -416,6 +423,17 @@ local function load_sessions()
 			end
 		end
 	end
+	-- The name shown: pi's session name (/name), else the folder. When two
+	-- sessions would show the same name, the herdr pane (or pid) tells them apart.
+	local count = {}
+	for _, rec in ipairs(list) do
+		rec.folder = rec.name
+		if type(rec.title) == "string" and rec.title ~= "" then rec.name = rec.title end
+		count[rec.name] = (count[rec.name] or 0) + 1
+	end
+	for _, rec in ipairs(list) do
+		if count[rec.name] > 1 then rec.name = rec.name .. " · " .. (rec.pane or tostring(rec.pid)) end
+	end
 	table.sort(list, function(a, b)
 		if a.name ~= b.name then return a.name < b.name end
 		return a.id < b.id
@@ -482,12 +500,8 @@ local function next_session()
 	end
 	local nxt = sessions[i + 1]
 	chosen = nxt and nxt.id or nil
+	-- No notice: a notice covers the status bar for 4 s, and the bar shows it.
 	refresh_sessions()
-	if chosen then
-		ttt.notify("symbiosis: pi " .. owner.name .. " takes over (chosen)", "info")
-	else
-		ttt.notify("symbiosis: back to the session of the open file" .. (owner and (": " .. owner.name) or ": none"), "info")
-	end
 end
 
 -- ctrl+k g, or a click on "π ...": go to the owner's pane in herdr.
@@ -709,7 +723,7 @@ local function pace()
 end
 
 local function save_settings()
-	fs.write(SETTINGS, json.encode({ speed = SPEEDS[speed] }))
+	fs.write(SETTINGS, json.encode({ speed = SPEEDS[speed], autosave = AUTOSAVES[autosave] }))
 end
 
 local function load_settings()
@@ -718,15 +732,53 @@ local function load_settings()
 	for i, cps in ipairs(SPEEDS) do
 		if cps == saved.speed then speed = i end
 	end
+	for i, ms in ipairs(AUTOSAVES) do
+		if ms == saved.autosave then autosave = i end
+	end
 end
 
 -- ctrl+k - and ctrl+k =: slower and faster. The last step is "max": as fast
--- as pi sends.
+-- as pi sends. No notice: it would cover the status bar, which shows the speed.
 local function set_speed(step)
 	speed = math.max(1, math.min(#SPEEDS, speed + step))
 	save_settings()
 	show()
-	ttt.notify("symbiosis: preview " .. pace_text(), "info")
+end
+
+-- A click on the speed, or Enter in the panel: the next speed, round.
+cycle_speed = function()
+	speed = speed % #SPEEDS + 1
+	save_settings()
+	show()
+end
+
+local function autosave_text()
+	local ms = AUTOSAVES[autosave]
+	return ms == 0 and "off" or string.format("%g s after you type", ms / 1000)
+end
+
+local function cycle_autosave()
+	autosave = autosave % #AUTOSAVES + 1
+	save_settings()
+end
+
+-- Autosave: a while after your last key press, the file is saved, so the
+-- buffer is clean when pi writes it (a dirty buffer gets no preview and no
+-- reload). Never while pi has a change to this file under way: that would
+-- save a preview, or the old text over pi's write.
+local function schedule_save()
+	local ms = AUTOSAVES[autosave]
+	local path = editor.file_path() or ""
+	if ms == 0 or path == "" then return end
+	if save_timer then ttt.clear_timeout(save_timer) end
+	save_timer = ttt.set_timeout(ms, function()
+		save_timer = nil
+		if editor.file_path() ~= path or active or busy(path) or qhead <= #queue then return end
+		for _, c in pairs(calls) do
+			if c.path == path then return end
+		end
+		ttt.exec_command("file.save")
+	end)
 end
 
 -- ctrl+k space: the preview stops where it is; pi waits until you go on.
@@ -773,6 +825,76 @@ heartbeat = function()
 	fs.write(ALIVE, json.encode({ t = os.time(), pinned = pinned, owner = owner and owner.id or nil }))
 end
 
+-- The panel: ctrl+k h --------------------------------------------------------
+-- Settings you change in place (Enter cycles a value), the pi sessions (Enter
+-- follows one), and every key. ttt calls render on every frame: no file reads
+-- here. Up/Down move in a list, Tab to the next list, Esc closes.
+
+local KEYS = {
+	{ key = "ctrl+k h", value = "this panel" },
+	{ key = "ctrl+k a", value = "pin / unpin the editor" },
+	{ key = "ctrl+k - / =", value = "preview slower / faster" },
+	{ key = "ctrl+k space", value = "pause the preview (pi waits)" },
+	{ key = "ctrl+k .", value = "rest of this change at once" },
+	{ key = "ctrl+k v", value = "pi's plan" },
+	{ key = "ctrl+k w", value = "what pi changed (diff)" },
+	{ key = "ctrl+k d", value = "send AI!/AI? comments to pi" },
+	{ key = "ctrl+k n", value = "next pi session" },
+	{ key = "ctrl+k g", value = "go to pi's pane (herdr)" },
+}
+
+local function render_help(panel)
+	panel:title("symbiosis")
+	panel:label({ text = "Settings · Enter changes", style = "bold" })
+	panel:list({
+		items = {
+			{ id = "speed", label = "Preview speed   " .. pace_text() },
+			{ id = "autosave", label = "Autosave        " .. autosave_text() },
+			{ id = "pin", label = "Editor          " .. (pinned and "pinned" or "follows pi") },
+		},
+		key_commands = { ["-"] = "slower", ["="] = "faster" },
+		on_command = function(command, node)
+			if node.id == "speed" then
+				if command == "slower" then set_speed(-1)
+				elseif command == "faster" then set_speed(1)
+				else cycle_speed() end
+			elseif command == "activate" and node.id == "autosave" then cycle_autosave()
+			elseif command == "activate" and node.id == "pin" then toggle_pin() end
+		end,
+	})
+	panel:label({ text = "pi sessions · Enter: follow it", style = "bold", margin_top = 1 })
+	-- ✓ = how the editor picks; ▶ = the session it follows now.
+	local items = { { id = "", label = (chosen and "  " or "✓ ") .. "automatic: by the open file" } }
+	for _, rec in ipairs(sessions) do
+		local now = ""
+		for _, st in ipairs(plan_of(rec)) do
+			if st.state == "now" then now = " — " .. st.text break end
+		end
+		local mark = owner and owner.id == rec.id and "▶ " or "  "
+		table.insert(items, {
+			id = rec.id,
+			label = mark .. rec.name .. (rec.working and " ●" or " ○") .. (chosen == rec.id and " ✓ chosen" or "") .. now,
+			muted = rec.version ~= PROTOCOL,
+		})
+	end
+	panel:list({
+		items = items,
+		truncate_left = false,
+		on_command = function(command, node)
+			if command ~= "activate" then return end
+			chosen = node.id ~= "" and node.id or nil
+			refresh_sessions()
+		end,
+	})
+	panel:label({ text = "Keys", style = "bold", margin_top = 1 })
+	panel:keyvalue(KEYS)
+	panel:label({ text = "Esc closes · clicks: π goes to pi, ▶ speed cycles", style = "muted", margin_top = 1 })
+end
+
+local function open_help()
+	ttt.open_drawer({ width = 52, min_width = 36, side = "right", render = render_help })
+end
+
 ttt.register({
 	commands = {
 		{ id = "symbiosis.togglePin", title = "symbiosis: Pin / Unpin the Editor", handler = toggle_pin },
@@ -786,6 +908,7 @@ ttt.register({
 		{ id = "symbiosis.faster", title = "symbiosis: Preview Faster", handler = function() set_speed(1) end },
 		{ id = "symbiosis.pause", title = "symbiosis: Pause / Go On (pi waits)", handler = toggle_pause },
 		{ id = "symbiosis.rush", title = "symbiosis: Show the Rest of the Preview Now", handler = rush_now },
+		{ id = "symbiosis.help", title = "symbiosis: Settings, Sessions and Keys", handler = open_help },
 	},
 	keybindings = {
 		{ key = "ctrl+k a", command = "symbiosis.togglePin" },
@@ -798,12 +921,23 @@ ttt.register({
 		{ key = "ctrl+k =", command = "symbiosis.faster" },
 		{ key = "ctrl+k space", command = "symbiosis.pause" },
 		{ key = "ctrl+k .", command = "symbiosis.rush" },
+		{ key = "ctrl+k h", command = "symbiosis.help" },
 	},
 })
+
+-- A key that changes the text: a character, or Enter, Tab, Backspace, Delete.
+-- Not a move, and not a key with ctrl or alt.
+local function edits_text(key)
+	if key.mod and key.mod ~= "" and key.mod ~= "shift" then return false end
+	if key.rune and key.rune ~= "" then return true end
+	local k = tostring(key.key or ""):lower()
+	return k == "enter" or k == "tab" or k == "backspace" or k == "delete"
+end
 
 -- Your key press in the editor ends the preview: the buffer is yours again.
 events.on("key.press", function(key)
 	if active and not editing and not key.mod then end_preview(active) show() end
+	if not editing and edits_text(key) then schedule_save() end
 	return false
 end)
 

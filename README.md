@@ -25,6 +25,11 @@ allow the plugin's permissions.
 
 ## Use
 
+- `ctrl+k h`: the symbiosis panel. Settings you change in place (Enter
+  cycles a value: preview speed, autosave, pin), the pi sessions (Enter
+  follows one), and every key. Up/Down move, Tab goes to the next list, Esc
+  closes.
+
 - Status bar: `pi ✎ writing store.ts +12 lines · following`.
 - `ctrl+k a` (or a click on the status item): pin the editor. Pinned, the
   agent does not move it; at the end of the agent's turn it moves anyway.
@@ -34,10 +39,15 @@ allow the plugin's permissions.
 - The preview types at a speed you set, and pi waits until you saw it all:
   `ctrl+k -` slower, `ctrl+k =` faster (10 to 1280 characters per second, then
   max), `ctrl+k space` pause (pi waits), `ctrl+k .` the rest of this change at
-  once. The status bar shows `▶ 160/s` or `⏸ paused`.
+  once. The status bar shows `▶ 160/s` or `⏸ paused`; a click on it cycles the
+  speed.
+- Autosave (on by default): a file is saved 1 s after you last typed in it,
+  so pi's next write gets a preview and a reload. Never while pi changes that
+  file. Off or 3 s in the panel.
 - Status bar `π symbiosis ● working`: the pi session the editor follows, by
   the open file: the session that wrote it, else the one whose folder holds
-  it, else the most recent one. Click it or `ctrl+k g` to go to its herdr
+  it, else the most recent one. Its name is pi's session name (`/name`), else
+  the folder; two sessions with one name also show their herdr pane. Click it or `ctrl+k g` to go to its herdr
   pane. `ctrl+k n`: the next session takes over (then back to automatic).
 - Write a comment that ends in `AI!` (change this) or `AI?` (answer this),
   after a line, above a block, or at the top of a file. `ctrl+k d` sends all
