@@ -11,7 +11,9 @@
 #   ttt    https://raw.githubusercontent.com/eugenioenko/ttt/main/install.sh
 #   pi     https://pi.dev/install.sh
 #
-# It asks one question, on the terminal: install herdr's pi integration?
+# It binds a herdr key to "Open symbiosis" (prefix+shift+s, or SYMBIOSIS_KEY)
+# unless the config already binds that key or the action. It asks one
+# question, on the terminal: install herdr's pi integration?
 # Answer it beforehand with SYMBIOSIS_HERDR_INTEGRATION=yes or =no.
 # SYMBIOSIS_PLUGIN_DIR=<checkout>/herdr-plugin links a local checkout instead.
 set -eu
@@ -82,6 +84,29 @@ else
 fi
 ok "herdr plugin: Open symbiosis"
 
+# A key for "Open symbiosis": herdr has no menu for plugin actions.
+config="${HERDR_CONFIG_PATH:-$HOME/.config/herdr/config.toml}"
+key="${SYMBIOSIS_KEY:-prefix+shift+s}"
+if [ -f "$config" ] && grep -q '"symbiosis.open"' "$config"; then
+	key=$(grep -B3 '"symbiosis.open"' "$config" | sed -n 's/^key[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' | tail -1)
+	ok "herdr key for Open symbiosis is there${key:+: $key}"
+elif [ -f "$config" ] && grep -q "^key[[:space:]]*=[[:space:]]*\"$key\"" "$config"; then
+	say "  $key is taken in $config; bind symbiosis.open to another key (see the README)"
+	key=
+else
+	mkdir -p "$(dirname "$config")"
+	if [ -s "$config" ]; then printf '\n' >>"$config"; fi
+	cat >>"$config" <<KEY
+[[keys.command]]
+key = "$key"
+type = "plugin_action"
+command = "symbiosis.open"
+description = "open symbiosis (ttt + pi)"
+KEY
+	herdr server reload-config >/dev/null 2>&1 || true
+	ok "herdr key $key opens symbiosis (added to $config)"
+fi
+
 # herdr's own pi integration: optional, symbiosis does not need it.
 status=$(herdr integration status 2>/dev/null | grep '^pi:' || true)
 case "$status" in
@@ -113,7 +138,11 @@ if [ "$mode" = full ]; then
 else
 	say "  1. In herdr, go to a workspace with your project."
 fi
-say "  2. Run the action \"Open symbiosis\" (or: herdr plugin action invoke symbiosis.open)."
+if [ -n "$key" ]; then
+	say "  2. Press $key (prefix is ctrl+b by default), or run: herdr plugin action invoke symbiosis.open"
+else
+	say "  2. Run: herdr plugin action invoke symbiosis.open"
+fi
 say "     A tab opens with ttt on the left and pi on the right."
 say "  3. ttt asks you to allow the symbiosis plugin: allow it."
 say "  4. pi needs a model once: /login, or an API key."
