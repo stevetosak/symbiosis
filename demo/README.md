@@ -15,7 +15,7 @@ changes.
 npm run demo
 ```
 
-1. The script prints `ttt /tmp/symbiosis-demo/store.ts`. Open that in ttt,
+1. The script prints `ttt /tmp/symbiosis-demo`. Open that folder in ttt,
    in another herdr pane. When the status bar shows `π demo`, the editor
    follows the script, and it starts.
 2. Turn 1: the plan in the status bar, `format.ts` typed in as a new file,
@@ -45,5 +45,5 @@ npm run demo -- --reset          # only make a fresh copy
 cd /tmp/symbiosis-demo && pi     # then /name demo, and give it PROMPT.md
 ```
 
-Open `store.ts` in ttt as above. `PROMPT.md` is the same task as the script,
+Open the folder in ttt as above. `PROMPT.md` is the same task as the script,
 so you see the real agent do it: different every time, and it costs tokens.

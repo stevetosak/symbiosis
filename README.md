@@ -60,6 +60,12 @@ allow the plugin's permissions.
   drawer; Esc closes it.
 - `ctrl+k w`: what pi changed in its last turn, as a diff: the open file, or
   the last file pi changed if pi did not touch the open one.
+- The file tree follows pi: when the editor follows pi into a file, ttt's
+  tree opens to it, if the file is in a folder open in ttt (start ttt on a
+  folder, or on several: `ttt ~/a ~/b`). The "pi files" tab in the sidebar
+  shows the files each pi session changed (its last 20), by its folder, at
+  any path: `▶` is the session the editor follows, `✎` the file pi changes
+  now, Enter opens a file. While that tab is on screen, the tree stays on it.
 
 ## Demo
 
@@ -78,4 +84,5 @@ DIFF_AT=30 HOLD_MS=4000 npm run e2e                     # also shows the diff (c
 bash test/e2e/suggest.sh   # the same, for sessions and suggestions
 bash test/e2e/demo.sh      # the demo, with an AI! comment; the workspace tests must pass
 bash test/e2e/lag.sh       # the replay behind pi (LAG=-1, SPEED=80); typing waits; buffer = disk at the end
+bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel shows a file outside the folder
 ```

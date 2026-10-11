@@ -141,6 +141,8 @@ so the new value was hidden. Now:
 - A new file: ttt shows "New file", and after the undo the plugin opens the
   file again so ttt reads it from disk.
 - Two sessions in the same folder: the most recent one wins until you choose.
+- The reveal moves the sidebar to the explorer, also from Find or Changes.
+- The "pi files" tab is hidden behind `»` in a narrow sidebar.
 
 ## Slice 2: sessions and suggestions
 
@@ -226,6 +228,27 @@ Only the owner keeps these, in `changes/` in the plugin folder
 (`pi/changes.ts`): ttt.fs cannot read outside the workspace, so the
 extension writes both texts there. A new turn of the owner drops the last
 one. Files over 1 MB are not kept.
+
+## The file tree
+
+The tree follows pi, also across projects in different places. A ttt plugin
+cannot add a folder to ttt's tree (measured, ttt 1.7.1: no API;
+`workspace.addFolder` only opens the picker; `--exec` cannot reach a running
+ttt), so there are two parts:
+
+- ttt's own tree: when the editor follows pi into a file, the plugin runs
+  `explorer.revealActiveFile`, once for each new file. Only for a file in a
+  folder open in ttt: ttt.fs sees only those folders, so `fs.exists` tells.
+  Outside them the reveal only says "File is not in the explorer".
+- The "pi files" panel (a sidebar tab): each live session, by name and
+  folder, with the files it wrote (`files` in its record, the last 20) as a
+  tree under its folder; a file outside the folder goes under its own folder
+  by full path. `▶` the session the editor follows, `✎` the file pi changes
+  now; Enter opens a file.
+
+The reveal switches the sidebar to the explorer. So while the "pi files" tab
+is on screen (ttt draws it on each tick, the plugin notes the tick) there is
+no reveal. ttt has no command to show a plugin's sidebar tab: you choose it.
 
 ## The cost
 

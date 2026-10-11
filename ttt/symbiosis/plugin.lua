@@ -70,7 +70,12 @@ local queue = {}       -- the events read from the log, not yet applied
 local qhead = 1
 local budget = 0       -- the characters the preview may type now
 local rush = nil       -- ctrl+k .: the call whose preview shows at once
-local toggle_pin, finish, heartbeat, go_session, open_plan
+local ticks = 0        -- poll ticks, every POLL_MS
+local tree_seen = -100 -- the tick when ttt last drew the "pi files" panel
+local tree_items = {}  -- the "pi files" tree, built when the sessions or the follow change
+local tree_paths = {}  -- node id -> file path
+local revealed = nil   -- the file last shown in ttt's file tree
+local toggle_pin, finish, heartbeat, go_session, open_plan, follow_tree, build_tree
 
 -- Positions -----------------------------------------------------------------
 
@@ -273,7 +278,9 @@ local function reveal(line)
 end
 
 local function go()
-	if here then ttt.open_file(here.path, here.line) end
+	if not here then return end
+	ttt.open_file(here.path, here.line)
+	follow_tree(here.path)
 end
 
 toggle_pin = function()
@@ -368,6 +375,7 @@ local function start(ev)
 	else
 		ttt.open_file(ev.path)
 		if editor.file_path() ~= ev.path then c.skip = "not opened" return end
+		follow_tree(ev.path)
 		local text = editor.buffer_text()
 		-- Clean: the buffer is the file as pi found it, or as pi last wrote it
 		-- (a clean buffer reloads when pi is ahead of the replay).
@@ -467,7 +475,10 @@ local function done(ev)
 	if busy(ev.path) then run.line = ev.line return show() end
 	if run then return show() end
 	-- A new file shown before it existed reloads only when opened again.
-	if not pinned then ttt.open_file(ev.path, ev.line) end
+	if not pinned then
+		ttt.open_file(ev.path, ev.line)
+		follow_tree(ev.path)
+	end
 	show()
 end
 
@@ -475,6 +486,7 @@ local function stop(ev)
 	if run then pcall(finish) end
 	here = { path = ev.path, line = ev.line, mark = "■" }
 	ttt.open_file(ev.path, ev.line)
+	follow_tree(ev.path)
 	show()
 end
 
@@ -565,6 +577,7 @@ local function refresh_sessions()
 	local before = owner and owner.id
 	owner = pick()
 	if (owner and owner.id) ~= before then heartbeat() end
+	build_tree()
 	show_session()
 	show_plan()
 end
@@ -947,6 +960,125 @@ heartbeat = function()
 	fs.write(ALIVE, json.encode({ t = os.time(), pinned = pinned, owner = owner and owner.id or nil, lag = LAGS[lag] }))
 end
 
+-- The file tree ---------------------------------------------------------------
+-- The tree follows pi: when the editor follows pi into a file, ttt's own file
+-- tree opens to it (explorer.revealActiveFile), if the file is in a folder
+-- open in ttt. A plugin cannot add a folder to ttt's tree, so the "pi files"
+-- panel in the sidebar shows the files of every pi session, by its folder, at
+-- any path. While that panel is on screen, the tree is not moved to the
+-- explorer: the reveal would take the sidebar away from it.
+
+-- "~" for the home folder.
+local function short(path)
+	return (path:gsub("^/home/[^/]+", "~"))
+end
+
+local function parent(path)
+	return path:match("^(.*)/[^/]*$") or path
+end
+
+-- Adds `node` under `dir` (a node), in the folder named by `parts`.
+local function place(dir, id, parts, node)
+	for i = 1, #parts - 1 do
+		local part = parts[i]
+		dir.by = dir.by or {}
+		local sub = dir.by[part]
+		if not sub then
+			sub = { id = id .. "/" .. table.concat(parts, "/", 1, i), label = part .. "/", expanded = true, children = {} }
+			dir.by[part] = sub
+			table.insert(dir.children, sub)
+		end
+		dir = sub
+	end
+	table.insert(dir.children, node)
+end
+
+-- Folders first, then files, by name; and drops the lookup tables.
+local function tidy(node)
+	node.by = nil
+	if not node.children then return end
+	table.sort(node.children, function(a, b)
+		local ad, bd = a.children ~= nil, b.children ~= nil
+		if ad ~= bd then return ad end
+		return a.label < b.label
+	end)
+	for _, child in ipairs(node.children) do tidy(child) end
+end
+
+local function split_path(rel)
+	local parts = {}
+	for part in rel:gmatch("[^/]+") do table.insert(parts, part) end
+	return parts
+end
+
+-- The tree: one node for each session ("▶" = the one the editor follows),
+-- its files under its folder; a file outside the folder goes under its own
+-- folder, by full path. "✎" marks the file pi changes now.
+build_tree = function()
+	local items, paths = {}, {}
+	local now = run and run.path or (here and here.path)
+	for _, rec in ipairs(sessions) do
+		local followed = owner and owner.id == rec.id
+		local node = {
+			id = rec.id,
+			label = (followed and "▶ " or "") .. rec.name,
+			badge = short(rec.cwd or ""),
+			expanded = true,
+			children = {},
+		}
+		local seen = {}
+		for _, path in ipairs(type(rec.files) == "table" and rec.files or {}) do
+			if type(path) == "string" and not seen[path] then
+				seen[path] = true
+				local id = rec.id .. "|" .. path
+				paths[id] = path
+				local file = { id = id, label = name(path), icon = (followed and path == now) and "✎" or " " }
+				if rec.cwd and starts_with(path, rec.cwd .. "/") then
+					place(node, rec.id, split_path(path:sub(#rec.cwd + 2)), file)
+				else
+					place(node, rec.id, { short(parent(path)), name(path) }, file)
+				end
+			end
+		end
+		if #node.children == 0 then
+			node.children = { { id = rec.id .. "|none", label = "no files changed yet", muted = true } }
+		end
+		tidy(node)
+		table.insert(items, node)
+	end
+	tree_items, tree_paths = items, paths
+end
+
+-- After the editor followed pi into `path`.
+follow_tree = function(path)
+	build_tree()
+	-- ttt draws the panel on each tick while it is on screen.
+	if ticks - tree_seen <= 12 then return end
+	if path == revealed then return end
+	revealed = path
+	-- ttt.fs sees only the folders open in ttt (and the plugin's folder): so
+	-- this says if the file is in ttt's tree. Outside it, the reveal would
+	-- only show "File is not in the explorer".
+	if editor.file_path() == path and fs.exists(path) then
+		ttt.exec_command("explorer.revealActiveFile")
+	end
+end
+
+local function render_tree(panel)
+	tree_seen = ticks
+	if #tree_items == 0 then
+		panel:label({ text = "No pi session is running.", style = "muted" })
+		return
+	end
+	panel:tree({
+		items = tree_items,
+		on_select = function(node)
+			local path = tree_paths[node.id]
+			if path then ttt.open_file(path) end
+		end,
+	})
+end
+
 -- The panel: ctrl+k h --------------------------------------------------------
 -- Settings you change in place (Enter cycles a value), the pi sessions (Enter
 -- follows one), and every key. ttt calls render on every frame: no file reads
@@ -1012,7 +1144,8 @@ local function render_help(panel)
 	})
 	panel:label({ text = "Keys", style = "bold", margin_top = 1 })
 	panel:keyvalue(KEYS)
-	panel:label({ text = "Esc closes · clicks: π goes to pi, ▶ speed cycles", style = "muted", margin_top = 1 })
+	panel:label({ text = "Sidebar: the \"pi files\" tab lists pi's files", style = "muted", margin_top = 1 })
+	panel:label({ text = "Esc closes · clicks: π goes to pi, ▶ speed cycles", style = "muted" })
 end
 
 local function open_help()
@@ -1020,6 +1153,7 @@ local function open_help()
 end
 
 ttt.register({
+	sidebar = { title = "pi files", render = render_tree },
 	commands = {
 		{ id = "symbiosis.togglePin", title = "symbiosis: Pin / Unpin the Editor", handler = toggle_pin },
 		{ id = "symbiosis.goToAgent", title = "symbiosis: Go to the Agent's Last Edit", handler = go },
@@ -1099,6 +1233,7 @@ ttt.set_timeout(100, function()
 	show()
 	heartbeat()
 	ttt.set_interval(POLL_MS, function()
+		ticks = ticks + 1
 		poll()
 		pace()
 	end)

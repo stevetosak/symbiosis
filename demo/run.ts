@@ -49,7 +49,7 @@ process.on('SIGINT', async () => {
 });
 await pi.start();
 
-say(`open the workspace in ttt:  ttt ${join(DIR, 'store.ts')}`);
+say(`open the workspace in ttt:  ttt ${DIR}`);
 say('waiting until the editor follows this session ("π demo" in the status bar) ...');
 await pi.waitOwner();
 say('the editor follows "demo". Start in 3 s. Try ctrl+k h (the panel), ctrl+k - / = (speed), ctrl+k space (pause).');
