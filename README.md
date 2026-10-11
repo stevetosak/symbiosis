@@ -1,15 +1,15 @@
 # symbiosis
 
 The [pi](https://github.com/earendil-works/pi) coding agent works inside the
-[ttt](https://tttedit.dev) editor. Each file the agent writes or edits types
+[ttt](https://tttedit.dev) editor. Run `symbiosis` in a project: ttt opens
+there, and a real, full pi beside it. Each file the agent writes or edits types
 itself into your editor while the model writes it. Then the editor goes to the
-changed line. You read the code as it comes. pi runs in any terminal; the
-status bar shows which pi session the editor follows. A comment that ends in
-`helpi!` asks that session's model a question, and the answer is written
-where you are.
+changed line. You read the code as it comes. The status bar shows which pi
+session the editor follows; a pi you start yourself in any terminal works too.
+A comment that ends in `helpi!` asks that session's model a question, and the
+answer is written where you are.
 
-Status: the first slice. Built, then used, then changed. See
-[docs/design.md](docs/design.md).
+Status: built, then used, then changed. See [docs/design.md](docs/design.md).
 
 ## Install
 
@@ -19,23 +19,33 @@ On Linux or macOS, one line:
 curl -fsSL https://raw.githubusercontent.com/stevetosak/symbiosis/main/install.sh | sh
 ```
 
-- **Without [herdr](https://herdr.dev):** it installs herdr, ttt and pi, then
-  the symbiosis herdr plugin.
-- **With herdr:** it adds the plugin, and installs ttt or pi only if one is
-  missing.
+It installs ttt and pi when one is missing, the symbiosis pi package, and the
+command `~/.local/bin/symbiosis`. It uses each tool's own official installer.
+Each one is a script from the internet that runs on your machine, as this one
+does; read [install.sh](install.sh) first if you want to.
 
-It uses each tool's own official installer. Each one is a script from the
-internet that runs on your machine, as this one does; read
-[install.sh](install.sh) first if you want to. It asks one question: whether
-to install herdr's pi integration, which shows pi's state (working, idle) in
-herdr's sidebar. symbiosis works without it. To answer before it asks, set
-`SYMBIOSIS_HERDR_INTEGRATION=yes` or `=no`.
+The command is a link into pi's copy of the package
+(`~/.pi/agent/git/github.com/stevetosak/symbiosis`), so the command, the pi
+extension and the ttt plugin always come from one copy: `pi update` updates
+all three. Each time pi starts, it copies the ttt plugin into
+`~/.config/ttt/plugins/symbiosis` when ttt's copy differs, and says so; then
+run "Plugins: Reload" in ttt.
 
-It also binds a herdr key to the action **Open symbiosis**: `prefix+shift+s`
-(the prefix is `ctrl+b` by default). It does not change the config when the
-key or the action is already bound there; `SYMBIOSIS_KEY` picks another key.
-herdr has no menu for plugin actions, so a key or the command
-`herdr plugin action invoke symbiosis.open` starts it. To bind it yourself, in
+Two steps the first time:
+
+- ttt asks you to allow the plugin's permissions.
+- pi needs a model: `/login`, or an API key.
+
+**[herdr](https://herdr.dev) or tmux** is optional, and install.sh installs
+neither. In one of them, pi gets a tab of its own; without them, symbiosis
+opens ttt and tells you how to start pi in a second terminal.
+
+**With herdr there**, install.sh also adds the symbiosis herdr plugin. Its
+action **Open symbiosis** runs `symbiosis <folder> --tab` for the focused
+pane's folder, or goes to the tab where symbiosis already runs for it.
+install.sh binds it to `prefix+shift+s` (the prefix is `ctrl+b` by default),
+unless the config already binds that key or the action; `SYMBIOSIS_KEY` picks
+another key. herdr has no menu for plugin actions. To bind it yourself, in
 `~/.config/herdr/config.toml`, then `herdr server reload-config`:
 
 ```toml
@@ -46,44 +56,43 @@ command = "symbiosis.open"
 description = "open symbiosis (ttt + pi)"
 ```
 
-Then, in herdr, press the key in a pane in your project. A tab opens in the
-folder of the focused pane: ttt on the left, pi on the right. Two steps the
-first time:
-
-- ttt asks you to allow the plugin's permissions.
-- pi needs a model: `/login`, or an API key.
-
-**If you already use herdr:** `herdr plugin install stevetosak/symbiosis/herdr-plugin`
-does the same, but cannot install pi (pi's installer asks questions on the
+It asks one question: whether to install herdr's pi integration, which shows
+pi's state (working, idle) in herdr's sidebar. symbiosis works without it. To
+answer before it asks, set `SYMBIOSIS_HERDR_INTEGRATION=yes` or `=no`.
+`herdr plugin install stevetosak/symbiosis/herdr-plugin` alone does the same
+as install.sh, but cannot install pi (pi's installer asks questions on the
 terminal, and herdr runs the plugin's build without one).
 
-**Without herdr:** install [ttt](https://tttedit.dev) and
-[pi](https://pi.dev), then `pi install git:github.com/stevetosak/symbiosis`.
-Start `ttt .` and `pi` in two terminals in the same folder. Everything works
-but the jump from ttt's bar to pi's pane.
-
-**What goes where:** the pi package holds the extension and the ttt plugin.
-Each time pi starts, it copies the plugin into `~/.config/ttt/plugins/symbiosis`
-when ttt's copy differs, and says so; then run "Plugins: Reload" in ttt.
+**By hand:** install ttt and pi, run
+`pi install git:github.com/stevetosak/symbiosis`, then
+`sh ~/.pi/agent/git/github.com/stevetosak/symbiosis/bin/setup.sh` (it copies
+the ttt plugin and links the command).
 
 **From a checkout** (to work on symbiosis): `npm run install:local`
 (`--check` shows what it would do). It runs `pi install <checkout>`, so pi
-loads the code from the checkout, copies the ttt plugin, and removes the link
+loads the code from the checkout, copies the ttt plugin, links
+`~/.local/bin/symbiosis` to the checkout, and removes the link
 `~/.pi/agent/extensions/symbiosis` that older versions made (with it, pi would
 load the extension twice). `/reload` in pi after a change.
+`SYMBIOSIS_CHECKOUT=<checkout> sh install.sh` runs the full installer on it.
 
-## The symbiosis command (in progress)
+## The symbiosis command
 
-`bin/symbiosis [folder]` opens ttt in the folder and a real pi beside it
-(`docs/plan-app.md`). The folder is the git root, else this folder.
+```
+symbiosis [folder] [--tab | --here] [--tabs | --split] [-c] [--new] [-- <pi args>]
+```
+
+It opens ttt in the folder and a real pi beside it. The folder is the
+argument, else the git root, else this folder.
 
 - In herdr or tmux, pi gets a tab of its own, "pi · <folder>", and ttt opens
   here (`--tabs`, the default). `--split`: this pane splits, ttt left, pi
   right. `--tab`: all of it in a new tab. Outside herdr and tmux, ttt opens
   alone and symbiosis prints how to start pi.
 - `-c` continues pi's last session there, `--new` opens a second one,
-  `-- <args>` go to pi. A second `symbiosis` for the same folder says where
-  the first one runs.
+  `-- <args>` go to pi.
+- A second `symbiosis` for the same folder goes to the tab where the first one
+  runs (herdr, tmux), or says where it runs.
 - When ttt quits, pi stays: it is a full pi session in its own pane.
 - Config: `~/.config/symbiosis/config.json`
   `{"open": "here" | "tab", "layout": "tabs" | "split", "piArgs": [...]}`.
@@ -164,7 +173,7 @@ bash test/e2e/help.sh      # helpi!: code, note, ask, Esc; only the session the 
 bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the workspace tests must pass
 bash test/e2e/lag.sh       # the replay behind pi (LAG=-1, SPEED=80); typing waits; buffer = disk at the end
 bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel shows a file outside the folder
-bash test/e2e/app.sh       # the symbiosis command with fake herdr, tmux, pi and ttt: tabs, split, --tab, no multiplexer
+bash test/e2e/app.sh       # the symbiosis command and the herdr action, with fake herdr, tmux, pi and ttt: tabs, split, --tab, no multiplexer, already open
 bash test/e2e/stop.sh      # "? waits for you" while pi shows a dialog; ctrl+k q stops pi's turn
-sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi): with and without herdr
+sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi): without herdr, with it, twice, key taken, own command file
 ```

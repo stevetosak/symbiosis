@@ -10,7 +10,7 @@ platforms = ["linux", "macos"]
 command = ["sh", "scripts/build.sh"]
 platforms = ["linux", "macos"]
 
-# A new tab in the workspace folder: ttt on the left, pi on the right.
+# symbiosis <folder> --tab: a new tab with ttt, pi beside it; or go to the one open.
 [[actions]]
 id = "open"
 title = "Open symbiosis"

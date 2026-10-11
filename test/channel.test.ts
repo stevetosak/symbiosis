@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { hasPackage, planOldLink, planTttPlugin } from '../install.ts';
+import { hasPackage, planCommandLink, planOldLink, planTttPlugin } from '../install.ts';
 import { syncTttPlugin } from '../pi/setup.ts';
 import { Channel, paneOf } from '../pi/channel.ts';
 
@@ -128,6 +128,23 @@ test('install removes only its own old link', () => {
 	assert.equal(planOldLink(ext, '/repo').state, 'ok');
 	symlinkSync('/somewhere', join(ext, 'symbiosis'));
 	assert.equal(planOldLink(ext, '/repo').state, 'skip');
+});
+
+test('install links the symbiosis command, and leaves a file there alone', () => {
+	const bin = join(temp(), 'bin');
+	const first = planCommandLink(bin, '/repo/bin/symbiosis');
+	assert.equal(first.state, 'create');
+	first.run?.();
+	assert.equal(readlinkSync(join(bin, 'symbiosis')), '/repo/bin/symbiosis');
+	assert.equal(planCommandLink(bin, '/repo/bin/symbiosis').state, 'ok');
+	const moved = planCommandLink(bin, '/other/bin/symbiosis');
+	assert.equal(moved.state, 'update');
+	moved.run?.();
+	assert.equal(readlinkSync(join(bin, 'symbiosis')), '/other/bin/symbiosis');
+	const own = join(temp(), 'own');
+	mkdirSync(own);
+	writeFileSync(join(own, 'symbiosis'), '#!/bin/sh\n');
+	assert.equal(planCommandLink(own, '/repo/bin/symbiosis').state, 'skip');
 });
 
 test('install finds the pi package by path or GitHub URL', () => {
