@@ -2,6 +2,7 @@
 	"name": "symbiosis",
 	"version": "0.1.0",
 	"private": true,
+	"license": "MIT",
 	"description": "The pi coding agent works inside the ttt editor: you watch every write as it happens.",
 	"type": "module",
 	"scripts": {
