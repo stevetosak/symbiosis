@@ -35,7 +35,7 @@ export const PLAN_PARAMETERS = {
 
 export const PLAN_DESCRIPTION =
 	'Show your plan to the user in their editor as a timeline: done › now › next. Send the whole list each time, as a JSON array (not a string): {"steps": [{"text": "Write the tests", "state": "now"}]}. state is done, now or next.';
-export const PLAN_SNIPPET = "plan: show your plan (done, now, next steps) in the user's editor";
+export const PLAN_SNIPPET = "Show your plan (done, now, next steps) in the user's editor";
 export const PLAN_GUIDELINES = [
 	'For a task with two or more steps, call plan when you start and each time a step is done. Labels are short (at most 8 words). While you work, exactly one step is now.',
 ];
