@@ -15,6 +15,10 @@ herdr plugin install stevetosak/symbiosis/herdr-plugin
   named `symbiosis` in the folder of the focused pane (a worktree's checkout
   first, the workspace folder last), with `ttt .` on the left (60 %) and `pi`
   on the right, which has the focus. `SYMBIOSIS_RATIO` changes the split.
+  herdr has no menu for plugin actions: bind a key (`type = "plugin_action"`,
+  `command = "symbiosis.open"`, see the main README) or run
+  `herdr plugin action invoke symbiosis.open`. The repository's `install.sh`
+  binds `prefix+shift+s`; `herdr plugin install` alone does not.
 
 From a checkout, `herdr plugin link herdr-plugin` does not run the build; run
 `sh herdr-plugin/scripts/build.sh` yourself, or use `npm run install:local`.

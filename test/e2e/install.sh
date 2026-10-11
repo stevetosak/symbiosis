@@ -48,7 +48,14 @@ check "$t/out-yes" "herdr pi integration installed"
 test -f "$t/home/.pi/agent/extensions/herdr-agent-state.ts" || { echo "FAIL: no integration file"; exit 1; }
 cmp -s "$repo/ttt/symbiosis/plugin.lua" "$t/home/.config/ttt/plugins/symbiosis/plugin.lua" || { echo "FAIL: ttt plugin not copied"; ls -R "$t/home/.config" ; exit 1; }
 env -i HOME="$t/home" PATH="$stubs:/usr/bin:/bin" "$real_herdr" plugin list 2>&1 | grep -q "symbiosis (symbiosis) enabled" || { echo "FAIL: plugin not registered"; exit 1; }
-echo "full setup: herdr, ttt, pi, pi package, ttt plugin, integration"
+cfg="$t/home/.config/herdr/config.toml"
+check "$cfg" 'command = "symbiosis.open"'
+check "$cfg" 'key = "prefix+shift+s"'
+check "$t/out-yes" "herdr key prefix+shift+s opens symbiosis"
+check "$t/out-yes" "Press prefix+shift+s"
+out=$(env -i HOME="$t/home" PATH="$stubs:/usr/bin:/bin" "$real_herdr" config check 2>&1 || true)
+echo "$out" | grep -qi "config: ok" || { echo "FAIL: herdr config check: $out"; exit 1; }
+echo "full setup: herdr, ttt, pi, pi package, ttt plugin, key, integration"
 
 : >"$t/log"
 rm "$t/home/.pi/agent/extensions/herdr-agent-state.ts"
@@ -57,4 +64,14 @@ check "$t/out-no" "herdr is there"
 check "$t/out-no" "Skipped. Later: herdr integration install pi"
 check "$t/out-no" "In herdr, go to a workspace"
 if grep -q "curl\|pi install" "$t/log"; then echo "FAIL: second run installed again"; cat "$t/log"; exit 1; fi
-echo "herdr there: plugin only, nothing installed twice"
+check "$t/out-no" "herdr key for Open symbiosis is there: prefix+shift+s"
+[ "$(grep -c 'symbiosis.open' "$cfg")" = 1 ] || { echo "FAIL: key added twice"; cat "$cfg"; exit 1; }
+echo "herdr there: plugin only, nothing installed twice, key kept"
+
+# A config that already uses the key for something else: left alone.
+printf '[[keys.command]]\nkey = "prefix+shift+s"\ntype = "shell"\ncommand = "true"\n' >"$cfg"
+run no
+check "$t/out-no" "prefix+shift+s is taken"
+check "$t/out-no" "2. Run: herdr plugin action invoke symbiosis.open"
+if grep -q symbiosis.open "$cfg"; then echo "FAIL: taken key overwritten"; exit 1; fi
+echo "key taken: config left alone"

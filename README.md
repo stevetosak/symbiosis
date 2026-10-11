@@ -31,9 +31,24 @@ to install herdr's pi integration, which shows pi's state (working, idle) in
 herdr's sidebar. symbiosis works without it. To answer before it asks, set
 `SYMBIOSIS_HERDR_INTEGRATION=yes` or `=no`.
 
-Then, in herdr, run the action **Open symbiosis** (or
-`herdr plugin action invoke symbiosis.open`). A tab opens in the folder of the
-focused pane: ttt on the left, pi on the right. Two steps the first time:
+It also binds a herdr key to the action **Open symbiosis**: `prefix+shift+s`
+(the prefix is `ctrl+b` by default). It does not change the config when the
+key or the action is already bound there; `SYMBIOSIS_KEY` picks another key.
+herdr has no menu for plugin actions, so a key or the command
+`herdr plugin action invoke symbiosis.open` starts it. To bind it yourself, in
+`~/.config/herdr/config.toml`, then `herdr server reload-config`:
+
+```toml
+[[keys.command]]
+key = "prefix+shift+s"
+type = "plugin_action"
+command = "symbiosis.open"
+description = "open symbiosis (ttt + pi)"
+```
+
+Then, in herdr, press the key in a pane in your project. A tab opens in the
+folder of the focused pane: ttt on the left, pi on the right. Two steps the
+first time:
 
 - ttt asks you to allow the plugin's permissions.
 - pi needs a model: `/login`, or an API key.
