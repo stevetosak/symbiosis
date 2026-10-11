@@ -21,17 +21,23 @@ export function save(dir: string, text: string) {
 }
 TS
 
-"$repo/bin/run-node" "$repo/test/e2e/help.ts" "$OUT/ws" ws 16000 > "$OUT/pi-ws.txt" 2>&1 &
+"$repo/bin/run-node" "$repo/test/e2e/help.ts" "$OUT/ws" ws 26000 > "$OUT/pi-ws.txt" 2>&1 &
 ws=$!
-"$repo/bin/run-node" "$repo/test/e2e/help.ts" "$OUT/other" other 16000 > "$OUT/pi-other.txt" 2>&1 &
+"$repo/bin/run-node" "$repo/test/e2e/help.ts" "$OUT/other" other 26000 > "$OUT/pi-other.txt" 2>&1 &
 other=$!
 sleep 0.8
 # The cursor goes to the end of line 4 ("	return dir;"), then a new line.
 steps="wait 2000; key down; key down; key down; key end; key enter"
-steps="$steps; type // make the folder helpi!; wait 2000; screenshot $OUT/1-code.txt"
-steps="$steps; key end; key enter; type // why a string helpi!; key enter; wait 1200; screenshot $OUT/2-note.txt"
-steps="$steps; type // what does the project use for errors helpi!; wait 1500; screenshot $OUT/3-ask.txt"
-steps="$steps; key end; key enter; type // slow helpi!; wait 1300; key esc; wait 300; type Q; wait 300; screenshot $OUT/4-stop.txt"
+steps="$steps; type // make the folder helpi!; wait 1000; screenshot $OUT/0-think.txt; wait 1800; screenshot $OUT/1-code.txt"
+# Undo brings the question back; the pause does not ask again, Enter does.
+steps="$steps; key ctrl+z; wait 1500; screenshot $OUT/1-undo.txt"
+for _ in $(seq 10); do steps="$steps; key up"; done
+steps="$steps; key down; key down; key down; key down; key end; key enter; wait 2800; screenshot $OUT/1-again.txt"
+steps="$steps; type // why a string helpi!; key enter; wait 2300; screenshot $OUT/2-note.txt"
+steps="$steps; type // what does the project use for errors helpi!; wait 2300; screenshot $OUT/3-ask.txt"
+steps="$steps; key end; key enter; type // slow helpi!; wait 2200; key esc; wait 300; type Q; wait 300; screenshot $OUT/4-stop.txt"
+# Esc while pi thinks: the question stays as it was. (Enter on it would ask again.)
+steps="$steps; key end; key enter; type // early helpi!; wait 1000; key esc; wait 1500; screenshot $OUT/5-early.txt"
 steps="$steps; key ctrl+s; wait 300; quit"
 (cd "$OUT/ws" && ttt --size 120x30 store.ts --exec "$steps" > /dev/null 2>&1) || true
 wait $ws $other || true
@@ -46,9 +52,15 @@ grep -q "make the folder" "$f" && fail "the code comment is still there"
 grep -q "^	// why a string$" "$f" || fail "the note question lost its text or kept helpi!"
 grep -q "^	// pi: writeFileSync takes a string or a Buffer.$" "$f" || fail "no note under the question"
 grep -q "^	// pi: asked ws; its answer comes in pi$" "$f" || fail "the ask line is missing"
-grep -q "helpi!" "$f" && fail "a helpi! marker is still in the file"
+[ "$(grep -c "helpi!" "$f")" = 1 ] || fail "not one helpi! left (the early one)"
+grep -q "^	Q// early helpi!$\|^	// early helpi!$" "$f" || fail "Esc while pi thinks did not leave the question as it was"
+grep -q "thinking" "$f" && fail "a waiting line is in the file"
+grep -q "thinking · Esc stops" "$OUT/0-think.txt" || fail "no waiting line while pi thinks"
+grep -q "make the folder helpi!" "$OUT/1-undo.txt" || fail "ctrl+z did not bring the question back"
+grep -q "mkdirSync(dir" "$OUT/1-undo.txt" && fail "ctrl+z left the code"
+[ "$(grep -c "^	mkdirSync(dir" "$f")" = 1 ] || fail "the code is not in once"
 grep -q "Q" "$f" || fail "typing after Esc did not reach the buffer"
-grep -q "asked: 4" "$OUT/pi-ws.txt" || fail "the ws session did not get the 4 questions"
+grep -q "asked: 6" "$OUT/pi-ws.txt" || fail "the ws session did not get the 6 questions"
 grep -q "agent got: 1" "$OUT/pi-ws.txt" || fail "the ask did not go to the ws agent"
 grep -q "asked: 0" "$OUT/pi-other.txt" || fail "the other session got a question"
 n=$(grep -c "This answer is long" "$f" || true)

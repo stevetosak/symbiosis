@@ -718,7 +718,7 @@ end
 
 local function pace()
 	-- A helpi! answer is being written: the replay waits for it.
-	if paused or (help and help.region) then return count_behind() end
+	if paused or (help and help.group) then return count_behind() end
 	local cps = SPEEDS[speed]
 	-- At most 0.2 s of typing saved up: no burst after a quiet moment.
 	if cps > 0 then budget = math.min(budget + cps * POLL_MS / 1000, math.max(cps / 5, 1)) end
@@ -820,7 +820,7 @@ local function schedule_save(soon)
 	save_timer = ttt.set_timeout(soon and 10 or ms, function()
 		save_timer = nil
 		if editor.file_path() ~= path or active or busy(path) or qhead <= #queue then return end
-		if help and help.region then return end
+		if help and help.group then return end
 		for _, c in pairs(calls) do
 			if c.path == path then return end
 		end
@@ -856,7 +856,9 @@ end
 -- takes the place of the comment, and missing imports go in at the top. ask:
 -- the question went to pi's agent. All in one undo group: one ctrl+z takes
 -- it back. While the answer is written, your typing in that file waits, and
--- the replay too. Esc stops it; what is written stays.
+-- the replay too. Esc stops it; what is written stays. Until the answer
+-- starts, a line under the question shows that pi thinks (a spinner); it is
+-- in the same undo group, and the answer takes its place.
 
 local OPENERS = { "<!--", "/*", "//", "--", "#", ";" }
 local CLOSERS = { ["<!--"] = " -->", ["/*"] = " */" }
@@ -865,7 +867,9 @@ local MAX_LINES = 150 -- a longer file sends its top and the lines around the qu
 local help_seq = 0
 local help_timer = nil
 local help_wait = nil  -- the timer that says pi did not take the question
-local help_asked = {}  -- path:line:text -> true: asked already, not again
+local help_asked = {}  -- path:line:text -> true: the pause does not ask again (Enter does)
+local help_quiet = 0   -- poll tick: changes before it are the plugin's own (the waiting line)
+local FRAMES = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
 
 -- The comment on `line` when it ends in helpi!: where its opener is, and the indent.
 local function helpi(line)
@@ -911,12 +915,96 @@ local function render(h, body, final)
 	return table.concat(out)
 end
 
+-- The waiting line: a comment under the question, with the question's indent.
+local function loader_text(h)
+	return h.indent .. h.opener .. " pi " .. FRAMES[h.frame] .. " thinking · Esc stops" .. (CLOSERS[h.opener] or "")
+end
+
+-- The line the waiting line is on now, if it is still there.
+local function loader_at(h)
+	if not h.loader or editor.file_path() ~= h.path then return nil end
+	if editor.get_line(h.loader) == h.loader_shown then return h.loader end
+	for i, l in ipairs(editor.buffer_lines()) do
+		if l == h.loader_shown then return i end
+	end
+	return nil
+end
+
+-- Shows the waiting line and opens the answer's undo group (the line is in it).
+local function show_loader()
+	local h = help
+	if not h or h.kind or h.group or editor.file_path() ~= h.path then return end
+	if editor.get_line(h.line) ~= h.text then return end
+	local cur = editor.cursor()
+	editor.begin_undo_group()
+	h.group = true
+	h.frame = 1
+	h.loader_shown = loader_text(h)
+	editing = true
+	if h.line < editor.line_count() then
+		editor.insert(h.line + 1, 1, h.loader_shown .. "\n")
+	else
+		editor.insert(h.line, runes(h.text) + 1, "\n" .. h.loader_shown)
+	end
+	editing = false
+	h.loader = h.line + 1
+	editor.set_cursor(cur.line > h.line and cur.line + 1 or cur.line, cur.col)
+end
+
+-- The spinner turns: called on each poll tick.
+local function spin_loader()
+	local h = help
+	if not h or not h.loader or h.kind or ticks % 3 ~= 0 then return end
+	local at = loader_at(h)
+	if not at then return end
+	local cur = editor.cursor()
+	h.frame = h.frame % #FRAMES + 1
+	h.loader_shown = loader_text(h)
+	editing = true
+	editor.set_line(at, h.loader_shown)
+	editing = false
+	h.loader = at
+	editor.set_cursor(cur.line, cur.col)
+end
+
+-- Takes the waiting line away; the cursor stays where it was in your text.
+local function hide_loader(h)
+	local at = loader_at(h)
+	h.loader = nil
+	if not at then return end
+	local cur = editor.cursor()
+	editing = true
+	if at < editor.line_count() then
+		editor.replace(at, 1, at + 1, 1, "")
+	else
+		local prev = editor.get_line(at - 1) or ""
+		editor.replace(at - 1, runes(prev) + 1, at, runes(h.loader_shown) + 1, "")
+	end
+	editing = false
+	if cur.line > at then editor.set_cursor(cur.line - 1, cur.col)
+	elseif cur.line == at then editor.set_cursor(at - 1, runes(editor.get_line(at - 1) or "") + 1)
+	else editor.set_cursor(cur.line, cur.col) end
+end
+
 local function help_end(message, level)
 	local h = help
 	if not h then return end
 	help = nil
 	if help_wait then ttt.clear_timeout(help_wait) help_wait = nil end
-	if h.group then editor.end_undo_group() end
+	if h.loader then hide_loader(h) end
+	help_quiet = ticks + 8
+	if h.group then
+		editor.end_undo_group()
+		-- Only the waiting line was in the group (Esc or an error before the
+		-- answer): undo it, so your next ctrl+z is not a step that does nothing.
+		if not h.region then
+			local cur = editor.cursor()
+			editing = true
+			ttt.exec_command("editor.undo")
+			editing = false
+			editor.set_cursor(cur.line, cur.col)
+		end
+	end
 	if message then ttt.notify("symbiosis: " .. message, level or "info") end
 	show()
 	if h.region then schedule_save(true) end
@@ -926,7 +1014,8 @@ local function help_write(fields)
 	fs.write(HELP, json.encode(fields))
 end
 
-local function ask_help()
+-- `again`: Enter asks also a line that was asked before (after ctrl+z, say).
+local function ask_help(again)
 	if not loaded or help or editing or run then return end
 	local path = editor.file_path()
 	if not path or path == "" then return end
@@ -935,7 +1024,7 @@ local function ask_help()
 	local c = helpi(text)
 	if not c then return end
 	local key = path .. ":" .. pos.line .. ":" .. text
-	if help_asked[key] then return end
+	if help_asked[key] and not again then return end
 	help_asked[key] = true
 	refresh_sessions()
 	if not owner then return ttt.notify("symbiosis: helpi! needs a pi session; none runs", "warning") end
@@ -959,6 +1048,14 @@ local function ask_help()
 		window = { first = first, text = table.concat(all, "\n", first, last) }, cancel = false,
 	})
 	show("helpi! → " .. owner.name)
+	-- After the key that asked (Enter goes in first).
+	ttt.set_timeout(10, function()
+		local fine, err = pcall(show_loader)
+		if not fine then
+			editing = false
+			ttt.log("error", "symbiosis helpi! loader: " .. tostring(err))
+		end
+	end)
 	help_wait = ttt.set_timeout(3000, function()
 		help_wait = nil
 		if help and not help.taken then
@@ -969,7 +1066,7 @@ local function ask_help()
 end
 
 help_soon = function()
-	if not loaded or editing or help then return end
+	if not loaded or editing or help or ticks < help_quiet then return end
 	if help_timer then ttt.clear_timeout(help_timer) end
 	help_timer = ttt.set_timeout(HELP_MS, function()
 		help_timer = nil
@@ -1048,11 +1145,15 @@ local function help_start(ev)
 		end
 		if not line then return help_end("helpi!: the question changed; the answer is not written", "warning") end
 	end
+	-- The waiting line goes; the answer takes its place.
+	if help.loader then hide_loader(help) end
 	-- You pressed Enter after the question: the cursor stays on your new line.
 	local cursor = editor.cursor()
 	if cursor.line > line then help.below = { lines = cursor.line - line, col = cursor.col } end
-	editor.begin_undo_group()
-	help.group = true
+	if not help.group then
+		editor.begin_undo_group()
+		help.group = true
+	end
 	editing = true
 	if ev.kind == "code" then
 		line = line + add_imports(ev.imports, line)
@@ -1394,11 +1495,11 @@ events.on("key.press", function(key)
 		local line = editor.current_line() or ""
 		if editor.cursor().col > runes(line) and helpi(line) then
 			if help_timer then ttt.clear_timeout(help_timer) help_timer = nil end
-			local fine, err = pcall(ask_help)
+			local fine, err = pcall(ask_help, true)
 			if not fine then ttt.log("error", "symbiosis helpi!: " .. tostring(err)) end
 		end
 	end
-	local writing = help and help.region and editor.file_path() == help.path
+	local writing = help and help.group and editor.file_path() == help.path
 	if (writing or (run and editor.file_path() == run.path)) and changes_buffer(key) then
 		if held then ttt.clear_timeout(held) end
 		held = ttt.set_timeout(1500, function() held = nil show() end)
@@ -1427,6 +1528,8 @@ ttt.set_timeout(100, function()
 		ticks = ticks + 1
 		poll()
 		pace()
+		local fine, err = pcall(spin_loader)
+		if not fine then editing = false ttt.log("error", "symbiosis helpi! spinner: " .. tostring(err)) end
 	end)
 	ttt.set_interval(1000, function()
 		refresh_sessions()

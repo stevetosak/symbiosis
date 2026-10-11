@@ -52,7 +52,7 @@ function answer(prompt: string): string {
 	return 'note\nThe demo knows three questions: one with "test" (it asks the main session),\none with "remove" (code), one with "why" (a note).\n';
 }
 
-const pi = new FakePi({ cwd: DIR, name: 'demo', answer, log: (line) => say(`  ${line}`) });
+const pi = new FakePi({ cwd: DIR, name: 'demo', answer, thinkMs: 800, log: (line) => say(`  ${line}`) });
 let stopping = false;
 process.on('SIGINT', async () => {
 	if (stopping) process.exit(130);

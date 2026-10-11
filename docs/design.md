@@ -257,8 +257,10 @@ You write a comment that ends in `helpi!`. 600 ms after your last change, or
 at once on Enter at the end of that line, the plugin writes `help.json`
 (`HelpRequest` in `pi/help.ts`) addressed to the owner: the line, its number,
 the language, and the code (the whole file up to 150 lines, else the first 20
-lines and lines -40/+20 around the question). One question at a time; a line
-asked once is not asked again unless it failed. No owner, an old protocol, or
+lines and lines -40/+20 around the question). One question at a time. The
+pause asks a line only once (unless it failed): ctrl+z, which brings the
+question back, would else ask it again by itself. Enter at the end of the
+line always asks. No owner, an old protocol, or
 no answer in 3 s: the plugin says so.
 
 The owner's extension reads `help.json` every 100 ms and makes a side call
@@ -274,7 +276,12 @@ kind, then the answer:
 
 The extension streams `help` (taken), `help_start` (kind, imports),
 `help_text` (the whole answer so far, at most every 40 ms) and `help_done`
-(complete, `stopped`, or `error`). The plugin writes them at once, not through
+(complete, `stopped`, or `error`). Until `help_start`, a waiting line under
+the question shows `// pi ⠋ thinking · Esc stops` (the spinner turns every
+120 ms); it opens the answer's undo group, the answer takes its place, and
+Esc or an error takes it away (and undoes the group, so no empty undo step is
+left). While it is there, keys in that file and the replay wait, and autosave
+does not save it. The plugin writes the help events at once, not through
 the replay queue: full speed. The answer is one undo group: one ctrl+z brings
 the question back. While it writes, keys that change that file wait; Esc
 writes `cancel` to `help.json` and pi stops the call (what is written

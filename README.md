@@ -60,8 +60,10 @@ allow the plugin's permissions.
   place of your comment (a missing import goes in at the top; one ctrl+z
   brings your comment back), a **note** comes as `pi:` lines under it, or
   **ask**: the question goes to the session's agent, and its answer comes in
-  pi. The answer streams in at full speed; your keys in that file wait, Esc
-  stops it.
+  pi. Until the answer starts, a line under the question shows
+  `// pi ⠋ thinking · Esc stops`. The answer streams in at full speed; your
+  keys in that file wait, Esc stops it. After ctrl+z, Enter at the end of the
+  line asks again (the pause alone does not).
 - Status bar `✓ 3 › ▶ Run the tests › Update the README +1`: pi's plan as a
   timeline, done › now › next. pi sends it with its `plan` tool for a task
   with several steps. `ctrl+k v` (or a click) shows the whole plan in a

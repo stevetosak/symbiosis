@@ -50,6 +50,8 @@ export interface FakePiOptions {
 	log?: (line: string) => void;
 	/** The "model" for helpi!: the whole reply to a question, streamed in chunks. */
 	answer?: (prompt: string) => string;
+	/** How long the "model" thinks before its first chunk (default 4 steps). */
+	thinkMs?: number;
 }
 
 export class FakePi {
@@ -63,6 +65,7 @@ export class FakePi {
 	private readonly ctx: unknown;
 	private readonly chunk: number;
 	private readonly stepMs: number;
+	private readonly thinkMs: number;
 	private readonly log: (line: string) => void;
 	private parse: (s: string) => unknown = () => ({});
 	private calls = 0;
@@ -72,6 +75,7 @@ export class FakePi {
 		this.cwd = options.cwd;
 		this.chunk = options.chunk ?? 12;
 		this.stepMs = options.stepMs ?? 25;
+		this.thinkMs = options.thinkMs ?? this.stepMs * 4;
 		this.log = options.log ?? (() => {});
 		const pi = {
 			on: (name: string, h: Handler) => this.handlers.set(name, [...(this.handlers.get(name) ?? []), h]),
@@ -139,7 +143,7 @@ export class FakePi {
 		this.asked.push(prompt);
 		const reply = answer(prompt);
 		this.log(`helpi!: answering (${reply.split('\n')[0]})`);
-		await sleep(this.stepMs * 4);
+		await sleep(this.thinkMs);
 		for (let i = 0; i < reply.length; i += this.chunk) {
 			if (signal?.aborted) {
 				yield { type: 'error', reason: 'aborted', error: { errorMessage: 'aborted' } };

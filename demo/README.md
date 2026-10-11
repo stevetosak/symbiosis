@@ -35,7 +35,9 @@ npm run demo
    - `// why does list() copy? helpi!`: a **note**, `pi:` lines under it.
    - `// write a test for remove helpi!`: **ask**, the question goes to the
      session as a message, and the script's turn writes the test.
-   Esc stops an answer. Ask as often as you like; `ctrl+c` ends the demo.
+   While the "model" thinks (0.8 s), a `// pi ⠋ thinking` line shows under
+   your question. Esc stops an answer. After ctrl+z, Enter at the end of the
+   line asks again. Ask as often as you like; `ctrl+c` ends the demo.
 
 The script always does the same thing, so it is the one to test with.
 `PAUSE_MS` sets the time between steps (default 1500).

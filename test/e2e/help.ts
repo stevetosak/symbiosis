@@ -17,7 +17,7 @@ function answer(prompt: string): string {
 	return 'note\nI do not know.';
 }
 
-const pi = new FakePi({ cwd, name, chunk: 4, stepMs: 20, answer, log: (line) => console.log(line) });
+const pi = new FakePi({ cwd, name, chunk: 4, stepMs: 20, answer, thinkMs: 1000, log: (line) => console.log(line) });
 await pi.start();
 await sleep(Number(ms));
 await pi.stop();
