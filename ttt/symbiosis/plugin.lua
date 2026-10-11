@@ -17,7 +17,9 @@
 -- Sessions: each pi writes sessions/<id>.json. The editor follows one of them,
 -- the owner: the session whose folder holds the open file (the most recent
 -- one if several do), or the one you chose with ctrl+k n. Only the owner
--- writes events and answers helpi!. ctrl+k g goes to its herdr pane.
+-- writes events and answers helpi!. ctrl+k g goes to its herdr or tmux pane,
+-- ctrl+k q stops its turn (stop.json), and the bar says when it waits on a
+-- dialog in its own pane.
 --
 -- helpi!: a comment that ends in `helpi!` asks the owner, at once: the answer
 -- (a note, code, or "asked pi") is written at that place. See "helpi!" below.
@@ -41,7 +43,7 @@ local AUTOSAVES = { 0, 1000, 3000 }
 -- 0 = pi waits for each change, as it did before.
 local LAGS = { 0, 3, 10, -1 }
 local POLL_MS = 40
-local PROTOCOL = 9     -- the channel protocol of pi/index.ts
+local PROTOCOL = 10    -- the channel protocol of pi/index.ts
 local PLAN_WIDTH = 56  -- the timeline in the status bar, in characters
 
 local gen, offset = nil, 0
@@ -133,12 +135,30 @@ end
 
 local function name(path) return path:match("[^/]+$") or path end
 
+local waiting_said = nil -- the dialog the notice told about
+
 local function show_session()
 	local text
 	if not owner then
 		text = "π none"
 	else
-		text = "π " .. owner.name .. (owner.working and " ● working" or " ○ idle")
+		local waiting = type(owner.waiting) == "string" and owner.waiting or nil
+		-- pi shows a dialog in its own pane: a notice says so for 5 s, then the
+		-- bar keeps it.
+		if waiting and waiting_said ~= owner.id .. waiting then
+			local said = owner.id .. waiting
+			waiting_said = said
+			ttt.notify("symbiosis: pi " .. owner.name .. " waits for you: " .. waiting .. " (ctrl+k g goes there)", "info")
+			-- Measured: here the notice stays (a bare plugin's goes in about 4 s).
+			ttt.set_timeout(5000, function()
+				if waiting_said == said then ttt.notify("") end
+			end)
+		elseif not waiting and waiting_said then
+			-- The notice goes with the dialog.
+			waiting_said = nil
+			ttt.notify("")
+		end
+		text = "π " .. owner.name .. (waiting and " ? waits for you" or owner.working and " ● working" or " ○ idle")
 		if owner.version ~= PROTOCOL then text = "π " .. owner.name .. " · old, /reload" end
 		if chosen then text = text .. " (chosen)"
 		elseif outside then text = text .. " (outside its folder)" end
@@ -601,19 +621,36 @@ local function next_session()
 	refresh_sessions()
 end
 
--- ctrl+k g, or a click on "π ...": go to the owner's pane in herdr.
+-- ctrl+k g, or a click on "π ...": go to the owner's pane in herdr or tmux.
 go_session = function()
 	if not owner then
 		return ttt.notify("symbiosis: no pi session is running", "warning")
 	end
 	if not owner.pane then
-		return ttt.notify("symbiosis: pi " .. owner.name .. " does not run in herdr", "warning")
+		return ttt.notify("symbiosis: pi " .. owner.name .. " does not run in herdr or tmux", "warning")
 	end
-	system.exec_async("herdr", { "agent", "focus", owner.pane }, function(result)
+	local binary, args = "herdr", { "agent", "focus", owner.pane }
+	if owner.host == "tmux" then
+		binary, args = "tmux", { "select-window", "-t", owner.pane, ";", "select-pane", "-t", owner.pane }
+	end
+	system.exec_async(binary, args, function(result)
 		if result.exit_code ~= 0 then
-			ttt.notify("symbiosis: herdr could not focus " .. owner.pane .. ": " .. (result.stderr or ""), "error")
+			ttt.notify("symbiosis: " .. binary .. " could not focus " .. owner.pane .. ": " .. (result.stderr or ""), "error")
 		end
 	end)
+end
+
+-- ctrl+k q: stop the owner's turn, as Esc in pi does. pi reads stop.json.
+local stops = 0
+local function stop_pi()
+	if not owner then
+		return ttt.notify("symbiosis: no pi session is running", "warning")
+	end
+	if not owner.working then
+		return ttt.notify("symbiosis: pi " .. owner.name .. " is idle", "info")
+	end
+	stops = stops + 1
+	fs.write(DIR .. "/stop.json", json.encode({ id = tostring(os.time()) .. "-" .. stops, to = owner.id }))
 end
 
 -- The diff key -------------------------------------------------------------
@@ -1367,7 +1404,7 @@ end
 
 local KEYS = {
 	{ key = "ctrl+k h", value = "this panel" },
-	{ key = "ctrl+k q", value = "prompt pi (under symbiosis)" },
+	{ key = "ctrl+k q", value = "stop pi's turn" },
 	{ key = "ctrl+k a", value = "pin / unpin the editor" },
 	{ key = "ctrl+k - / =", value = "preview slower / faster" },
 	{ key = "ctrl+k space", value = "pause the replay" },
@@ -1377,7 +1414,7 @@ local KEYS = {
 	{ key = "// … helpi!", value = "ask pi here: wait, or Enter" },
 	{ key = "Esc", value = "stop a helpi! answer" },
 	{ key = "ctrl+k n", value = "next pi session" },
-	{ key = "ctrl+k g", value = "go to pi's pane (herdr)" },
+	{ key = "ctrl+k g", value = "go to pi's pane (herdr, tmux)" },
 }
 
 local function render_help(panel)
@@ -1412,7 +1449,9 @@ local function render_help(panel)
 		local mark = owner and owner.id == rec.id and "▶ " or "  "
 		table.insert(items, {
 			id = rec.id,
-			label = mark .. rec.name .. (rec.working and " ●" or " ○") .. (chosen == rec.id and " ✓ chosen" or "") .. now,
+			label = mark .. rec.name .. (type(rec.waiting) == "string" and " ?" or rec.working and " ●" or " ○")
+				.. (type(rec.model) == "string" and (" · " .. rec.model) or "")
+				.. (chosen == rec.id and " ✓ chosen" or "") .. now,
 			muted = rec.version ~= PROTOCOL,
 		})
 	end
@@ -1435,164 +1474,13 @@ local function open_help()
 	ttt.open_drawer({ width = 52, min_width = 36, side = "right", render = render_help })
 end
 
--- The backend ---------------------------------------------------------------
--- Under the `symbiosis` command, pi runs behind ttt in RPC mode (launcher/).
--- SYMBIOSIS_BACKEND names the bridge's folder: backends/<id>/ui.json is the
--- launcher's (pi's state, the dialog pi waits on, pi's notices), and
--- backends/<id>/ttt.json is ours (your prompts, your answers). Each has an
--- id; the launcher acts on an id once. pi's dialogs (a guard's "Allow?")
--- open in ttt's command line: pi waits until you answer.
-
-local BACKEND = nil -- the bridge folder; nil when ttt runs on its own
-local back = {
-	prompts = {}, answers = {}, -- what we sent, the last 20 of each
-	shown = nil,                -- the id of the dialog in the command line
-	answered = {},              -- dialog ids answered, until the launcher drops them
-	noticed = {},               -- notice ids shown
-	state = nil,                -- pi: "starting", "ready", "exited"; nil = no launcher
-	working = false,
-	n = 0,
-}
-
-local function back_id()
-	back.n = back.n + 1
-	return tostring(os.time()) .. "-" .. back.n
-end
-
-local function back_write()
-	local function last(list)
-		while #list > 20 do table.remove(list, 1) end
-		return list
-	end
-	fs.write(BACKEND .. "/ttt.json", json.encode({ prompts = last(back.prompts), answers = last(back.answers) }))
-end
-
-local function back_answer(id, fields)
-	fields.id = id
-	table.insert(back.answers, fields)
-	back.answered[id] = true
-	if back.shown == id then back.shown = nil end
-	back_write()
-end
-
-local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
-
--- The dialog's question, on one line.
-local function dialog_head(d)
-	local text = "pi: " .. (d.title or "pi asks")
-	if d.message and d.message ~= "" then text = text .. " " .. d.message:gsub("%s*\n%s*", " ") end
-	return text
-end
-
-local show_dialog -- forward: a wrong answer shows the dialog again
-
-show_dialog = function(d)
-	local function cancel() back_answer(d.id, { cancelled = true }) end
-	local config = { on_cancel = cancel }
-	if d.method == "confirm" then
-		config.prefix = dialog_head(d) .. "  y/n: "
-		config.on_key = function(ev)
-			local r = tostring(ev.rune or ""):lower()
-			if r == "y" or r == "n" then
-				ttt.command_line.hide()
-				back_answer(d.id, { confirmed = r == "y" })
-				return true
-			end
-			return false
-		end
-		config.on_submit = function(text)
-			local t = trim(text):lower()
-			if t == "y" or t == "yes" then back_answer(d.id, { confirmed = true })
-			elseif t == "n" or t == "no" then back_answer(d.id, { confirmed = false })
-			else show_dialog(d) end
-		end
-	elseif d.method == "select" then
-		local options = d.options or {}
-		local parts = {}
-		for i, o in ipairs(options) do table.insert(parts, i .. " " .. o) end
-		config.prefix = dialog_head(d) .. "  " .. table.concat(parts, " · ") .. "  number: "
-		config.on_key = function(ev)
-			local i = tonumber(ev.rune or "")
-			if #options <= 9 and i and options[i] then
-				ttt.command_line.hide()
-				back_answer(d.id, { value = options[i] })
-				return true
-			end
-			return false
-		end
-		config.on_submit = function(text)
-			local t = trim(text)
-			local pick = options[tonumber(t) or 0]
-			for _, o in ipairs(options) do if o == t then pick = o end end
-			if pick then back_answer(d.id, { value = pick }) else show_dialog(d) end
-		end
-	else
-		-- input and editor: one line here; a line break shows as ⏎.
-		config.prefix = dialog_head(d) .. (d.placeholder and (" (" .. d.placeholder .. ")") or "") .. ": "
-		config.text = (d.prefill or ""):gsub("\n", " ⏎ ")
-		config.on_submit = function(text)
-			back_answer(d.id, { value = (text:gsub(" ?⏎ ?", "\n")) })
-		end
-	end
-	ttt.command_line.show(config)
-	-- show() does nothing while another overlay is up: try again on the next poll.
-	if ttt.command_line.active() then back.shown = d.id end
-end
-
-local function poll_backend()
-	if not BACKEND then return end
-	local raw = fs.read(BACKEND .. "/ui.json")
-	local ok, ui = pcall(json.decode, raw or "")
-	if not raw or not ok or type(ui) ~= "table" then
-		back.state = nil
-		return
-	end
-	back.state = ui.pi
-	back.working = ui.working == true
-	local last_notice = nil
-	for _, n in ipairs(ui.notices or {}) do
-		if not back.noticed[n.id] then
-			back.noticed[n.id] = true
-			last_notice = n
-		end
-	end
-	if last_notice then ttt.notify("pi: " .. last_notice.text, last_notice.level) end
-	local d = type(ui.dialog) == "table" and ui.dialog or nil
-	if back.shown and (not d or d.id ~= back.shown) then
-		-- pi stopped waiting (its timeout), or the dialog was answered.
-		if ttt.command_line.active() then ttt.command_line.hide() end
-		back.shown = nil
-	end
-	if d and not back.shown and not back.answered[d.id] then show_dialog(d) end
-end
-
--- ctrl+k q: a prompt for the pi behind ttt (a one-line stand-in for the chat panel).
-local function prompt_pi()
-	if not BACKEND then
-		ttt.notify("symbiosis: no pi behind this ttt; start it with the symbiosis command", "warning")
-		return
-	end
-	if back.state ~= "ready" then
-		ttt.notify("symbiosis: pi is " .. (back.state or "not running"), "warning")
-		return
-	end
-	ttt.command_line.show({
-		prefix = back.working and "pi (working; waits) › " or "pi › ",
-		on_submit = function(text)
-			if trim(text) == "" then return end
-			table.insert(back.prompts, { id = back_id(), text = text })
-			back_write()
-		end,
-	})
-end
-
 ttt.register({
 	sidebar = { title = "pi files", render = render_tree },
 	commands = {
 		{ id = "symbiosis.togglePin", title = "symbiosis: Pin / Unpin the Editor", handler = toggle_pin },
 		{ id = "symbiosis.goToAgent", title = "symbiosis: Go to the Agent's Last Edit", handler = go },
 		{ id = "symbiosis.nextSession", title = "symbiosis: Next pi Session Takes Over", handler = next_session },
-		{ id = "symbiosis.goToSession", title = "symbiosis: Go to the pi Session (herdr)", handler = go_session },
+		{ id = "symbiosis.goToSession", title = "symbiosis: Go to the pi Session (herdr, tmux)", handler = go_session },
 		{ id = "symbiosis.showPlan", title = "symbiosis: Show pi's Plan", handler = function() open_plan() end },
 		{ id = "symbiosis.showChanges", title = "symbiosis: What pi Changed in Its Last Turn (diff)", handler = show_changes },
 		{ id = "symbiosis.slower", title = "symbiosis: Preview Slower", handler = function() set_speed(-1) end },
@@ -1600,7 +1488,7 @@ ttt.register({
 		{ id = "symbiosis.pause", title = "symbiosis: Pause / Go On (pi waits)", handler = toggle_pause },
 		{ id = "symbiosis.rush", title = "symbiosis: Show the Rest of the Preview Now", handler = rush_now },
 		{ id = "symbiosis.help", title = "symbiosis: Settings, Sessions and Keys", handler = open_help },
-		{ id = "symbiosis.prompt", title = "symbiosis: Prompt the pi Behind ttt", handler = prompt_pi },
+		{ id = "symbiosis.stop", title = "symbiosis: Stop pi's Turn", handler = stop_pi },
 	},
 	keybindings = {
 		{ key = "ctrl+k a", command = "symbiosis.togglePin" },
@@ -1613,7 +1501,7 @@ ttt.register({
 		{ key = "ctrl+k space", command = "symbiosis.pause" },
 		{ key = "ctrl+k .", command = "symbiosis.rush" },
 		{ key = "ctrl+k h", command = "symbiosis.help" },
-		{ key = "ctrl+k q", command = "symbiosis.prompt" },
+		{ key = "ctrl+k q", command = "symbiosis.stop" },
 	},
 })
 
@@ -1674,8 +1562,6 @@ events.on("editor.change", function() help_soon() end)
 -- fs.read and the status bar are not ready while the plugin loads.
 ttt.set_timeout(100, function()
 	loaded = true
-	local fine, id = pcall(system.env, "SYMBIOSIS_BACKEND")
-	if fine and id and id ~= "" and id:match("^[%w%-]+$") then BACKEND = DIR .. "/backends/" .. id end
 	load_settings()
 	refresh_sessions()
 	show()
@@ -1684,10 +1570,6 @@ ttt.set_timeout(100, function()
 		ticks = ticks + 1
 		poll()
 		pace()
-		if ticks % 3 == 0 then
-			local ok, err = pcall(poll_backend)
-			if not ok then ttt.log("error", "symbiosis backend: " .. tostring(err)) end
-		end
 		local fine, err = pcall(spin_loader)
 		if not fine then editing = false ttt.log("error", "symbiosis helpi! spinner: " .. tostring(err)) end
 	end)

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { hasPackage, planOldLink, planTttPlugin } from '../install.ts';
 import { syncTttPlugin } from '../pi/setup.ts';
-import { Channel } from '../pi/channel.ts';
+import { Channel, paneOf } from '../pi/channel.ts';
 
 const temp = () => mkdtempSync(join(tmpdir(), 'symbiosis-'));
 
@@ -168,4 +168,20 @@ test('install copies only changed plugin files and keeps runtime files', () => {
 	assert.deepEqual([second.state, second.why], ['update', 'plugin.lua']);
 	second.run?.();
 	assert.equal(readFileSync(join(dest, 'events.jsonl'), 'utf-8'), 'x');
+});
+
+test('stop.json: the plugin asks one session to stop its turn', () => {
+	const dir = temp();
+	const c = new Channel(dir);
+	assert.equal(c.stop(), undefined);
+	writeFileSync(join(dir, 'stop.json'), JSON.stringify({ id: '17-1', to: 'p1' }));
+	assert.deepEqual(c.stop(), { id: '17-1', to: 'p1' });
+	writeFileSync(join(dir, 'stop.json'), JSON.stringify({ id: 3, to: 'p1' }));
+	assert.equal(c.stop(), undefined);
+});
+
+test('the pane of pi: herdr, tmux, or none', () => {
+	assert.deepEqual(paneOf({ HERDR_PANE_ID: 'w4:p1', TMUX: 'x', TMUX_PANE: '%1' }), { pane: 'w4:p1', host: 'herdr' });
+	assert.deepEqual(paneOf({ TMUX: '/tmp/t,1,0', TMUX_PANE: '%3' }), { pane: '%3', host: 'tmux' });
+	assert.deepEqual(paneOf({ TMUX_PANE: '%3' }), { pane: null, host: null });
 });

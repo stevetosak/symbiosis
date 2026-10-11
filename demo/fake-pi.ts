@@ -88,10 +88,25 @@ export class FakePi {
 		this.ctx = {
 			cwd: this.cwd,
 			isIdle: () => this.idle,
+			abort: () => {
+				this.aborts++;
+			},
 			sessionManager: { getBranch: () => [] },
 			model: { id: 'fake' },
 			modelRegistry: { streamSimple: (_model: unknown, context: Context, options?: { signal?: AbortSignal }) => this.stream(answer, context, options?.signal) },
 		};
+	}
+
+	/** How often ctrl+k q (or anything else) asked this pi to stop its turn. */
+	aborts = 0;
+
+	/** A dialog, as a guard's "Allow?": pi waits on it until `dialogEnd()`. */
+	async dialog(title: string): Promise<void> {
+		await this.fire('ui_prompt_start', { type: 'ui_prompt_start', reason: 'ui_prompt', kind: 'confirm', title });
+	}
+
+	async dialogEnd(): Promise<void> {
+		await this.fire('ui_prompt_end', { type: 'ui_prompt_end', reason: 'ui_prompt', kind: 'confirm' });
 	}
 
 	async fire(name: string, event: unknown = {}): Promise<void> {

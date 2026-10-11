@@ -12,6 +12,8 @@
 //   ack.json      [call ids]: the changes the editor has shown (replayed).
 //   help.json     HelpRequest: the plugin asks session `to` a helpi!
 //                 question (pi/help.ts), or to stop it (`cancel`).
+//   stop.json     {id, to}: the plugin asks session `to` to stop its turn
+//                 (ctrl+k q); `id` is new for each press.
 //   sessions/<id>.json  one Session per running pi, written every second.
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -39,8 +41,14 @@ export interface Session {
 	id: string;
 	/** The channel protocol of this extension; the plugin flags an older one. */
 	version: number;
-	/** The herdr pane of this pi, when it runs in herdr. */
+	/** The pane of this pi, when it runs in herdr or tmux: ctrl+k g goes there. */
 	pane: string | null;
+	/** Which multiplexer `pane` belongs to. */
+	host: 'herdr' | 'tmux' | null;
+	/** The model, for the ctrl+k h panel. */
+	model: string | null;
+	/** The title of the dialog pi waits on (a guard's "Allow?"), else null. */
+	waiting: string | null;
 	cwd: string;
 	name: string;
 	pid: number;
@@ -56,6 +64,19 @@ export interface Session {
 	files: string[];
 	/** pi's session name (`/name`), to tell sessions in one folder apart. */
 	title: string | null;
+}
+
+/** ctrl+k q in ttt: stop the turn of session `to`. */
+export interface StopRequest {
+	id: string;
+	to: string;
+}
+
+/** The pane pi runs in, from the multiplexer's environment. */
+export function paneOf(env: NodeJS.ProcessEnv): { pane: string | null; host: 'herdr' | 'tmux' | null } {
+	if (env.HERDR_PANE_ID) return { pane: env.HERDR_PANE_ID, host: 'herdr' };
+	if (env.TMUX && env.TMUX_PANE) return { pane: env.TMUX_PANE, host: 'tmux' };
+	return { pane: null, host: null };
 }
 
 export class Channel {
@@ -139,6 +160,12 @@ export class Channel {
 		const acks = readJson<unknown[]>(join(this.dir, 'ack.json'));
 		const shown = new Set(Array.isArray(acks) ? acks : []);
 		return calls.filter((c) => !shown.has(c));
+	}
+
+	/** The plugin's last stop request, if any. */
+	stop(): StopRequest | undefined {
+		const raw = readJson<{ id?: unknown; to?: unknown }>(join(this.dir, 'stop.json'));
+		return typeof raw?.id === 'string' && typeof raw.to === 'string' ? { id: raw.id, to: raw.to } : undefined;
 	}
 
 	/** The plugin's last helpi! request, if any. */

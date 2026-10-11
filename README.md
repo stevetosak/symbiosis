@@ -74,18 +74,20 @@ load the extension twice). `/reload` in pi after a change.
 
 ## The symbiosis command (in progress)
 
-`bin/symbiosis [folder]` opens ttt in the whole pane, with pi working behind
-it in RPC mode (`docs/plan-app.md`). The folder is the git root, else this
-folder. `-c` continues pi's last session there, `--new` opens a second one,
-`-- <args>` go to pi. Config: `~/.config/symbiosis/config.json`
-`{"open": "here" | "tab", "piArgs": [...]}`. When ttt quits, pi stops.
+`bin/symbiosis [folder]` opens ttt in the folder and a real pi beside it
+(`docs/plan-app.md`). The folder is the git root, else this folder.
 
-- `ctrl+k q`: a prompt for the pi behind ttt (a one-line stand-in until the
-  chat panel comes).
-- pi's questions (a guard's "Allow this one call?", a select, an input) open
-  in ttt's command line: `y`/`n`, an option's number, or a typed line. Esc
-  cancels. pi waits for your answer.
-- pi's notices show in ttt's status bar.
+- In herdr or tmux, pi gets a tab of its own, "pi · <folder>", and ttt opens
+  here (`--tabs`, the default). `--split`: this pane splits, ttt left, pi
+  right. `--tab`: all of it in a new tab. Outside herdr and tmux, ttt opens
+  alone and symbiosis prints how to start pi.
+- `-c` continues pi's last session there, `--new` opens a second one,
+  `-- <args>` go to pi. A second `symbiosis` for the same folder says where
+  the first one runs.
+- When ttt quits, pi stays: it is a full pi session in its own pane.
+- Config: `~/.config/symbiosis/config.json`
+  `{"open": "here" | "tab", "layout": "tabs" | "split", "piArgs": [...]}`.
+  A flag wins over the config.
 
 ## Use
 
@@ -113,8 +115,12 @@ folder. `-c` continues pi's last session there, `--new` opens a second one,
 - Status bar `π symbiosis ● working`: the pi session the editor follows, by
   the open file: the session that wrote it, else the one whose folder holds
   it, else the most recent one. Its name is pi's session name (`/name`), else
-  the folder; two sessions with one name also show their herdr pane. Click it or `ctrl+k g` to go to its herdr
-  pane. `ctrl+k n`: the next session takes over (then back to automatic).
+  the folder; two sessions with one name also show their pane. Click it or `ctrl+k g` to go to its herdr
+  or tmux pane. `ctrl+k n`: the next session takes over (then back to
+  automatic). `ctrl+k q` stops its turn, as Esc in pi does.
+- `π symbiosis ? waits for you`: pi shows a dialog in its own pane (a guard's
+  "Allow this one call?", a question) and waits. A notice says so with the
+  dialog's title; `ctrl+k g` goes there.
 - `helpi!`: write a comment that ends in `helpi!`, for example
   `// make the folder helpi!`, and stop typing (600 ms) or press Enter at the
   end of the line. The session the editor follows asks its model in a side
@@ -158,6 +164,7 @@ bash test/e2e/help.sh      # helpi!: code, note, ask, Esc; only the session the 
 bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the workspace tests must pass
 bash test/e2e/lag.sh       # the replay behind pi (LAG=-1, SPEED=80); typing waits; buffer = disk at the end
 bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel shows a file outside the folder
-bash test/e2e/app.sh       # the symbiosis command with a fake RPC pi: prompts, dialogs in the command line, pi stops with ttt
+bash test/e2e/app.sh       # the symbiosis command with fake herdr, tmux, pi and ttt: tabs, split, --tab, no multiplexer
+bash test/e2e/stop.sh      # "? waits for you" while pi shows a dialog; ctrl+k q stops pi's turn
 sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi): with and without herdr
 ```
