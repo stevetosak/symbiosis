@@ -13,8 +13,8 @@ Then the editor shows the result at the changed line.
 | pi extension | `pi/index.ts` | Reads the tool calls while they stream. Writes events. |
 | Events | `pi/stream.ts` | Pure: turns growing arguments into small `text` events. |
 | Channel | `pi/channel.ts` | Files in the plugin folder: `events.jsonl`, `head.json`, `ttt.json` (with the lag limit), `ack.json` (the changes shown). |
-| Suggestions | `pi/suggest.ts` | Pure: finds `AI!` and `AI?` comments, writes the message for pi. |
-| ttt plugin | `ttt/symbiosis/plugin.lua` | Polls every 40 ms. Shows the preview. Follows the result. Marks suggestions. Opens the chat. |
+| helpi! | `pi/help.ts` | Pure: the request, the side call's prompt, the answer parser (kind, imports, body). |
+| ttt plugin | `ttt/symbiosis/plugin.lua` | Polls every 40 ms. Shows the preview. Follows the result. Sends helpi! questions and writes the answers. |
 
 A ttt plugin cannot open a socket and can read only its own folder and the
 workspace. Thus the channel is files in the plugin folder.
@@ -144,7 +144,7 @@ so the new value was hidden. Now:
 - The reveal moves the sidebar to the explorer, also from Find or Changes.
 - The "pi files" tab is hidden behind `»` in a narrow sidebar.
 
-## Slice 2: sessions and suggestions
+## Slice 2: sessions
 
 **Sessions.** pi runs in any terminal; you watch it there. (A chat panel in
 ttt was tried and dropped: it took space from the code.) Each pi writes
@@ -164,30 +164,15 @@ ttt was tried and dropped: it took space from the code.) Each pi writes
    session runs. (Before, a file outside every folder gave "none for this
    file", also a file pi itself had just written in `/tmp`.)
 
-Only the owner writes events and gets the markers. The status bar shows it:
+Only the owner writes events and answers helpi! questions. The status bar shows it:
 `π symbiosis ● working`, `π none`, or `π tosak-docs · old, /reload` for an
 extension with another protocol. `ctrl+k g` or a click runs
 `herdr agent focus <pane>` (the plugin's `system.exec` permission allows
 `herdr` only). When the owner changes, its first event starts the log again,
 so `head.json` and the log always agree.
 
-**Suggestions.** You write a comment that ends in `AI!` (make this change) or
-`AI?` (answer this). Where the comment is sets its reach:
-
-| Where | Reach |
-|---|---|
-| After code on the same line | that line |
-| On its own line | the block below it (function, class, ...) |
-| On its own line at the top of the file, a blank line after it | the whole file |
-
-The plugin marks each one with an info diagnostic. `ctrl+k d` saves the file
-and writes `request.json` addressed to the owner (`to`). No owner: the plugin
-says so and sends nothing. No answer in 3 s: the plugin says so. The owner's
-extension finds every marker (`git grep` over
-the workspace, plus the saved file), sends ONE user message to pi (as a
-follow-up when pi is busy), and writes a `sent` event back. The message tells
-pi to delete each marker when it is done, so a closed suggestion leaves no
-trace in the code.
+(Slice 2 also had `AI!` / `AI?` comments, sent with `ctrl+k d` as one
+message to pi. They were replaced by `helpi!`, below: "not smooth enough".)
 
 Found in the spike, ttt 1.7.1: `gmatch("[^\n]*\n")` crashes with a nil
 pointer on text that has an empty line. The plugin splits lines with `find`.
@@ -255,9 +240,48 @@ no reveal. ttt has no command to show a plugin's sidebar tab: you choose it.
 Streaming: no model tokens, the extension reads what pi streams anyway. The
 speed costs wall-clock time only, and only past the lag limit. Each `start`
 carries the file's text (up to 256 KB) in the channel log.
-Suggestions: one user message per `ctrl+k d`, about 40 tokens plus ~20 per
-marker.
+helpi!: one side call per question to the session's model, outside pi's
+conversation: the prompt (~400 tokens), the file (up to 150 lines, else 20
+lines of the top and 60 around the question), pi's plan and up to 2000
+characters of pi's last message: about 2–5k tokens in, my estimate, plus the
+answer. An `ask` answer also sends one user message to pi (the question and
+the same code).
 Diff key: no model tokens; each file pi touches is copied twice per turn.
 Timeline: the `plan` tool is in every request, about 150 tokens (schema,
 one-line snippet, one guideline). Each call costs the steps it sends, about
 10 tokens a step, plus a one-line result.
+
+## helpi!: ask where you write
+
+You write a comment that ends in `helpi!`. 600 ms after your last change, or
+at once on Enter at the end of that line, the plugin writes `help.json`
+(`HelpRequest` in `pi/help.ts`) addressed to the owner: the line, its number,
+the language, and the code (the whole file up to 150 lines, else the first 20
+lines and lines -40/+20 around the question). One question at a time; a line
+asked once is not asked again unless it failed. No owner, an old protocol, or
+no answer in 3 s: the plugin says so.
+
+The owner's extension reads `help.json` every 100 ms and makes a side call
+with `ctx.modelRegistry.streamSimple` to the session's own model. It is not in
+pi's conversation. The prompt (`HELP_SYSTEM`) asks for one first line, the
+kind, then the answer:
+
+| Kind | Answer | In the editor |
+|---|---|---|
+| `code` | `+import <line>` lines, then the code, from column 0 | The code takes the place of the comment, at its indent. Missing imports go after the last import line (or at the top). |
+| `note` | plain lines | `pi:` comment lines under the question; `helpi!` leaves the question. |
+| `ask` | nothing | The question, file and line go to the agent as a user message (a follow-up when it is busy). The line under the question says `pi: asked <session>; its answer comes in pi`. |
+
+The extension streams `help` (taken), `help_start` (kind, imports),
+`help_text` (the whole answer so far, at most every 40 ms) and `help_done`
+(complete, `stopped`, or `error`). The plugin writes them at once, not through
+the replay queue: full speed. The answer is one undo group: one ctrl+z brings
+the question back. While it writes, keys that change that file wait; Esc
+writes `cancel` to `help.json` and pi stops the call (what is written
+stays). When the answer is complete, autosave saves the file at once, as pi
+may go on to another file.
+
+Weak points: the kind comes from the model; a wrong kind (a note where you
+wanted code) is undone with ctrl+z. The 3 s "did not take the question" timer
+can fire on a slow first token only if pi does not write `help` (it does, at
+once).

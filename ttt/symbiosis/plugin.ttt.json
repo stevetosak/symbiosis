@@ -1,8 +1,8 @@
 {
   "name": "symbiosis",
   "displayName": "symbiosis",
-  "description": "The pi coding agent works in this editor: each write and edit types itself into the buffer while the model writes it, then the editor follows the result. The status bar shows the pi session the editor follows. ctrl+k a pins the editor, ctrl+k d sends AI!/AI? comments to that session, ctrl+k n lets the next session take over, ctrl+k g goes to the session's herdr pane. The status bar also shows pi's plan as a timeline (done › now › next); ctrl+k v shows the whole plan. ctrl+k w shows what pi changed in the open file in its last turn, as a diff. The \"pi files\" panel in the sidebar shows the files each pi session changed, by its folder, at any path; ttt's file tree opens to the file pi changes.",
-  "version": "0.10.0",
+  "description": "The pi coding agent works in this editor: each write and edit types itself into the buffer while the model writes it, then the editor follows the result. The status bar shows the pi session the editor follows. ctrl+k a pins the editor, ctrl+k n lets the next session take over, ctrl+k g goes to the session's herdr pane. The status bar also shows pi's plan as a timeline (done › now › next); ctrl+k v shows the whole plan. ctrl+k w shows what pi changed in the open file in its last turn, as a diff. The \"pi files\" panel in the sidebar shows the files each pi session changed, by its folder, at any path; ttt's file tree opens to the file pi changes. A comment that ends in helpi! asks that session at once: its answer (a note, or the code for that place) is written there.",
+  "version": "0.11.0",
   "author": "stevetosak",
   "entry": "plugin.lua",
   "api": 1,
@@ -13,7 +13,6 @@
     "fs.write": true,
     "commands": true,
     "keybindings": true,
-    "editor.diagnostics": true,
     "events.file": true,
     "events.editor": true,
     "panel.drawer": true,

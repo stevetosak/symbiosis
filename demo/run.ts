@@ -1,17 +1,16 @@
 // The symbiosis demo: a scripted pi, no model, no tokens. It resets a copy of
 // demo/workspace, waits until ttt follows it, does one small task in the
-// to-do app (plan, a new file, edits, a test), then waits for your AI!/AI?
-// comments (ctrl+k d) and answers them. See demo/README.md.
+// to-do app (plan, a new file, edits, a test), then answers your helpi!
+// comments with set answers. See demo/README.md.
 //
 //   npm run demo             the whole demo
 //   npm run demo -- --reset  only reset the workspace (for a real pi: demo/PROMPT.md)
 //
 // DEMO_DIR (default /tmp/symbiosis-demo) is the workspace copy. PAUSE_MS is the
-// time between steps; SUGGEST_MS stops the wait for comments (0: until ctrl+c).
+// time between steps; SUGGEST_MS stops the wait for helpi! (0: until ctrl+c).
 import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { findMarkers, type Marker } from '../pi/suggest.ts';
-import { type Edit, FakePi, sleep } from './fake-pi.ts';
+import { FakePi, sleep } from './fake-pi.ts';
 
 const DIR = process.env.DEMO_DIR ?? '/tmp/symbiosis-demo';
 const PAUSE_MS = Number(process.env.PAUSE_MS ?? 1500);
@@ -38,7 +37,22 @@ if (process.argv.includes('--reset')) {
 	process.exit(0);
 }
 
-const pi = new FakePi({ cwd: DIR, name: 'demo', log: (line) => say(`  ${line}`) });
+// ---- helpi!: the demo's "model" has three set answers, by a word in the question ----
+const REMOVE = 'remove(id: number): boolean {\n\tconst before = this.todos.length;\n\tthis.todos = this.todos.filter((t) => t.id !== id);\n\treturn this.todos.length < before;\n}\n';
+
+/** The comment line from the side call's prompt. */
+const question = (prompt: string) => /The comment is line \d+:\n(.*)/.exec(prompt)?.[1] ?? '';
+
+function answer(prompt: string): string {
+	const q = question(prompt).toLowerCase();
+	if (q.includes('test')) return 'ask\n';
+	if (q.includes('remove')) return `code\n${REMOVE}`;
+	if (q.includes('why') || q.includes('?'))
+		return 'note\nlist() returns a copy of the array, so code outside the\nstore cannot add or delete to-dos without add() and done().\n';
+	return 'note\nThe demo knows three questions: one with "test" (it asks the main session),\none with "remove" (code), one with "why" (a note).\n';
+}
+
+const pi = new FakePi({ cwd: DIR, name: 'demo', answer, log: (line) => say(`  ${line}`) });
 let stopping = false;
 process.on('SIGINT', async () => {
 	if (stopping) process.exit(130);
@@ -116,21 +130,14 @@ await pi.endTurn();
 say('turn 1 done. The editor went to the last change.');
 say('  ctrl+k w: the diff of everything pi changed in this turn (ctrl+w closes it).');
 say('');
-say('Now you: write a comment that ends in AI! (or AI?) in any file, for example');
-say('  above list() in store.ts:   // add remove(id) AI!');
-say('then press ctrl+k d. The demo does not read your note: it always adds remove(id).');
+say('Now you: write a comment that ends in helpi!, and stop typing (or press Enter).');
+say('The demo has set answers, by a word in the comment. In store.ts, above list():');
+say('  // remove a to-do by id helpi!        code: it takes the place of the comment');
+say('  // why does list() copy? helpi!       a note: "pi:" lines under the comment');
+say('  // write a test for remove helpi!     ask: it goes to this session, which writes the test');
+say('One ctrl+z takes a code answer away again; Esc stops an answer.');
 
-// ---- Then: answer the comments, as often as you send them ----
-const removeMethod = '\tremove(id: number): boolean {\n\t\tconst before = this.todos.length;\n\t\tthis.todos = this.todos.filter((t) => t.id !== id);\n\t\treturn this.todos.length < before;\n\t}\n\n';
-
-/** One edit that deletes the marker: the whole comment line, or the comment after the code. */
-function unmark(m: Marker): Edit {
-	const line = readFileSync(m.path, 'utf-8').split('\n')[m.line - 1];
-	if (m.scope !== 'line') return { oldText: `${line}\n`, newText: '' };
-	const code = line.slice(0, line.lastIndexOf(m.target) + m.target.length);
-	return { oldText: line, newText: code.trimEnd() };
-}
-
+// ---- Then: questions that the answer sent to the main session ("ask") ----
 const until = SUGGEST_MS > 0 ? Date.now() + SUGGEST_MS : Infinity;
 let answered = 0;
 while (Date.now() < until && !stopping) {
@@ -140,28 +147,13 @@ while (Date.now() < until && !stopping) {
 	}
 	const message = pi.inbox.splice(0).join('\n');
 	say(`pi got this message:\n${message.replace(/^/gm, '    ')}`);
-	const markers = findMarkers(DIR);
 	await pi.beginTurn();
-	const store = join(DIR, 'store.ts');
-	const addRemove = !readFileSync(store, 'utf-8').includes('remove(id');
-	const plan: string[] = ['Delete the markers'];
-	if (addRemove) plan.push('Add remove(id) to the store', 'Test remove()');
-	const at = (now: number) => plan.map((text, i): [string, 'done' | 'now' | 'next'] => [text, i < now ? 'done' : i === now ? 'now' : 'next']);
-	await pi.plan(...at(0));
-	await pause();
-	for (const m of markers.filter((m) => m.kind === '?')) say(`AI? ${m.note}\n    (a real pi answers in its reply; the demo cannot)`);
-	const byFile = new Map<string, Edit[]>();
-	for (const m of markers) byFile.set(m.path, [...(byFile.get(m.path) ?? []), unmark(m)]);
-	for (const [path, edits] of byFile) {
-		say(`edit ${path.slice(DIR.length + 1)}: delete ${edits.length} marker(s)`);
-		await pi.edit(path, edits);
-	}
-	if (addRemove) {
-		await pi.plan(...at(1));
-		await pause();
-		say('edit store.ts: add remove(id)');
-		await pi.edit('store.ts', [{ oldText: '\tlist(): Todo[] {', newText: `${removeMethod}\tlist(): Todo[] {` }]);
-		await pi.plan(...at(2));
+	const hasRemove = readFileSync(join(DIR, 'store.ts'), 'utf-8').includes('remove(id');
+	const tested = readFileSync(join(DIR, 'store.test.ts'), 'utf-8').includes("test('remove");
+	if (!hasRemove || tested) {
+		say(hasRemove ? 'remove() has a test already: nothing to do.' : 'store.ts has no remove(id) yet: ask "remove a to-do by id" first.');
+	} else {
+		await pi.plan(['Test remove()', 'now']);
 		await pause();
 		say('edit store.test.ts: a test for remove()');
 		await pi.edit('store.test.ts', [
@@ -171,11 +163,11 @@ while (Date.now() < until && !stopping) {
 					"\tassert.equal(store.done(7), undefined);\n});\n\ntest('remove takes a to-do out of the list', () => {\n\tconst store = new Store();\n\tstore.add('buy milk');\n\tassert.equal(store.remove(1), true);\n\tassert.equal(store.remove(1), false);\n\tassert.deepEqual(store.list(), []);\n});",
 			},
 		]);
+		await pi.plan(['Test remove()', 'done']);
 	}
-	await pi.plan(...plan.map((text): [string, 'done'] => [text, 'done']));
 	await pi.endTurn();
 	answered++;
-	say(`done (${markers.length} marker(s)). Send more with ctrl+k d, or ctrl+c to end the demo.`);
+	say(`done (${answered}). Ask more with helpi!, or ctrl+c to end the demo.`);
 }
-say(`the demo ends (${answered} answer(s)).`);
+say(`the demo ends (${answered} turn(s) for your questions).`);
 await pi.stop();

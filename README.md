@@ -4,8 +4,9 @@ The [pi](https://github.com/earendil-works/pi) coding agent works inside the
 [ttt](https://tttedit.dev) editor. Each file the agent writes or edits types
 itself into your editor while the model writes it. Then the editor goes to the
 changed line. You read the code as it comes. pi runs in any terminal; the
-status bar shows which pi session the editor follows, and you leave that
-session suggestions as comments in the code.
+status bar shows which pi session the editor follows. A comment that ends in
+`helpi!` asks that session's model a question, and the answer is written
+where you are.
 
 Status: the first slice. Built, then used, then changed. See
 [docs/design.md](docs/design.md).
@@ -51,9 +52,16 @@ allow the plugin's permissions.
   it, else the most recent one. Its name is pi's session name (`/name`), else
   the folder; two sessions with one name also show their herdr pane. Click it or `ctrl+k g` to go to its herdr
   pane. `ctrl+k n`: the next session takes over (then back to automatic).
-- Write a comment that ends in `AI!` (change this) or `AI?` (answer this),
-  after a line, above a block, or at the top of a file. `ctrl+k d` sends all
-  of them to that session in one message. pi deletes each marker when it is done.
+- `helpi!`: write a comment that ends in `helpi!`, for example
+  `// make the folder helpi!`, and stop typing (600 ms) or press Enter at the
+  end of the line. The session the editor follows asks its model in a side
+  call (not in pi's conversation), with your line, the code around it, pi's
+  plan and pi's last message. The model chooses the answer: **code** takes the
+  place of your comment (a missing import goes in at the top; one ctrl+z
+  brings your comment back), a **note** comes as `pi:` lines under it, or
+  **ask**: the question goes to the session's agent, and its answer comes in
+  pi. The answer streams in at full speed; your keys in that file wait, Esc
+  stops it.
 - Status bar `✓ 3 › ▶ Run the tests › Update the README +1`: pi's plan as a
   timeline, done › now › next. pi sends it with its `plan` tool for a task
   with several steps. `ctrl+k v` (or a click) shows the whole plan in a
@@ -70,7 +78,7 @@ allow the plugin's permissions.
 ## Demo
 
 `npm run demo`: a scripted pi does a small task in a to-do app while you
-watch in ttt, then answers your `AI!` comments. No model, no tokens, the same
+watch in ttt, then answers your `helpi!` questions with set answers. No model, no tokens, the same
 every time. `demo/PROMPT.md` is the same task for a real pi. See
 `demo/README.md`.
 
@@ -81,8 +89,8 @@ npm test          # unit tests
 npm run e2e       # a fake pi against a headless ttt; prints the output folder
 PLAN_AT=26 PLAN_CLOSE_AT=34 HOLD_MS=4000 npm run e2e   # also opens the plan drawer
 DIFF_AT=30 HOLD_MS=4000 npm run e2e                     # also shows the diff (ctrl+k w)
-bash test/e2e/suggest.sh   # the same, for sessions and suggestions
-bash test/e2e/demo.sh      # the demo, with an AI! comment; the workspace tests must pass
+bash test/e2e/help.sh      # helpi!: code, note, ask, Esc; only the session the editor follows answers
+bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the workspace tests must pass
 bash test/e2e/lag.sh       # the replay behind pi (LAG=-1, SPEED=80); typing waits; buffer = disk at the end
 bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel shows a file outside the folder
 ```

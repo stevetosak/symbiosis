@@ -10,11 +10,12 @@
 //                 follows; only that session writes events. `lag` is how many
 //                 changes pi may make before the editor has shown them.
 //   ack.json      [call ids]: the changes the editor has shown (replayed).
-//   request.json  {id, path, to}: the plugin asks session `to` to send the
-//                 AI!/AI? markers.
+//   help.json     HelpRequest: the plugin asks session `to` a helpi!
+//                 question (pi/help.ts), or to stop it (`cancel`).
 //   sessions/<id>.json  one Session per running pi, written every second.
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { type HelpRequest, parseRequest } from './help.ts';
 import type { Step } from './plan.ts';
 import type { ChannelEvent } from './stream.ts';
 
@@ -140,15 +141,9 @@ export class Channel {
 		return calls.filter((c) => !shown.has(c));
 	}
 
-	/** The last send request of the plugin, if any. */
-	request(): { id: string; path?: string; to?: string } | undefined {
-		const r = readJson<{ id?: unknown; path?: unknown; to?: unknown }>(join(this.dir, 'request.json'));
-		if (typeof r?.id !== 'string') return undefined;
-		return {
-			id: r.id,
-			path: typeof r.path === 'string' && r.path !== '' ? r.path : undefined,
-			to: typeof r.to === 'string' ? r.to : undefined,
-		};
+	/** The plugin's last helpi! request, if any. */
+	help(): HelpRequest | undefined {
+		return parseRequest(readJson(join(this.dir, 'help.json')));
 	}
 
 	/**

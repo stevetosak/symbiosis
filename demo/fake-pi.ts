@@ -16,6 +16,11 @@ export interface Edit {
 	newText: string;
 }
 
+/** The part of a side call's context the fake model reads. */
+interface Context {
+	messages: { content: { text?: string }[] }[];
+}
+
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** pi's partial JSON parser, from the newest pi install. Without one: no text until the call is complete. */
@@ -43,12 +48,16 @@ export interface FakePiOptions {
 	chunk?: number;
 	stepMs?: number;
 	log?: (line: string) => void;
+	/** The "model" for helpi!: the whole reply to a question, streamed in chunks. */
+	answer?: (prompt: string) => string;
 }
 
 export class FakePi {
 	readonly cwd: string;
-	/** What pi would send the model as a user message: the ctrl+k d suggestions. */
+	/** The messages pi's agent got from the extension: helpi! questions it hands over. */
 	readonly inbox: string[] = [];
+	/** The prompts of the helpi! side calls. */
+	readonly asked: string[] = [];
 	private readonly handlers = new Map<string, Handler[]>();
 	private readonly tools = new Map<string, Tool>();
 	private readonly ctx: unknown;
@@ -71,7 +80,14 @@ export class FakePi {
 			sendUserMessage: (text: string) => this.inbox.push(text),
 		};
 		symbiosis(pi as never);
-		this.ctx = { cwd: this.cwd, isIdle: () => this.idle, sessionManager: { getBranch: () => [] } };
+		const answer = options.answer ?? (() => 'note\nThe fake pi has no model.');
+		this.ctx = {
+			cwd: this.cwd,
+			isIdle: () => this.idle,
+			sessionManager: { getBranch: () => [] },
+			model: { id: 'fake' },
+			modelRegistry: { streamSimple: (_model: unknown, context: Context, options?: { signal?: AbortSignal }) => this.stream(answer, context, options?.signal) },
+		};
 	}
 
 	async fire(name: string, event: unknown = {}): Promise<void> {
@@ -115,6 +131,24 @@ export class FakePi {
 			await sleep(100);
 		}
 		return false;
+	}
+
+	/** A side call's stream: the answer in chunks, as pi's model registry streams it. */
+	private async *stream(answer: (prompt: string) => string, context: Context, signal?: AbortSignal): AsyncGenerator<unknown> {
+		const prompt = context.messages[0]?.content[0]?.text ?? '';
+		this.asked.push(prompt);
+		const reply = answer(prompt);
+		this.log(`helpi!: answering (${reply.split('\n')[0]})`);
+		await sleep(this.stepMs * 4);
+		for (let i = 0; i < reply.length; i += this.chunk) {
+			if (signal?.aborted) {
+				yield { type: 'error', reason: 'aborted', error: { errorMessage: 'aborted' } };
+				return;
+			}
+			yield { type: 'text_delta', delta: reply.slice(i, i + this.chunk) };
+			await sleep(this.stepMs);
+		}
+		yield { type: 'done', reason: 'stop' };
 	}
 
 	async beginTurn(): Promise<void> {

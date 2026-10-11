@@ -2,7 +2,7 @@
 
 A small to-do app (`workspace/`) and one task in it. It shows the whole flow:
 the plan, a new file typed into the editor, edits, the diff of the turn, and
-your `AI!` comments going back to pi. Use it to try symbiosis, and to test it
+your `helpi!` questions answered where you write them. Use it to try symbiosis, and to test it
 after a change.
 
 Two ways to run it. Both work in a copy, `/tmp/symbiosis-demo` (set
@@ -27,12 +27,15 @@ npm run demo
    long pi waited. "pi ahead (max)" in the panel sets the limit (0 = pi
    waits for each change). Typing in the replayed file waits.
 3. At the end of the turn: `ctrl+k w` shows the diff of the turn.
-4. Then you: write a comment that ends in `AI!` or `AI?`, for example
-   `// add remove(id) AI!` above `list()` in `store.ts`, and press
-   `ctrl+k d`. The script gets the message pi would get, deletes the
-   marker and adds `remove(id)` with a test. It does not read your note: the
-   change is always the same. Send more as often as you like; `ctrl+c` ends
-   the demo.
+4. Then you: in `store.ts`, on a new line above `list()`, write a comment
+   that ends in `helpi!` and stop typing (or press Enter). The script's
+   "model" has three set answers, by a word in your comment:
+   - `// remove a to-do by id helpi!`: **code**, `remove(id)` takes the
+     place of the comment. One ctrl+z brings the comment back.
+   - `// why does list() copy? helpi!`: a **note**, `pi:` lines under it.
+   - `// write a test for remove helpi!`: **ask**, the question goes to the
+     session as a message, and the script's turn writes the test.
+   Esc stops an answer. Ask as often as you like; `ctrl+c` ends the demo.
 
 The script always does the same thing, so it is the one to test with.
 `PAUSE_MS` sets the time between steps (default 1500).

@@ -3,7 +3,7 @@
 //
 // Many pi sessions can run. Each writes a session record; the plugin picks the
 // one the editor follows (the owner) and only the owner writes events and
-// gets the AI!/AI? markers. Without the plugin folder (ttt or the plugin not
+// answers helpi! questions (pi/help.ts). Without the plugin folder (ttt or the plugin not
 // installed) this extension writes nothing.
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -11,13 +11,13 @@ import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-a
 import { Changes } from './changes.ts';
 import { Channel, type PluginState, type Session } from './channel.ts';
 import { cleanSteps, PLAN_DESCRIPTION, prepareArguments, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
-import { findMarkers, suggestionMessage } from './suggest.ts';
+import { askMessage, HELP_SYSTEM, type HelpRequest, helpPrompt, lastAssistantText, parseAnswer } from './help.ts';
 import { absolutePath, adler32, BEFORE_MAX, type ChannelEvent, firstLine, pluginDir, type Tool, Tracker } from './stream.ts';
 
 /** At most one text write per call in this time: the plugin polls every 40 ms. */
 const FLUSH_MS = 40;
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 8;
+export const PROTOCOL = 9;
 /** The files a session record lists as written by it. */
 const MAX_FILES = 20;
 
@@ -43,7 +43,8 @@ export default function symbiosis(pi: ExtensionAPI) {
 	let behind: string[] = [];
 	let last: { path: string; line: number } | undefined;
 	let session: ExtensionContext | undefined;
-	let lastRequest: string | undefined;
+	let lastHelp: string | undefined;
+	let helping: { id: string; abort: AbortController } | undefined;
 	let poll: ReturnType<typeof setInterval> | undefined;
 	let ticks = 0;
 	const id = `${process.pid}-${Date.now().toString(36)}`;
@@ -115,20 +116,98 @@ export default function symbiosis(pi: ExtensionAPI) {
 		return p.alive && p.owner === id;
 	}
 
-	/** ctrl+k d in ttt: every AI!/AI? marker goes to the owner's agent as one message. */
-	function checkRequest(): void {
+	/** helpi! in ttt: a question for this session, or Esc on the one it answers. */
+	function checkHelp(): void {
 		if (!session || !channel.enabled()) return;
-		const request = channel.request();
-		if (!request || request.id === lastRequest) return;
-		lastRequest = request.id;
-		if (request.to !== id) return;
-		const markers = findMarkers(session.cwd, request.path ? [request.path] : []);
-		const busy = !session.isIdle();
-		channel.emit({ op: 'sent', count: markers.length, busy, session: id });
-		if (markers.length === 0) return;
-		const text = suggestionMessage(markers, session.cwd);
-		if (busy) pi.sendUserMessage(text, { deliverAs: 'followUp' });
-		else pi.sendUserMessage(text);
+		const request = channel.help();
+		if (!request || request.to !== id) return;
+		if (request.cancel) {
+			if (helping?.id === request.id) helping.abort.abort();
+			return;
+		}
+		if (request.id === lastHelp) return;
+		lastHelp = request.id;
+		void answer(request, session);
+	}
+
+	/**
+	 * Asks the session's model in a side call, outside the conversation, and
+	 * streams the answer to the editor as it comes. An `ask` answer sends the
+	 * question to this session's agent instead.
+	 */
+	async function answer(request: HelpRequest, ctx: ExtensionContext): Promise<void> {
+		helping?.abort.abort();
+		const abort = new AbortController();
+		helping = { id: request.id, abort };
+		const hid = request.id;
+		channel.emit({ op: 'help', id: hid, session: id });
+		let raw = '';
+		let started = false;
+		let sent = '';
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const send = (final: boolean) => {
+			clearTimeout(timer);
+			timer = undefined;
+			const a = parseAnswer(raw, final);
+			if (!a.settled || !a.kind) return;
+			if (!started) {
+				started = true;
+				channel.emit({ op: 'help_start', id: hid, kind: a.kind, imports: a.imports });
+				if (a.kind === 'ask') {
+					const text = askMessage(request, ctx.cwd);
+					if (ctx.isIdle()) pi.sendUserMessage(text);
+					else pi.sendUserMessage(text, { deliverAs: 'followUp' });
+				}
+			}
+			if (final) {
+				channel.emit({ op: 'help_done', id: hid, text: a.body });
+			} else if (a.body !== sent) {
+				channel.emit({ op: 'help_text', id: hid, text: a.body });
+			}
+			sent = a.body;
+		};
+		try {
+			const model = ctx.model;
+			if (!model) throw new Error('pi has no model');
+			let lastMessage: string | undefined;
+			try {
+				lastMessage = lastAssistantText(ctx.sessionManager.getBranch());
+			} catch {
+				lastMessage = undefined;
+			}
+			const stream = ctx.modelRegistry.streamSimple(
+				model,
+				{
+					systemPrompt: HELP_SYSTEM,
+					messages: [{ role: 'user', content: [{ type: 'text', text: helpPrompt(request, ctx.cwd, record.plan, lastMessage) }], timestamp: Date.now() }],
+				},
+				{ signal: abort.signal },
+			);
+			for await (const ev of stream) {
+				if (abort.signal.aborted) break;
+				if (ev.type === 'text_delta') {
+					raw += ev.delta;
+					// At most one write per FLUSH_MS: the plugin polls that often.
+					timer ??= setTimeout(() => send(false), FLUSH_MS);
+				} else if (ev.type === 'error') {
+					throw new Error(ev.error.errorMessage || ev.reason);
+				}
+			}
+			if (abort.signal.aborted) throw new Error('stopped');
+			send(true);
+		} catch (error) {
+			clearTimeout(timer);
+			const stopped = abort.signal.aborted;
+			const body = parseAnswer(raw, true).body;
+			channel.emit({
+				op: 'help_done',
+				id: hid,
+				text: started ? body : '',
+				...(stopped ? { stopped: true } : { error: error instanceof Error ? error.message : String(error) }),
+			});
+		} finally {
+			if (helping?.id === hid) helping = undefined;
+		}
 	}
 
 	pi.on('session_start', (_event, ctx) => {
@@ -142,16 +221,17 @@ export default function symbiosis(pi: ExtensionAPI) {
 		} catch {
 			record.plan = [];
 		}
-		// A request from before this session is old: do not send it again.
-		lastRequest = channel.enabled() ? channel.request()?.id : undefined;
+		// A question from before this session is old: do not answer it again.
+		lastHelp = channel.enabled() ? channel.help()?.id : undefined;
 		if (channel.enabled()) channel.pruneSessions();
 		record.title = pi.getSessionName?.() ?? null;
 		beat();
 		clearInterval(poll);
+		// helpi! is to be fast: its file is read every 100 ms; a beat each second.
 		poll = setInterval(() => {
-			checkRequest();
-			if (++ticks % 4 === 0) beat();
-		}, 250);
+			checkHelp();
+			if (++ticks % 10 === 0) beat();
+		}, 100);
 		poll.unref?.();
 	});
 
@@ -161,6 +241,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 	});
 
 	pi.on('session_shutdown', () => {
+		helping?.abort.abort();
 		clearInterval(poll);
 		poll = undefined;
 		channel.removeSession(id);

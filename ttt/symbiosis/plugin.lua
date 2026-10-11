@@ -17,21 +17,20 @@
 -- Sessions: each pi writes sessions/<id>.json. The editor follows one of them,
 -- the owner: the session whose folder holds the open file (the most recent
 -- one if several do), or the one you chose with ctrl+k n. Only the owner
--- writes events and gets the markers. ctrl+k g goes to its herdr pane.
+-- writes events and answers helpi!. ctrl+k g goes to its herdr pane.
 --
--- Suggestions: ctrl+k d sends every AI!/AI? marker comment to the owner
--- (pi/suggest.ts). Open markers in this buffer show as diagnostics.
+-- helpi!: a comment that ends in `helpi!` asks the owner, at once: the answer
+-- (a note, code, or "asked pi") is written at that place. See "helpi!" below.
 local ttt = require("ttt")
 local editor = require("ttt.editor")
 local fs = require("ttt.fs")
 local json = require("ttt.json")
 local events = require("ttt.events")
-local diagnostics = require("ttt.diagnostics")
 local system = require("ttt.system")
 
 local DIR = ttt.plugin_dir()
 local HEAD, EVENTS, ACK, ALIVE = DIR .. "/head.json", DIR .. "/events.jsonl", DIR .. "/ack.json", DIR .. "/ttt.json"
-local REQUEST, SESSIONS, CHANGES = DIR .. "/request.json", DIR .. "/sessions", DIR .. "/changes"
+local HELP, SESSIONS, CHANGES = DIR .. "/help.json", DIR .. "/sessions", DIR .. "/changes"
 local SETTINGS = DIR .. "/settings.json"
 -- Typing speeds of the preview, in characters per second; 0 = as fast as pi sends.
 local SPEEDS = { 10, 20, 40, 80, 160, 320, 640, 1280, 0 }
@@ -42,7 +41,7 @@ local AUTOSAVES = { 0, 1000, 3000 }
 -- 0 = pi waits for each change, as it did before.
 local LAGS = { 0, 3, 10, -1 }
 local POLL_MS = 40
-local PROTOCOL = 8     -- the channel protocol of pi/index.ts
+local PROTOCOL = 9     -- the channel protocol of pi/index.ts
 local PLAN_WIDTH = 56  -- the timeline in the status bar, in characters
 
 local gen, offset = nil, 0
@@ -75,7 +74,8 @@ local tree_seen = -100 -- the tick when ttt last drew the "pi files" panel
 local tree_items = {}  -- the "pi files" tree, built when the sessions or the follow change
 local tree_paths = {}  -- node id -> file path
 local revealed = nil   -- the file last shown in ttt's file tree
-local toggle_pin, finish, heartbeat, go_session, open_plan, follow_tree, build_tree
+local toggle_pin, finish, heartbeat, go_session, open_plan, follow_tree, build_tree, help_soon
+local help = nil -- the helpi! question under way; see "helpi!" below
 
 -- Positions -----------------------------------------------------------------
 
@@ -293,8 +293,9 @@ end
 
 -- Regions: a stretch of the buffer that this plugin owns --------------------
 
--- Makes the region read `text`: replaces only what changed after the common prefix.
-local function set_region(r, text)
+-- Makes the region read `text`: replaces only what changed after the common
+-- prefix. The cursor goes to its end, or `below` lines under its end.
+local function set_region(r, text, below)
 	local p = prefix(r.text, text)
 	local pl, pc = after(r.line, r.col, r.text:sub(1, p))
 	local el, ec = after(r.line, r.col, r.text)
@@ -303,6 +304,7 @@ local function set_region(r, text)
 	editing = false
 	r.text = text
 	local cl, cc = after(r.line, r.col, text)
+	if below then cl, cc = cl + below.lines, below.col end
 	editor.set_cursor(cl, cc)
 	reveal(cl)
 end
@@ -659,87 +661,7 @@ local function show_changes()
 	end
 end
 
--- Suggestions: AI!/AI? comments -------------------------------------------
-
-local OPENERS = { "<!--", "/*", "//", "--", "#", ";" }
-
--- The kind ("!" or "?") when the line is a comment that ends in AI! or AI?.
-local function marker(line)
-	local body = line:gsub("%s*%*/%s*$", "")
-	body = body:gsub("%s*%-%->%s*$", "")
-	local kind = body:match("AI([!?])%s*$")
-	if not kind then return nil end
-	for _, o in ipairs(OPENERS) do
-		if body:find(o, 1, true) then return kind end
-	end
-	return nil
-end
-
-local function refresh_markers()
-	local path = editor.file_path()
-	if not path or path == "" then return end
-	local items, n = {}, 0
-	for full in lines(editor.buffer_text() .. "\n") do
-		local line = full:sub(1, -2)
-		n = n + 1
-		local kind = marker(line)
-		if kind then
-			table.insert(items, {
-				line = n, col = 1, end_col = runes(line) + 1, severity = "info", source = "symbiosis",
-				message = (kind == "!" and "change for pi" or "question for pi") .. " · send all: ctrl+k, then d",
-			})
-		end
-	end
-	diagnostics.publish(path, items)
-end
-
 local loaded = false    -- the editor API is usable only after the plugin loaded
-local refresh_timer = nil
-local function refresh_soon()
-	if not loaded then return end
-	if refresh_timer then ttt.clear_timeout(refresh_timer) end
-	refresh_timer = ttt.set_timeout(300, function()
-		refresh_timer = nil
-		local ok, err = pcall(refresh_markers)
-		if not ok then ttt.log("error", "symbiosis markers: " .. tostring(err)) end
-	end)
-end
-
-local sends = 0
-local waiting = nil   -- the timer that says pi did not answer
-local function send_markers()
-	refresh_sessions()
-	if not owner then
-		return ttt.notify("symbiosis: no pi session is running", "warning")
-	end
-	if owner.version ~= PROTOCOL then
-		return ttt.notify("symbiosis: pi " .. owner.name .. " runs an old symbiosis: /reload it", "warning")
-	end
-	local path = editor.file_path()
-	-- pi reads the file from disk: save your changes first.
-	if path and path ~= "" then ttt.exec_command("file.save") end
-	sends = sends + 1
-	fs.write(REQUEST, json.encode({ id = os.time() .. "-" .. sends, path = path or "", to = owner.id }))
-	show("⇢ sending suggestions to " .. owner.name)
-	if waiting then ttt.clear_timeout(waiting) end
-	local name_ = owner.name
-	waiting = ttt.set_timeout(3000, function()
-		waiting = nil
-		ttt.notify("symbiosis: pi " .. name_ .. " did not answer", "error")
-		show()
-	end)
-end
-
-local function sent(ev)
-	if waiting then ttt.clear_timeout(waiting) waiting = nil end
-	if ev.count == 0 then
-		ttt.notify("symbiosis: no AI! or AI? markers found", "info")
-	else
-		local s = ev.count == 1 and "" or "s"
-		ttt.notify(string.format("symbiosis: %d suggestion%s sent to pi%s", ev.count, s, ev.busy and ", after the current turn" or ""), "info")
-	end
-	show()
-end
 
 local handlers = {
 	start = start,
@@ -748,7 +670,6 @@ local handlers = {
 	abort = abort,
 	done = done,
 	stop = stop,
-	sent = sent,
 }
 
 -- The loop ------------------------------------------------------------------
@@ -796,7 +717,8 @@ local function count_behind()
 end
 
 local function pace()
-	if paused then return count_behind() end
+	-- A helpi! answer is being written: the replay waits for it.
+	if paused or (help and help.region) then return count_behind() end
 	local cps = SPEEDS[speed]
 	-- At most 0.2 s of typing saved up: no burst after a quiet moment.
 	if cps > 0 then budget = math.min(budget + cps * POLL_MS / 1000, math.max(cps / 5, 1)) end
@@ -889,14 +811,16 @@ end
 -- buffer is clean when pi writes it (a dirty buffer gets no preview and no
 -- reload). Never while pi has a change to this file under way: that would
 -- save a preview, or the old text over pi's write.
-local function schedule_save()
+-- `soon`: at once (a helpi! answer is complete: pi may go to another file next).
+local function schedule_save(soon)
 	local ms = AUTOSAVES[autosave]
 	local path = editor.file_path() or ""
 	if ms == 0 or path == "" then return end
 	if save_timer then ttt.clear_timeout(save_timer) end
-	save_timer = ttt.set_timeout(ms, function()
+	save_timer = ttt.set_timeout(soon and 10 or ms, function()
 		save_timer = nil
 		if editor.file_path() ~= path or active or busy(path) or qhead <= #queue then return end
+		if help and help.region then return end
 		for _, c in pairs(calls) do
 			if c.path == path then return end
 		end
@@ -917,6 +841,260 @@ local function rush_now()
 	paused = false
 	pace()
 	show()
+end
+
+-- helpi! ----------------------------------------------------------------------
+-- A comment that ends in `helpi!` asks the session the editor follows, at
+-- once: 600 ms after your last change, or on Enter at the end of its line.
+-- help.json carries the question and the code around it, as in the buffer.
+-- pi asks its model in a side call (pi/help.ts) and sends events back:
+--   help        pi has the question; it is thinking
+--   help_start  the kind: note, code or ask; for code, the imports it needs
+--   help_text   the answer so far (all of it)
+--   help_done   the answer is complete, stopped, or failed
+-- note: comment lines under the question, the first one starts "pi:". code:
+-- takes the place of the comment, and missing imports go in at the top. ask:
+-- the question went to pi's agent. All in one undo group: one ctrl+z takes
+-- it back. While the answer is written, your typing in that file waits, and
+-- the replay too. Esc stops it; what is written stays.
+
+local OPENERS = { "<!--", "/*", "//", "--", "#", ";" }
+local CLOSERS = { ["<!--"] = " -->", ["/*"] = " */" }
+local HELP_MS = 600
+local MAX_LINES = 150 -- a longer file sends its top and the lines around the question
+local help_seq = 0
+local help_timer = nil
+local help_wait = nil  -- the timer that says pi did not take the question
+local help_asked = {}  -- path:line:text -> true: asked already, not again
+
+-- The comment on `line` when it ends in helpi!: where its opener is, and the indent.
+local function helpi(line)
+	local body = line:gsub("%s*%*/%s*$", ""):gsub("%s*%-%->%s*$", "")
+	if not body:match("helpi!%s*$") then return nil end
+	local best = nil
+	for _, o in ipairs(OPENERS) do
+		local b = body:find(o, 1, true)
+		if b and b < #body - 5 then best = { byte = b, opener = o } break end
+	end
+	if not best then return nil end
+	best.col = runes(line:sub(1, best.byte - 1)) + 1
+	best.indent = line:match("^%s*")
+	return best
+end
+
+-- The line without its last `helpi!` (and the space before it).
+local function unmark(line)
+	local at = line:match(".*()helpi!")
+	if not at then return line end
+	return line:sub(1, at - 1):gsub("%s+$", "") .. line:sub(at + 6)
+end
+
+-- The text the answer region holds for `body`.
+local function render(h, body, final)
+	local out = {}
+	local parts = split(body)
+	if h.kind == "code" then
+		for i, l in ipairs(parts) do
+			if i == 1 then table.insert(out, l)
+			else table.insert(out, "\n" .. (l == "" and "" or h.indent .. l)) end
+		end
+		return table.concat(out)
+	end
+	-- A note: one comment line each. A closer (*/, -->) only on a complete line.
+	local closer = CLOSERS[h.opener] or ""
+	if #parts == 0 then parts = { "" } end
+	for i, l in ipairs(parts) do
+		local text = (i == 1 and "pi: " or "") .. l
+		local close = (final or i < #parts) and closer or ""
+		table.insert(out, "\n" .. h.indent .. h.opener .. (text == "" and "" or " " .. text) .. close)
+	end
+	return table.concat(out)
+end
+
+local function help_end(message, level)
+	local h = help
+	if not h then return end
+	help = nil
+	if help_wait then ttt.clear_timeout(help_wait) help_wait = nil end
+	if h.group then editor.end_undo_group() end
+	if message then ttt.notify("symbiosis: " .. message, level or "info") end
+	show()
+	if h.region then schedule_save(true) end
+end
+
+local function help_write(fields)
+	fs.write(HELP, json.encode(fields))
+end
+
+local function ask_help()
+	if not loaded or help or editing or run then return end
+	local path = editor.file_path()
+	if not path or path == "" then return end
+	local pos = editor.cursor()
+	local text = editor.get_line(pos.line) or ""
+	local c = helpi(text)
+	if not c then return end
+	local key = path .. ":" .. pos.line .. ":" .. text
+	if help_asked[key] then return end
+	help_asked[key] = true
+	refresh_sessions()
+	if not owner then return ttt.notify("symbiosis: helpi! needs a pi session; none runs", "warning") end
+	if owner.version ~= PROTOCOL then
+		return ttt.notify("symbiosis: pi " .. owner.name .. " runs an old symbiosis: /reload it", "warning")
+	end
+	local all = editor.buffer_lines()
+	local first, last, head = 1, #all, ""
+	if #all > MAX_LINES then
+		first, last = math.max(1, pos.line - 40), math.min(#all, pos.line + 20)
+		if first > 21 then head = table.concat(all, "\n", 1, 20) else first = 1 end
+	end
+	help_seq = help_seq + 1
+	help = {
+		id = os.time() .. "-" .. help_seq, path = path, line = pos.line, text = text,
+		byte = c.byte, col = c.col, opener = c.opener, indent = c.indent, to = owner.id, name = owner.name,
+	}
+	help_write({
+		id = help.id, to = help.to, path = path, line = pos.line, question = text,
+		language = editor.language() or "", head = head,
+		window = { first = first, text = table.concat(all, "\n", first, last) }, cancel = false,
+	})
+	show("helpi! → " .. owner.name)
+	help_wait = ttt.set_timeout(3000, function()
+		help_wait = nil
+		if help and not help.taken then
+			help_asked[key] = nil
+			help_end("pi " .. help.name .. " did not take the question: /reload it?", "error")
+		end
+	end)
+end
+
+help_soon = function()
+	if not loaded or editing or help then return end
+	if help_timer then ttt.clear_timeout(help_timer) end
+	help_timer = ttt.set_timeout(HELP_MS, function()
+		help_timer = nil
+		local fine, err = pcall(ask_help)
+		if not fine then ttt.log("error", "symbiosis helpi!: " .. tostring(err)) end
+	end)
+end
+
+-- Esc: pi stops the side call; what is written stays.
+local function help_stop()
+	if not help then return end
+	help_write({ id = help.id, to = help.to, cancel = true })
+	help.stopped = true
+	help_end(help.region and "helpi! stopped" or "helpi! stopped before pi answered")
+end
+
+-- After the last import line near the top (or after a package line), or at line 1.
+local IMPORT_LINE = { "^import[%s{\"']", "^from%s", "^use%s", "^#include", "^require[%s(]", "^const%s.-=%s*require%(", "^using%s" }
+local function import_at(all)
+	local at, package = 0, 0
+	for i = 1, math.min(#all, 200) do
+		local l = all[i]
+		for _, p in ipairs(IMPORT_LINE) do
+			if l:match(p) then at = i break end
+		end
+		if l:match("^package%s") then package = i end
+	end
+	return at, package
+end
+
+-- Missing imports go in at the top. Returns how many lines went in.
+local function add_imports(imports, before)
+	local all = editor.buffer_lines()
+	local have = {}
+	for _, l in ipairs(all) do have[l:match("^%s*(.-)%s*$")] = true end
+	local new = {}
+	for _, imp in ipairs(imports or {}) do
+		local t = imp:match("^%s*(.-)%s*$")
+		if t ~= "" and not have[t] then table.insert(new, t) have[t] = true end
+	end
+	if #new == 0 then return 0 end
+	local at, package = import_at(all)
+	local text = table.concat(new, "\n") .. "\n"
+	local line = at + 1
+	if at == 0 then
+		-- No imports yet: after a package line, or at the top; then a blank line.
+		line = package > 0 and package + 1 or 1
+		if package > 0 then text = "\n" .. text end
+		if (all[line] or "") ~= "" then text = text .. "\n" end
+	end
+	if line > #all then
+		editor.insert(#all, runes(all[#all] or "") + 1, "\n" .. text:sub(1, -2))
+	else
+		editor.insert(line, 1, text)
+	end
+	if line > before then return 0 end
+	return select(2, text:gsub("\n", ""))
+end
+
+local function help_taken(ev)
+	help.taken = true
+	if help_wait then ttt.clear_timeout(help_wait) help_wait = nil end
+	show("helpi! · " .. help.name .. " thinks · Esc stops")
+end
+
+local function help_start(ev)
+	help.kind = ev.kind
+	if run then finish() end
+	if not on_buffer(help.path) then return help_end("helpi!: the file did not open", "warning") end
+	-- The question may have moved: find its line again.
+	local line = help.line
+	if editor.get_line(line) ~= help.text then
+		line = nil
+		for i, l in ipairs(editor.buffer_lines()) do
+			if l == help.text then line = i break end
+		end
+		if not line then return help_end("helpi!: the question changed; the answer is not written", "warning") end
+	end
+	-- You pressed Enter after the question: the cursor stays on your new line.
+	local cursor = editor.cursor()
+	if cursor.line > line then help.below = { lines = cursor.line - line, col = cursor.col } end
+	editor.begin_undo_group()
+	help.group = true
+	editing = true
+	if ev.kind == "code" then
+		line = line + add_imports(ev.imports, line)
+		help.region = { line = line, col = help.col, text = help.text:sub(help.byte) }
+	else
+		local stripped = unmark(help.text)
+		editor.set_line(line, stripped)
+		help.region = { line = line, col = runes(stripped) + 1, text = "" }
+	end
+	editing = false
+	if ev.kind == "ask" then
+		set_region(help.region, render(help, "asked " .. help.name .. "; its answer comes in pi", true), help.below)
+		return help_end()
+	end
+	show("helpi! · " .. help.name .. " writes · Esc stops")
+end
+
+local function help_text(ev)
+	if help.region then set_region(help.region, render(help, ev.text or "", false), help.below) end
+end
+
+local function help_done(ev)
+	if ev.error then
+		help_asked[help.path .. ":" .. help.line .. ":" .. help.text] = nil
+		return help_end("helpi! failed: " .. tostring(ev.error), "error")
+	end
+	if help.region and not ev.stopped then set_region(help.region, render(help, ev.text or "", true), help.below) end
+	help_end()
+end
+
+local help_handlers = { help = help_taken, help_start = help_start, help_text = help_text, help_done = help_done }
+
+-- A help event, at once (not through the replay queue): only for the question under way.
+local function apply_help(ev)
+	if not help or help.stopped or ev.id ~= help.id then return end
+	if ev.op ~= "help" and not help.taken then help_taken(ev) end
+	local fine, err = pcall(help_handlers[ev.op], ev)
+	if not fine then
+		editing = false
+		ttt.log("error", "symbiosis " .. ev.op .. ": " .. tostring(err))
+		help_end("helpi! failed in the editor: " .. tostring(err), "error")
+	end
 end
 
 local function poll()
@@ -940,7 +1118,9 @@ local function poll()
 	for line in lines(chunk) do
 		offset = offset + #line
 		local ok, ev = pcall(json.decode, line)
-		if ok and ev and handlers[ev.op] then
+		if ok and ev and help_handlers[ev.op] then
+			apply_help(ev)
+		elseif ok and ev and handlers[ev.op] then
 			table.insert(queue, ev)
 			-- pi changed the file now; the replay may be behind.
 			if ev.op == "done" then
@@ -1092,7 +1272,8 @@ local KEYS = {
 	{ key = "ctrl+k .", value = "rest of this change at once" },
 	{ key = "ctrl+k v", value = "pi's plan" },
 	{ key = "ctrl+k w", value = "what pi changed (diff)" },
-	{ key = "ctrl+k d", value = "send AI!/AI? comments to pi" },
+	{ key = "// … helpi!", value = "ask pi here: wait, or Enter" },
+	{ key = "Esc", value = "stop a helpi! answer" },
 	{ key = "ctrl+k n", value = "next pi session" },
 	{ key = "ctrl+k g", value = "go to pi's pane (herdr)" },
 }
@@ -1157,7 +1338,6 @@ ttt.register({
 	commands = {
 		{ id = "symbiosis.togglePin", title = "symbiosis: Pin / Unpin the Editor", handler = toggle_pin },
 		{ id = "symbiosis.goToAgent", title = "symbiosis: Go to the Agent's Last Edit", handler = go },
-		{ id = "symbiosis.sendMarkers", title = "symbiosis: Send AI!/AI? Markers to the Agent", handler = send_markers },
 		{ id = "symbiosis.nextSession", title = "symbiosis: Next pi Session Takes Over", handler = next_session },
 		{ id = "symbiosis.goToSession", title = "symbiosis: Go to the pi Session (herdr)", handler = go_session },
 		{ id = "symbiosis.showPlan", title = "symbiosis: Show pi's Plan", handler = function() open_plan() end },
@@ -1170,7 +1350,6 @@ ttt.register({
 	},
 	keybindings = {
 		{ key = "ctrl+k a", command = "symbiosis.togglePin" },
-		{ key = "ctrl+k d", command = "symbiosis.sendMarkers" },
 		{ key = "ctrl+k n", command = "symbiosis.nextSession" },
 		{ key = "ctrl+k g", command = "symbiosis.goToSession" },
 		{ key = "ctrl+k v", command = "symbiosis.showPlan" },
@@ -1205,7 +1384,22 @@ end
 -- replay, and pi has already changed the file on disk. Moves still work.
 events.on("key.press", function(key)
 	if editing then return false end
-	if run and editor.file_path() == run.path and changes_buffer(key) then
+	local k = tostring(key.key or ""):lower()
+	if help and (k == "esc" or k == "escape") then
+		help_stop()
+		return true
+	end
+	-- Enter at the end of a helpi! line asks at once; the Enter still goes in.
+	if k == "enter" and (not key.mod or key.mod == "") and not help then
+		local line = editor.current_line() or ""
+		if editor.cursor().col > runes(line) and helpi(line) then
+			if help_timer then ttt.clear_timeout(help_timer) help_timer = nil end
+			local fine, err = pcall(ask_help)
+			if not fine then ttt.log("error", "symbiosis helpi!: " .. tostring(err)) end
+		end
+	end
+	local writing = help and help.region and editor.file_path() == help.path
+	if (writing or (run and editor.file_path() == run.path)) and changes_buffer(key) then
 		if held then ttt.clear_timeout(held) end
 		held = ttt.set_timeout(1500, function() held = nil show() end)
 		show()
@@ -1216,20 +1410,17 @@ events.on("key.press", function(key)
 end)
 
 local function on_file()
-	refresh_soon()
 	if loaded then refresh_sessions() end
 end
 events.on("file.open", on_file)
 events.on("tab.change", on_file)
-events.on("file.save", refresh_soon)
-events.on("editor.change", refresh_soon)
+events.on("editor.change", function() help_soon() end)
 
 -- fs.read and the status bar are not ready while the plugin loads.
 ttt.set_timeout(100, function()
 	loaded = true
 	load_settings()
 	refresh_sessions()
-	refresh_soon()
 	show()
 	heartbeat()
 	ttt.set_interval(POLL_MS, function()

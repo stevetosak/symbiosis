@@ -29,8 +29,14 @@ export type ChannelEvent =
 	| { op: 'done'; call: string; tool: Tool; path: string; line: number; ok: boolean; sum: number | null }
 	/** The agent's turn ended; the editor goes to the last edit even when pinned. */
 	| { op: 'stop'; path: string; line: number }
-	/** Session `session` read a send request (ctrl+k d) and sent `count` markers to its agent. */
-	| { op: 'sent'; count: number; busy: boolean; session: string };
+	/** helpi!: session `session` got the question `id` and asks its model. */
+	| { op: 'help'; id: string; session: string }
+	/** The answer starts: its kind, and for code the imports the file needs. */
+	| { op: 'help_start'; id: string; kind: 'note' | 'code' | 'ask'; imports: string[] }
+	/** The answer so far, all of it (not a delta). */
+	| { op: 'help_text'; id: string; text: string }
+	/** The answer is complete (`text`), stopped (Esc), or failed (`error`). */
+	| { op: 'help_done'; id: string; text: string; error?: string; stopped?: boolean };
 
 export interface EditArg {
 	oldText?: unknown;

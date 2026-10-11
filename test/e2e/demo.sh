@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# The demo (demo/run.ts) end to end against a headless ttt: turn 1, then an
-# AI! comment (written on disk; the clean buffer reloads), ctrl+k d, the answer.
+# The demo (demo/run.ts) end to end against headless ttt: turn 1 in one ttt,
+# then a second ttt types the three helpi! questions of the demo in store.ts:
+# code (remove), a note (why), an ask (test) that the demo's turn answers.
 # At the end the workspace's own tests must pass. Usage: test/e2e/demo.sh [out-dir]
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -16,27 +17,34 @@ echo "[{\"name\":\"symbiosis\",\"displayName\":\"symbiosis\",\"version\":\"0.1.0
 demo=$!
 until [ -f "$DEMO_DIR/store.ts" ]; do sleep 0.1; done
 
-steps="wait-for store.done(7) timeout=30000; screenshot $OUT/turn1.txt"
-steps="$steps; wait-for AI! timeout=60000; wait 500; key ctrl+k d"
-steps="$steps; wait-for store.remove(1) timeout=60000; wait 1000; screenshot $OUT/answer.txt; debug $OUT/debug.json; quit"
-(cd "$DEMO_DIR" && ttt --size 100x32 store.ts --exec "$steps" > /dev/null 2>&1) &
-ttt=$!
-
+steps="wait-for store.done(7) timeout=30000; screenshot $OUT/turn1.txt; quit"
+(cd "$DEMO_DIR" && ttt --size 100x32 store.ts --exec "$steps" > /dev/null 2>&1) || true
 until grep -q 'turn 1 done' "$OUT/demo.log"; do
 	kill -0 $demo 2> /dev/null || { cat "$OUT/demo.log"; exit 1; }
 	sleep 0.2
 done
-sleep 1
-# The operator's comment, in the open file (pi's last change): the buffer is clean, so ttt reloads it.
-sed -i "s|^test('done marks|// add remove(id) AI!\n&|" "$DEMO_DIR/store.test.ts"
 
-wait $ttt || true
-for _ in $(seq 100); do grep -q '^.*done (' "$OUT/demo.log" && break; sleep 0.2; done
+# The operator: in store.ts, on a new line after done() (2 lines above list()).
+at=$(($(grep -n '^	list(): Todo' "$DEMO_DIR/store.ts" | cut -d: -f1) - 2))
+steps="wait 2000"
+for _ in $(seq $((at - 1))); do steps="$steps; key down"; done
+steps="$steps; key end; key enter; type // remove a to-do by id helpi!; wait 2500; screenshot $OUT/code.txt"
+steps="$steps; key end; key enter; type // why does list() copy? helpi!; key enter; wait 1500; screenshot $OUT/note.txt"
+steps="$steps; type // write a test for remove helpi!; wait 1500; key ctrl+s"
+steps="$steps; wait-for store.remove(1) timeout=30000; wait 1000; screenshot $OUT/answer.txt; quit"
+(cd "$DEMO_DIR" && ttt --size 100x32 store.ts --exec "$steps" > /dev/null 2>&1) || true
+
+for _ in $(seq 100); do grep -q 'done (1)' "$OUT/demo.log" && break; sleep 0.2; done
 kill -INT $demo 2> /dev/null || true
 wait $demo || true
 sed 's/\x1b\[[0-9;]*m//g' "$OUT/demo.log"
-grep -q 'AI!' "$DEMO_DIR/store.test.ts" && { echo "FAIL: the marker is still in store.test.ts"; exit 1; }
-grep -q 'remove(id: number)' "$DEMO_DIR/store.ts" || { echo "FAIL: no remove() in store.ts"; exit 1; }
+echo "== store.ts"; cat "$DEMO_DIR/store.ts"
+fail() { echo "FAIL: $*"; echo "out: $OUT"; exit 1; }
+grep -q 'helpi!' "$DEMO_DIR/store.ts" && fail "a helpi! marker is still in store.ts"
+grep -q '^	remove(id: number): boolean {$' "$DEMO_DIR/store.ts" || fail "no remove() in store.ts"
+grep -q '^	// pi: list() returns a copy' "$DEMO_DIR/store.ts" || fail "no note under the why question"
+grep -q 'asked demo' "$DEMO_DIR/store.ts" || fail "no ask line"
+grep -q "test('remove" "$DEMO_DIR/store.test.ts" || fail "the ask turn wrote no test"
 (cd "$DEMO_DIR" && "$repo/bin/run-node" --test store.test.ts > "$OUT/test.log" 2>&1) || { cat "$OUT/test.log"; echo "FAIL: the workspace tests"; exit 1; }
 grep -E '^ℹ (pass|fail)' "$OUT/test.log"
 echo "out: $OUT"

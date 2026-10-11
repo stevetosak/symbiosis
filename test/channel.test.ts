@@ -63,10 +63,15 @@ test('session records are written, removed, and pruned when stale', () => {
 	assert.equal(existsSync(join(dir, 'sessions/a.json')), false);
 });
 
-test('a request names the session it is for', () => {
+test('a helpi! request names the session it is for', () => {
 	const dir = temp();
-	writeFileSync(join(dir, 'request.json'), JSON.stringify({ id: 'r1', path: '/w/a.ts', to: 's1' }));
-	assert.deepEqual(new Channel(dir).request(), { id: 'r1', path: '/w/a.ts', to: 's1' });
+	assert.equal(new Channel(dir).help(), undefined);
+	writeFileSync(join(dir, 'help.json'), JSON.stringify({ id: 'h1', to: 's1', path: '/w/a.ts', line: 3, question: '// why? helpi!', window: { first: 1, text: 'a\nb' } }));
+	const r = new Channel(dir).help();
+	assert.equal(r?.to, 's1');
+	assert.equal(r?.line, 3);
+	assert.equal(r?.cancel, false);
+	assert.deepEqual(r?.window, { first: 1, text: 'a\nb' });
 });
 
 test('when another session wrote the log, the next emit starts it again', () => {
