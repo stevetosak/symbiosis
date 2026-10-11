@@ -59,6 +59,13 @@ allow the plugin's permissions.
 - `ctrl+k w`: what pi changed in its last turn, as a diff: the open file, or
   the last file pi changed if pi did not touch the open one.
 
+## Demo
+
+`npm run demo`: a scripted pi does a small task in a to-do app while you
+watch in ttt, then answers your `AI!` comments. No model, no tokens, the same
+every time. `demo/PROMPT.md` is the same task for a real pi. See
+`demo/README.md`.
+
 ## Test
 
 ```bash
@@ -67,4 +74,5 @@ npm run e2e       # a fake pi against a headless ttt; prints the output folder
 PLAN_AT=26 PLAN_CLOSE_AT=34 HOLD_MS=4000 npm run e2e   # also opens the plan drawer
 DIFF_AT=30 HOLD_MS=4000 npm run e2e                     # also shows the diff (ctrl+k w)
 bash test/e2e/suggest.sh   # the same, for sessions and suggestions
+bash test/e2e/demo.sh      # the demo, with an AI! comment; the workspace tests must pass
 ```
