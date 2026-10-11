@@ -17,7 +17,7 @@ import { absolutePath, adler32, type ChannelEvent, firstLine, pluginDir, type To
 /** At most one text write per call in this time: the plugin polls every 40 ms. */
 const FLUSH_MS = 40;
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 5;
+export const PROTOCOL = 6;
 /** The files a session record lists as written by it. */
 const MAX_FILES = 20;
 
@@ -251,7 +251,8 @@ export default function symbiosis(pi: ExtensionAPI) {
 		if (!entry.tracker.started) return undefined;
 		entry.tracker.readied = true;
 		channel.emit({ op: 'ready', call: entry.tracker.id });
-		if (plugin().alive) await channel.waitAck(entry.tracker.id);
+		// The plugin types the preview at the operator's speed: pi waits for it.
+		if (plugin().alive) await channel.waitAck(entry.tracker.id, () => !ctx.signal?.aborted && owner());
 		return undefined;
 	});
 

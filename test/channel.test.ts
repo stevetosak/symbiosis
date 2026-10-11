@@ -75,12 +75,16 @@ test('when another session wrote the log, the next emit starts it again', () => 
 	assert.deepEqual(JSON.parse(readFileSync(join(dir, 'head.json'), 'utf-8')), { gen: 3000, size: Buffer.byteLength(log) });
 });
 
-test('waitAck returns when the plugin acknowledges, or false after the timeout', async () => {
+test('waitAck waits as long as it may, with no time limit', async () => {
 	const dir = temp();
 	const c = new Channel(dir);
-	assert.equal(await c.waitAck('c1', 60, 10), false);
-	setTimeout(() => writeFileSync(join(dir, 'ack.json'), JSON.stringify(['c0', 'c1'])), 20);
-	assert.equal(await c.waitAck('c1', 1000, 10), true);
+	assert.equal(await c.waitAck('c1', () => false, 10), false);
+	// A slow preview: the ack comes after 300 ms, and nothing cuts the wait short.
+	setTimeout(() => writeFileSync(join(dir, 'ack.json'), JSON.stringify(['c0', 'c1'])), 300);
+	assert.equal(await c.waitAck('c1', () => true, 10), true);
+	// The wait ends when the caller says so: the plugin stopped, or the turn was aborted.
+	let left = 3;
+	assert.equal(await c.waitAck('c2', () => left-- > 0, 10), false);
 });
 
 test('install links the extension once and leaves a foreign path alone', () => {

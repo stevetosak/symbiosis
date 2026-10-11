@@ -28,8 +28,12 @@ local system = require("ttt.system")
 local DIR = ttt.plugin_dir()
 local HEAD, EVENTS, ACK, ALIVE = DIR .. "/head.json", DIR .. "/events.jsonl", DIR .. "/ack.json", DIR .. "/ttt.json"
 local REQUEST, SESSIONS, CHANGES = DIR .. "/request.json", DIR .. "/sessions", DIR .. "/changes"
+local SETTINGS = DIR .. "/settings.json"
+-- Typing speeds of the preview, in characters per second; 0 = as fast as pi sends.
+local SPEEDS = { 10, 20, 40, 80, 160, 320, 640, 1280, 0 }
+local SPEED = 5        -- the speed before you choose one: 160 characters per second
 local POLL_MS = 40
-local PROTOCOL = 5     -- the channel protocol of pi/index.ts
+local PROTOCOL = 6     -- the channel protocol of pi/index.ts
 local PLAN_WIDTH = 56  -- the timeline in the status bar, in characters
 
 local gen, offset = nil, 0
@@ -45,6 +49,12 @@ local chosen = nil     -- the id you chose with ctrl+k n; nil = by the open file
 local outside = false  -- the owner is only the most recent session, not this file's
 local plan_seen = nil  -- the plan as last shown, to redraw only on a change
 local drawer = nil     -- the plan drawer's panel, once opened: redrawn on a change
+local speed = SPEED    -- index in SPEEDS; ctrl+k - and ctrl+k = change it, settings.json keeps it
+local paused = false   -- ctrl+k space: the preview stops, and pi waits
+local queue = {}       -- the events read from the log, not yet applied
+local qhead = 1
+local budget = 0       -- the characters the preview may type now
+local rush = nil       -- ctrl+k .: the call whose preview shows at once
 local toggle_pin, end_preview, heartbeat, go_session, open_plan
 
 -- Positions -----------------------------------------------------------------
@@ -205,8 +215,14 @@ open_plan = function()
 	ttt.open_drawer({ width = 48, min_width = 30, side = "right", render = render_plan })
 end
 
+local function pace_text()
+	if paused then return "⏸ paused" end
+	local cps = SPEEDS[speed]
+	return cps == 0 and "▶ max" or string.format("▶ %d/s", cps)
+end
+
 local function show(text)
-	local mode = pinned and "pinned" or "following"
+	local mode = (pinned and "pinned" or "following") .. " · " .. pace_text()
 	if text then
 		ttt.set_status_item("left", "symbiosis", "pi " .. text .. " · " .. mode, { on_click = function() toggle_pin() end })
 	elseif here then
@@ -360,9 +376,12 @@ end
 local function ready(ev, final)
 	local c = calls[ev.call]
 	if c then
-		end_preview(c)
+		-- pi waits for the ack with no time limit: a failed undo must not stop it.
+		local ok, err = pcall(end_preview, c)
+		if not ok then ttt.log("error", "symbiosis undo: " .. tostring(err)) end
 		calls[ev.call] = nil
 	end
+	if rush == ev.call then rush = nil end
 	if final then ack(ev.call) end
 end
 
@@ -624,6 +643,106 @@ local handlers = {
 }
 
 -- The loop ------------------------------------------------------------------
+-- poll() reads new events into the queue; pace() applies them. Text that the
+-- preview shows is typed at the speed you set: it costs characters from a
+-- budget that grows every tick. All other events cost nothing, but wait for
+-- the text before them. So `ready` comes after the last character, and pi,
+-- which waits for its ack, writes the file only when you have seen it all.
+
+local function apply(ev)
+	local fine, err = pcall(handlers[ev.op], ev)
+	if not fine then ttt.log("error", "symbiosis " .. ev.op .. ": " .. tostring(err)) end
+end
+
+-- True when `ev` types text that the preview shows: a write's content or an
+-- edit's new text. An edit's old text is only selected.
+local function typed(ev)
+	if ev.op ~= "text" or type(ev.text) ~= "string" then return false end
+	local c = calls[ev.call]
+	if not c or c.skip then return false end
+	return ev.key == "content" or ev.key:match("%.new$") ~= nil
+end
+
+-- The bytes of the first `n` characters of `s`.
+local function rune_bytes(s, n)
+	local i, count = 1, 0
+	while i <= #s and count < n do
+		local b = s:byte(i)
+		i = i + (b >= 240 and 4 or b >= 224 and 3 or b >= 192 and 2 or 1)
+		count = count + 1
+	end
+	return math.min(i - 1, #s)
+end
+
+local function pace()
+	if paused then return end
+	local cps = SPEEDS[speed]
+	-- At most 0.2 s of typing saved up: no burst after a quiet moment.
+	if cps > 0 then budget = math.min(budget + cps * POLL_MS / 1000, math.max(cps / 5, 1)) end
+	while qhead <= #queue do
+		local ev = queue[qhead]
+		local n = math.floor(budget)
+		if cps == 0 or ev.call == rush or not typed(ev) then
+			apply(ev)
+			qhead = qhead + 1
+		else
+			local len = runes(ev.text)
+			if len > n and n <= 0 then break end
+			if len <= n then
+				budget = budget - len
+				apply(ev)
+				qhead = qhead + 1
+			else
+				-- Type the first n characters; the rest waits for the next tick.
+				local b = rune_bytes(ev.text, n)
+				apply({ op = "text", call = ev.call, key = ev.key, from = ev.from, text = ev.text:sub(1, b) })
+				ev.from = ev.from + b
+				ev.text = ev.text:sub(b + 1)
+				budget = budget - n
+				break
+			end
+		end
+	end
+	if qhead > #queue then
+		queue, qhead = {}, 1
+	end
+end
+
+local function save_settings()
+	fs.write(SETTINGS, json.encode({ speed = SPEEDS[speed] }))
+end
+
+local function load_settings()
+	local ok, saved = pcall(json.decode, fs.read(SETTINGS) or "")
+	if not ok or type(saved) ~= "table" then return end
+	for i, cps in ipairs(SPEEDS) do
+		if cps == saved.speed then speed = i end
+	end
+end
+
+-- ctrl+k - and ctrl+k =: slower and faster. The last step is "max": as fast
+-- as pi sends.
+local function set_speed(step)
+	speed = math.max(1, math.min(#SPEEDS, speed + step))
+	save_settings()
+	show()
+	ttt.notify("symbiosis: preview " .. pace_text(), "info")
+end
+
+-- ctrl+k space: the preview stops where it is; pi waits until you go on.
+local function toggle_pause()
+	paused = not paused
+	show()
+end
+
+-- ctrl+k .: the rest of this call's preview shows at once, also what pi has
+-- not sent yet. The next call is typed at your speed again.
+local function rush_now()
+	rush = active and active.id or (queue[qhead] and queue[qhead].call)
+	paused = false
+	pace()
+	show()
+end
 
 local function poll()
 	local raw = fs.read(HEAD)
@@ -646,10 +765,7 @@ local function poll()
 	for line in lines(chunk) do
 		offset = offset + #line
 		local ok, ev = pcall(json.decode, line)
-		if ok and ev and handlers[ev.op] then
-			local fine, err = pcall(handlers[ev.op], ev)
-			if not fine then ttt.log("error", "symbiosis " .. ev.op .. ": " .. tostring(err)) end
-		end
+		if ok and ev and handlers[ev.op] then table.insert(queue, ev) end
 	end
 end
 
@@ -666,6 +782,10 @@ ttt.register({
 		{ id = "symbiosis.goToSession", title = "symbiosis: Go to the pi Session (herdr)", handler = go_session },
 		{ id = "symbiosis.showPlan", title = "symbiosis: Show pi's Plan", handler = function() open_plan() end },
 		{ id = "symbiosis.showChanges", title = "symbiosis: What pi Changed in Its Last Turn (diff)", handler = show_changes },
+		{ id = "symbiosis.slower", title = "symbiosis: Preview Slower", handler = function() set_speed(-1) end },
+		{ id = "symbiosis.faster", title = "symbiosis: Preview Faster", handler = function() set_speed(1) end },
+		{ id = "symbiosis.pause", title = "symbiosis: Pause / Go On (pi waits)", handler = toggle_pause },
+		{ id = "symbiosis.rush", title = "symbiosis: Show the Rest of the Preview Now", handler = rush_now },
 	},
 	keybindings = {
 		{ key = "ctrl+k a", command = "symbiosis.togglePin" },
@@ -674,6 +794,10 @@ ttt.register({
 		{ key = "ctrl+k g", command = "symbiosis.goToSession" },
 		{ key = "ctrl+k v", command = "symbiosis.showPlan" },
 		{ key = "ctrl+k w", command = "symbiosis.showChanges" },
+		{ key = "ctrl+k -", command = "symbiosis.slower" },
+		{ key = "ctrl+k =", command = "symbiosis.faster" },
+		{ key = "ctrl+k space", command = "symbiosis.pause" },
+		{ key = "ctrl+k .", command = "symbiosis.rush" },
 	},
 })
 
@@ -695,11 +819,15 @@ events.on("editor.change", refresh_soon)
 -- fs.read and the status bar are not ready while the plugin loads.
 ttt.set_timeout(100, function()
 	loaded = true
+	load_settings()
 	refresh_sessions()
 	refresh_soon()
 	show()
 	heartbeat()
-	ttt.set_interval(POLL_MS, poll)
+	ttt.set_interval(POLL_MS, function()
+		poll()
+		pace()
+	end)
 	ttt.set_interval(1000, function()
 		refresh_sessions()
 		heartbeat()

@@ -137,13 +137,19 @@ export class Channel {
 	}
 
 	/** Waits until the plugin has undone the preview of `call`, or the timeout passes. True when it did. */
-	async waitAck(call: string, timeoutMs = 1500, stepMs = 20): Promise<boolean> {
-		const end = this.now() + timeoutMs;
-		while (this.now() < end) {
-			if (this.acked(call)) return true;
+	/**
+	 * Waits until the plugin acknowledges `call`: it typed the whole preview
+	 * (at the speed the operator set, maybe paused) and undid it. There is no
+	 * time limit: it waits as long as `waiting()` is true, which is the
+	 * caller's check that the plugin still lives, still follows this session,
+	 * and the turn was not aborted.
+	 */
+	async waitAck(call: string, waiting: () => boolean, stepMs = 20): Promise<boolean> {
+		while (!this.acked(call)) {
+			if (!waiting()) return this.acked(call);
 			await new Promise((r) => setTimeout(r, stepMs));
 		}
-		return this.acked(call);
+		return true;
 	}
 
 	private headGen(): number | undefined {

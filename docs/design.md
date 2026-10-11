@@ -30,8 +30,9 @@ workspace. Thus the channel is files in the plugin folder.
    (only if it occurs once), then types `newText` over it.
 3. `ready`: pi is about to run the tool. The plugin closes the undo group,
    undoes it once (the buffer is clean again) and writes the call id to
-   `ack.json`. pi waits for the ack (at most 1.5 s, only if the heartbeat is
-   live).
+   `ack.json`. pi waits for the ack with no time limit, as long as the plugin
+   lives, still follows this session, and the turn is not aborted (Esc).
+   The plugin acks only after it typed the whole preview (see the speed).
 4. The tool writes the file. ttt reloads a clean buffer by itself.
 5. `done`: the editor goes to the changed line. `stop` (end of the turn) goes
    there even when you pinned the editor.
@@ -39,6 +40,28 @@ workspace. Thus the channel is files in the plugin folder.
 Measured with headless ttt 1.7.1: undo FIRST, then the disk change, gives a
 reload. A disk change under a dirty buffer gives no reload, and a later undo
 leaves a clean but stale buffer. That is why the order in step 3 is fixed.
+
+## The speed
+
+The plugin does not apply the events as they come. It reads them into a
+queue and types the preview at a speed you set: `ctrl+k -` slower, `ctrl+k =`
+faster, in steps 10, 20, 40, 80, 160, 320, 640, 1280 characters per second,
+and max (as fast as pi sends). The speed is kept in `settings.json` in the
+plugin folder. 160/s is only the start value until you choose one.
+
+Only the text that the preview shows costs time: a write's content and an
+edit's new text. Every other event waits for the text before it, so `ready`
+comes after the last character, and pi writes the file only after you saw it
+all. The agent is that much slower: a 3 KB write at 160/s takes about 19 s.
+
+- `ctrl+k space`: pause. The preview stops where it is, and pi waits. Press it
+  again to go on.
+- `ctrl+k .`: the rest of this call's preview at once, also the text pi has
+  not sent yet. The next call is typed at your speed again.
+- The status bar shows the speed: `· ▶ 160/s`, `· ▶ max`, `· ⏸ paused`.
+
+Operator's choice (A + C): pi waits for the preview, plus a pause key; the
+speed is adjustable, the start value not chosen yet.
 
 ## The other rules
 
@@ -52,6 +75,8 @@ leaves a clean but stale buffer. That is why the order in step 3 is fixed.
 ## Known weak points
 
 - Between the undo and the reload, the old text shows for up to ~1.5 s.
+- pi waits for the ack with no time limit. If the plugin acks nothing while it
+  lives (a bug), Esc in pi ends the wait.
 - A new file: ttt shows "New file", and after the undo the plugin opens the
   file again so ttt reads it from disk.
 - Two sessions in the same folder: the most recent one wins until you choose.
@@ -143,7 +168,8 @@ one. Files over 1 MB are not kept.
 
 ## The cost
 
-Streaming: no model tokens, the extension reads what pi streams anyway.
+Streaming: no model tokens, the extension reads what pi streams anyway. The
+speed costs wall-clock time only: pi waits for the preview.
 Suggestions: one user message per `ctrl+k d`, about 40 tokens plus ~20 per
 marker.
 Diff key: no model tokens; each file pi touches is copied twice per turn.

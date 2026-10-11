@@ -8,6 +8,8 @@ repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 OUT=${1:-$(mktemp -d)}
 mkdir -p "$OUT/cfg/plugins/symbiosis" "$OUT/ws"
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"
+# SPEED: the preview's typing speed in characters per second (0 = max); default the plugin's.
+if [ -n "${SPEED:-}" ]; then echo "{\"speed\":$SPEED}" > "$OUT/cfg/plugins/symbiosis/settings.json"; fi
 perms=$(python3 -c "import json; print(json.dumps(json.load(open('$repo/ttt/symbiosis/plugin.ttt.json'))['permissions']))")
 echo "[{\"name\":\"symbiosis\",\"displayName\":\"symbiosis\",\"version\":\"0.1.0\",\"enabled\":true,\"permissions\":$perms}]" > "$OUT/cfg/plugins.ttt.json"
 printf 'notes\n' > "$OUT/ws/notes.txt"
@@ -20,6 +22,10 @@ for i in $(seq -w 1 ${SHOTS:-40}); do
 	if [ "$((10#$i))" = "${PLAN_CLOSE_AT:-0}" ]; then steps="$steps; key ctrl+k v; wait 300; key escape; wait 300"; fi
 	# DIFF_AT=N: show what pi changed (ctrl+k w) after shot N.
 	if [ "$((10#$i))" = "${DIFF_AT:-0}" ]; then steps="$steps; key ctrl+k w; wait 400"; fi
+	# PAUSE_AT / GO_AT=N: ctrl+k space (pause, then go on) after shot N. KEYS_AT=N: KEYS (e.g. "ctrl+k -") after shot N.
+	if [ "$((10#$i))" = "${PAUSE_AT:-0}" ]; then steps="$steps; key ctrl+k space"; fi
+	if [ "$((10#$i))" = "${GO_AT:-0}" ]; then steps="$steps; key ctrl+k space"; fi
+	if [ "$((10#$i))" = "${KEYS_AT:-0}" ]; then steps="$steps; key $KEYS"; fi
 done
 steps="$steps; debug $OUT/debug.json; quit"
 

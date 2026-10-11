@@ -31,6 +31,10 @@ allow the plugin's permissions.
 - Command palette: `symbiosis: Go to the Agent's Last Edit`.
 - Press a key in the buffer during a preview: the preview stops, the buffer
   is yours.
+- The preview types at a speed you set, and pi waits until you saw it all:
+  `ctrl+k -` slower, `ctrl+k =` faster (10 to 1280 characters per second, then
+  max), `ctrl+k space` pause (pi waits), `ctrl+k .` the rest of this change at
+  once. The status bar shows `▶ 160/s` or `⏸ paused`.
 - Status bar `π symbiosis ● working`: the pi session the editor follows, by
   the open file: the session that wrote it, else the one whose folder holds
   it, else the most recent one. Click it or `ctrl+k g` to go to its herdr
