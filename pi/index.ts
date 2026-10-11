@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Changes } from './changes.ts';
-import { Channel, type PluginState, type Session } from './channel.ts';
+import { Channel, DEFAULT_LAG, paneOf, type PluginState, type Session } from './channel.ts';
 import { cleanSteps, PLAN_DESCRIPTION, prepareArguments, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
 import { askMessage, HELP_SYSTEM, type HelpRequest, helpPrompt, lastAssistantText, parseAnswer } from './help.ts';
 import { syncTttPlugin } from './setup.ts';
@@ -18,7 +18,7 @@ import { absolutePath, adler32, BEFORE_MAX, type ChannelEvent, firstLine, plugin
 /** At most one text write per call in this time: the plugin polls every 40 ms. */
 const FLUSH_MS = 40;
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 9;
+export const PROTOCOL = 10;
 /** The files a session record lists as written by it. */
 const MAX_FILES = 20;
 
@@ -45,6 +45,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 	let last: { path: string; line: number } | undefined;
 	let session: ExtensionContext | undefined;
 	let lastHelp: string | undefined;
+	let lastStop: string | undefined;
 	let helping: { id: string; abort: AbortController } | undefined;
 	let poll: ReturnType<typeof setInterval> | undefined;
 	let ticks = 0;
@@ -52,7 +53,9 @@ export default function symbiosis(pi: ExtensionAPI) {
 	const record: Session = {
 		id,
 		version: PROTOCOL,
-		pane: process.env.HERDR_PANE_ID || null,
+		...paneOf(process.env),
+		model: null,
+		waiting: null,
 		cwd: process.cwd(),
 		name: basename(process.cwd()),
 		pid: process.pid,
@@ -100,7 +103,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 	}
 
 	// The plugin's state, read at most every 200 ms: message_update comes often.
-	let state: PluginState = { alive: false, pinned: false };
+	let state: PluginState = { alive: false, pinned: false, lag: DEFAULT_LAG };
 	let stateAt = 0;
 	function plugin(): PluginState {
 		if (Date.now() - stateAt > 200) {
@@ -115,6 +118,15 @@ export default function symbiosis(pi: ExtensionAPI) {
 		if (!channel.enabled()) return false;
 		const p = plugin();
 		return p.alive && p.owner === id;
+	}
+
+	/** ctrl+k q in ttt: stop this session's turn. */
+	function checkStop(): void {
+		if (!session || !channel.enabled()) return;
+		const request = channel.stop();
+		if (!request || request.to !== id || request.id === lastStop) return;
+		lastStop = request.id;
+		if (!session.isIdle()) session.abort();
 	}
 
 	/** helpi! in ttt: a question for this session, or Esc on the one it answers. */
@@ -234,6 +246,8 @@ export default function symbiosis(pi: ExtensionAPI) {
 		}
 		// A question from before this session is old: do not answer it again.
 		lastHelp = channel.enabled() ? channel.help()?.id : undefined;
+		lastStop = channel.enabled() ? channel.stop()?.id : undefined;
+		record.model = ctx.model?.id ?? null;
 		if (channel.enabled()) channel.pruneSessions();
 		record.title = pi.getSessionName?.() ?? null;
 		beat();
@@ -241,9 +255,27 @@ export default function symbiosis(pi: ExtensionAPI) {
 		// helpi! is to be fast: its file is read every 100 ms; a beat each second.
 		poll = setInterval(() => {
 			checkHelp();
+			checkStop();
 			if (++ticks % 10 === 0) beat();
 		}, 100);
 		poll.unref?.();
+	});
+
+	pi.on('model_select', (event) => {
+		record.model = event.model?.id ?? null;
+		beat();
+	});
+
+	// A dialog of any extension (a guard's "Allow?"): pi waits for the operator,
+	// who may be in ttt. The status bar says so.
+	pi.on('ui_prompt_start', (event) => {
+		record.waiting = event.title || event.kind;
+		beat();
+	});
+
+	pi.on('ui_prompt_end', () => {
+		record.waiting = null;
+		beat();
 	});
 
 	pi.on('session_info_changed', (event) => {

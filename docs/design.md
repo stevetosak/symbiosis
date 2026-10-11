@@ -14,9 +14,8 @@ Then the editor shows the result at the changed line.
 | Events | `pi/stream.ts` | Pure: turns growing arguments into small `text` events. |
 | Channel | `pi/channel.ts` | Files in the plugin folder: `events.jsonl`, `head.json`, `ttt.json` (with the lag limit), `ack.json` (the changes shown). |
 | helpi! | `pi/help.ts` | Pure: the request, the side call's prompt, the answer parser (kind, imports, body). |
-| Launcher | `launcher/main.ts` (`bin/symbiosis`) | Starts `pi --mode rpc` in the folder, runs ttt on the terminal, stops pi when ttt quits. One record per folder in `~/.local/state/symbiosis/`. |
-| RPC client | `launcher/rpc.ts` | Our own JSONL client: commands, responses, events, dialog answers. |
-| Bridge | `launcher/backend.ts` | `backends/<id>/ui.json` (pi's state, the dialog it waits on, notices) and `backends/<id>/ttt.json` (prompts, answers) in the plugin folder. |
+| Launcher | `launcher/main.ts` (`bin/symbiosis`) | Starts a real pi in its own herdr or tmux pane, runs ttt here as its child, ends when ttt quits. One record per folder in `~/.local/state/symbiosis/`. |
+| Layout | `launcher/layout.ts` | Pure: the herdr and tmux command lines for a pi tab, a split, or a new tab for symbiosis itself. |
 | ttt plugin | `ttt/symbiosis/plugin.lua` | Polls every 40 ms. Shows the preview. Follows the result. Sends helpi! questions and writes the answers. |
 
 A ttt plugin cannot open a socket and can read only its own folder and the
@@ -296,28 +295,30 @@ wanted code) is undone with ctrl+z. The 3 s "did not take the question" timer
 can fire on a slow first token only if pi does not write `help` (it does, at
 once).
 
-## The symbiosis command: pi behind ttt
+## The symbiosis command: ttt and a real pi
 
-`bin/symbiosis` runs one process: it starts `pi --mode rpc` in the folder,
-runs ttt as its child on the terminal, and passes things between them through
-the bridge files. ttt gets the bridge id in `SYMBIOSIS_BACKEND`, so a ttt
-talks only to the pi its own `symbiosis` started. A ttt started by hand has no
-bridge and works as before.
+`bin/symbiosis` opens ttt in the folder and a real, full pi beside it. pi is
+not hidden behind ttt: it runs in its own pane, with its own chat, commands
+and dialogs. (pi in RPC mode behind ttt, with a chat panel in ttt, was built
+and dropped: the panel was a poorer copy of pi's own terminal.)
 
-- **Prompts.** `ctrl+k q` opens ttt's command line; the text goes to
-  `ttt.json`, and the launcher sends it as an RPC `prompt` (a follow-up while
-  pi works). ttt keeps `ctrl+k i` for hover, so the plugin cannot have it.
-- **Dialogs.** pi's `confirm`, `select`, `input` and `editor` requests go to
-  `ui.json`. The plugin shows the one pi waits on in the command line:
-  `y`/`n` for a confirm, an option's number (or its text) for a select, one
-  line for an input (`⏎` stands for a line break). Esc cancels. A wrong answer
-  shows the dialog again. When pi stops waiting (its own timeout), the dialog
-  goes away. Each answer has the dialog's id; the launcher acts on it once.
-- **Notices.** pi's `notify` requests show with `ttt.notify`, each once.
-- **Stop.** When ttt quits, the launcher closes pi's stdin; pi saves its
-  session and ends. The record and the bridge folder are removed.
+- **Where pi goes.** In herdr or tmux, by `layout` (config, or `--tabs`,
+  `--split`):
+  - `tabs` (the default): a new tab `pi · <folder>`, not focused; ttt stays
+    in this pane.
+  - `split`: this pane splits, pi on the right, the focus stays on ttt.
+  The launcher makes the pane, then types the pi command into its shell, so
+  the shell stays when pi quits and its last words can be read.
+- **`--tab`** (or `open: "tab"`): a new focused tab named after the folder;
+  symbiosis runs again there with `--here`, and this pane is free.
+- **Outside herdr and tmux** it opens ttt only and prints how to start pi.
+- **pi stays.** When ttt quits, the launcher removes its record and ends; pi
+  is a normal session in its own pane, to go on with or to quit there.
+- **Stop.** `ctrl+k q` writes `stop.json` `{id, to}` for the session the
+  editor follows; that pi aborts its turn (`ctx.abort()`) if it works.
+- **Waits for you.** pi emits `ui_prompt_start`/`ui_prompt_end` for every
+  extension's dialog (a guard's "Allow?", a question). The session record
+  gets `waiting`, the bar shows `π name ? waits for you`, and a notice says
+  so; `ctrl+k g` goes to pi's pane to answer it.
 - **Already open.** A second `symbiosis` for the same folder says where the
   first one runs (its herdr or tmux pane) and stops; `--new` opens another.
-
-The chat panel replaces the one-line prompt in the next slice
-(`docs/plan-app.md`).

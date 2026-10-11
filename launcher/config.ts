@@ -6,15 +6,19 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 export type Open = 'here' | 'tab';
+/** tabs: pi in a tab of its own; split: ttt left, pi right in one tab. */
+export type Layout = 'tabs' | 'split';
 
 export interface Config {
 	/** Where `symbiosis` opens: in this pane, or in a new tab. */
 	open: Open;
+	/** How ttt and pi sit. */
+	layout: Layout;
 	/** Arguments pi always gets, before the ones after `--`. */
 	piArgs: string[];
 }
 
-export const DEFAULTS: Config = { open: 'here', piArgs: [] };
+export const DEFAULTS: Config = { open: 'here', layout: 'tabs', piArgs: [] };
 
 export class ConfigError extends Error {}
 
@@ -47,11 +51,14 @@ export function parseConfig(text: string, path: string): Config {
 		if (key === 'open') {
 			if (value !== 'here' && value !== 'tab') throw new ConfigError(`symbiosis: ${path}: "open" must be "here" or "tab", not ${JSON.stringify(value)}`);
 			config.open = value;
+		} else if (key === 'layout') {
+			if (value !== 'tabs' && value !== 'split') throw new ConfigError(`symbiosis: ${path}: "layout" must be "tabs" or "split", not ${JSON.stringify(value)}`);
+			config.layout = value;
 		} else if (key === 'piArgs') {
 			if (!Array.isArray(value) || !value.every((v) => typeof v === 'string')) throw new ConfigError(`symbiosis: ${path}: "piArgs" must be a list of strings`);
 			config.piArgs = value;
 		} else {
-			throw new ConfigError(`symbiosis: ${path}: unknown key "${key}" (known: open, piArgs)`);
+			throw new ConfigError(`symbiosis: ${path}: unknown key "${key}" (known: open, layout, piArgs)`);
 		}
 	}
 	return config;
