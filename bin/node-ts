@@ -1,0 +1,20 @@
+#!/bin/sh
+# Runs a .ts file with a Node that strips TypeScript types (22.19 or newer):
+# the one on PATH if it is new enough, else the Node that pi's installer
+# brings (~/.local/share/pi-node), else the newest from nvm.
+# Usage: bin/node-ts <file.ts> [args...]
+set -eu
+
+new_enough() {
+	"$1" -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 19) ? 0 : 1)' 2> /dev/null
+}
+
+for node in "$(command -v node 2> /dev/null || true)" \
+	"${XDG_DATA_HOME:-$HOME/.local/share}/pi-node/current/bin/node" \
+	$(ls -d "${NVM_DIR:-$HOME/.nvm}"/versions/node/v*/bin/node 2> /dev/null | sort -V -r); do
+	if [ -n "$node" ] && [ -x "$node" ] && new_enough "$node"; then
+		exec "$node" --disable-warning=ExperimentalWarning "$@"
+	fi
+done
+echo "symbiosis: needs Node 22.19 or newer; install pi (it brings one) or Node" >&2
+exit 1

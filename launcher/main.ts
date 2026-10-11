@@ -111,8 +111,11 @@ async function main(): Promise<number> {
 
 	if (open === 'tab') {
 		if (host) {
-			// symbiosis again, in the new tab, with this run's choices.
+			// symbiosis again, in the new tab, with this run's choices. The tab's
+			// shell does not get this environment: the command overrides go along.
+			const keep = ['SYMBIOSIS_PI', 'SYMBIOSIS_TTT'].filter((name) => process.env[name]).map((name) => `${name}=${process.env[name]}`);
 			const again = [
+				...(keep.length ? ['env', ...keep] : []),
 				process.execPath,
 				...process.execArgv,
 				process.argv[1],

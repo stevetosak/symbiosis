@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
-# The demo (demo/run.ts) end to end against headless ttt: turn 1 in one ttt,
+# The demo's scripted pi (demo/scripted-pi) end to end against headless ttt: turn 1 in one ttt,
 # then a second ttt types the three helpi! questions of the demo in store.ts:
 # code (remove), a note (why), an ask (test) that the demo's turn answers.
 # At the end the workspace's own tests must pass. Usage: test/e2e/demo.sh [out-dir]
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 OUT=${1:-$(mktemp -d)}
-export DEMO_DIR="$OUT/ws" TTT_CONFIG_DIR="$OUT/cfg" PAUSE_MS=${PAUSE_MS:-300} SUGGEST_MS=${SUGGEST_MS:-60000}
+export DEMO_DIR="$OUT/ws" XDG_STATE_HOME="$OUT/state" TTT_CONFIG_DIR="$OUT/cfg" PAUSE_MS=${PAUSE_MS:-300} SUGGEST_MS=${SUGGEST_MS:-60000}
 mkdir -p "$OUT/cfg/plugins/symbiosis"
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"
 echo "{\"speed\":${SPEED:-1280},\"lag\":${LAG:-3}}" > "$OUT/cfg/plugins/symbiosis/settings.json"
 perms=$(python3 -c "import json; print(json.dumps(json.load(open('$repo/ttt/symbiosis/plugin.ttt.json'))['permissions']))")
 echo "[{\"name\":\"symbiosis\",\"displayName\":\"symbiosis\",\"version\":\"0.1.0\",\"enabled\":true,\"permissions\":$perms}]" > "$OUT/cfg/plugins.ttt.json"
 
-"$repo/bin/run-node" "$repo/demo/run.ts" > "$OUT/demo.log" 2>&1 &
+# The copy as `npm run demo -- --reset` makes it, then the scripted pi in it,
+# as the symbiosis command starts it (without the launcher: ttt is headless here).
+"$repo/bin/run-node" "$repo/demo/run.ts" --reset > "$OUT/reset.log" 2>&1
+(cd "$DEMO_DIR" && exec "$repo/demo/scripted-pi" > "$OUT/demo.log" 2>&1) &
 demo=$!
-until [ -f "$DEMO_DIR/store.ts" ]; do sleep 0.1; done
 
 steps="wait-for store.done(7) timeout=30000; screenshot $OUT/turn1.txt; quit"
 (cd "$DEMO_DIR" && ttt --size 100x32 store.ts --exec "$steps" > /dev/null 2>&1) || true

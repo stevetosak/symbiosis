@@ -116,6 +116,36 @@ action
 PATH=$PATH_BEFORE
 has "$CALLS" "The symbiosis command is not installed" "no command: it says so"
 
+echo "== npm run demo: the scripted pi beside ttt"
+demo() { : > "$CALLS"; (cd "$OUT/ws" && DEMO_DIR="$OUT/demo" timeout 30 "$repo/bin/run-node" "$repo/demo/run.ts" "$@" < /dev/null > "$OUT/out.txt" 2>&1) && code=0 || code=$?; }
+HERDR_PANE_ID=w9:p1 demo
+[ "$code" = 0 ] || bad "demo exit $code: $(cat "$OUT/out.txt")"
+[ -f "$OUT/demo/store.ts" ] && [ -f "$OUT/demo/.symbiosis-demo" ] && ok "a fresh copy" || bad "no demo copy"
+has "$CALLS" "herdr tab create --workspace w9 --cwd $OUT/demo --label pi · demo" "a tab for the scripted pi"
+has "$CALLS" "herdr pane run w9:pT $repo/demo/scripted-pi --model fake" "the scripted pi runs there"
+has "$CALLS" "ttt $OUT/demo (in $OUT/demo)" "ttt opens the copy"
+
+echo "== npm run demo -- --real --split"
+HERDR_PANE_ID=w9:p1 demo --real --split
+has "$CALLS" "herdr pane split w9:p1" "--split goes to the symbiosis command"
+has "$CALLS" "herdr pane run w9:pS pi --model fake --name demo @$repo/demo/PROMPT.md" "a real pi, given PROMPT.md"
+
+echo "== npm run demo -- --tab"
+HERDR_PANE_ID=w9:p1 demo --tab
+has "$CALLS" "env SYMBIOSIS_PI=$repo/demo/scripted-pi" "the new tab keeps the scripted pi"
+
+echo "== npm run demo while it runs"
+: > "$CALLS"
+(cd "$OUT/ws" && DEMO_DIR="$OUT/demo" TTT_HOLD=4 HERDR_PANE_ID=w9:p1 "$repo/bin/run-node" "$repo/demo/run.ts" < /dev/null > /dev/null 2>&1) &
+first=$!
+sleep 2.5
+echo mine > "$OUT/demo/mine.txt"
+(cd "$OUT/ws" && DEMO_DIR="$OUT/demo" HERDR_PANE_ID=w9:p2 "$repo/bin/run-node" "$repo/demo/run.ts" < /dev/null > "$OUT/second.txt" 2>&1) && c=0 || c=$?
+wait $first
+has "$OUT/second.txt" "the demo already runs in herdr pane w9:p1: quit its ttt first" "it says so"
+[ "$c" = 1 ] && ok "and stops" || bad "the second demo exits $c"
+[ -f "$OUT/demo/mine.txt" ] && ok "the running demo's copy is kept" || bad "the copy was reset under the running demo"
+
 echo "== a broken layout in the config"
 echo '{"layout": "grid"}' > "$OUT/xdg/symbiosis/config.json"
 run

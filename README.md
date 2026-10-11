@@ -157,9 +157,11 @@ argument, else the git root, else this folder.
 
 ## Demo
 
-`npm run demo`: a scripted pi does a small task in a to-do app while you
-watch in ttt, then answers your `helpi!` questions with set answers. No model, no tokens, the same
-every time. `demo/PROMPT.md` is the same task for a real pi. See
+`npm run demo` opens a copy of a small to-do app with the `symbiosis`
+command: ttt here, a scripted pi in its own tab. The scripted pi does a small
+task while you watch in ttt, then answers your `helpi!` questions with set
+answers. No model, no tokens, the same every time. `npm run demo -- --real`
+gives the same task (`demo/PROMPT.md`) to a real pi, which costs tokens. See
 `demo/README.md`.
 
 ## Test
@@ -173,7 +175,7 @@ bash test/e2e/help.sh      # helpi!: code, note, ask, Esc; only the session the 
 bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the workspace tests must pass
 bash test/e2e/lag.sh       # the replay behind pi (LAG=-1, SPEED=80); typing waits; buffer = disk at the end
 bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel shows a file outside the folder
-bash test/e2e/app.sh       # the symbiosis command and the herdr action, with fake herdr, tmux, pi and ttt: tabs, split, --tab, no multiplexer, already open
+bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, no multiplexer, already open
 bash test/e2e/stop.sh      # "? waits for you" while pi shows a dialog; ctrl+k q stops pi's turn
 sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi): without herdr, with it, twice, key taken, own command file
 ```

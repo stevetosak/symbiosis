@@ -310,7 +310,13 @@ and dropped: the panel was a poorer copy of pi's own terminal.)
   The launcher makes the pane, then types the pi command into its shell, so
   the shell stays when pi quits and its last words can be read.
 - **`--tab`** (or `open: "tab"`): a new focused tab named after the folder;
-  symbiosis runs again there with `--here`, and this pane is free.
+  symbiosis runs again there with `--here`, and this pane is free. The new
+  tab's shell does not get this environment, so `SYMBIOSIS_PI` and
+  `SYMBIOSIS_TTT` go along on the command line (`env ...`).
+- **The demo.** `npm run demo` runs the launcher on a fresh copy with
+  `SYMBIOSIS_PI=demo/scripted-pi`: the scripted pi takes the place of pi and
+  ends when the launcher's record goes (ttt quit). `--real` gives a real pi
+  `--name demo @demo/PROMPT.md`.
 - **Outside herdr and tmux** it opens ttt only and prints how to start pi.
 - **pi stays.** When ttt quits, the launcher removes its record and ends; pi
   is a normal session in its own pane, to go on with or to quit there.
