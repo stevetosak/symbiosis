@@ -18,6 +18,8 @@ for i in $(seq -w 1 ${SHOTS:-40}); do
 	# PLAN_AT=N: open the plan drawer (ctrl+k v) after shot N; PLAN_CLOSE_AT: ctrl+k v (focus it again), then Esc.
 	if [ "$((10#$i))" = "${PLAN_AT:-0}" ]; then steps="$steps; key ctrl+k v; wait 300"; fi
 	if [ "$((10#$i))" = "${PLAN_CLOSE_AT:-0}" ]; then steps="$steps; key ctrl+k v; wait 300; key escape; wait 300"; fi
+	# DIFF_AT=N: show what pi changed (ctrl+k w) after shot N.
+	if [ "$((10#$i))" = "${DIFF_AT:-0}" ]; then steps="$steps; key ctrl+k w; wait 400"; fi
 done
 steps="$steps; debug $OUT/debug.json; quit"
 

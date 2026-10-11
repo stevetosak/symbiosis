@@ -41,6 +41,8 @@ allow the plugin's permissions.
   timeline, done › now › next. pi sends it with its `plan` tool for a task
   with several steps. `ctrl+k v` (or a click) shows the whole plan in a
   drawer; Esc closes it.
+- `ctrl+k w`: what pi changed in its last turn, as a diff: the open file, or
+  the last file pi changed if pi did not touch the open one.
 
 ## Test
 
@@ -48,5 +50,6 @@ allow the plugin's permissions.
 npm test          # unit tests
 npm run e2e       # a fake pi against a headless ttt; prints the output folder
 PLAN_AT=26 PLAN_CLOSE_AT=34 HOLD_MS=4000 npm run e2e   # also opens the plan drawer
+DIFF_AT=30 HOLD_MS=4000 npm run e2e                     # also shows the diff (ctrl+k w)
 bash test/e2e/suggest.sh   # the same, for sessions and suggestions
 ```

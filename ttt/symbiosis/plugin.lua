@@ -27,7 +27,7 @@ local system = require("ttt.system")
 
 local DIR = ttt.plugin_dir()
 local HEAD, EVENTS, ACK, ALIVE = DIR .. "/head.json", DIR .. "/events.jsonl", DIR .. "/ack.json", DIR .. "/ttt.json"
-local REQUEST, SESSIONS = DIR .. "/request.json", DIR .. "/sessions"
+local REQUEST, SESSIONS, CHANGES = DIR .. "/request.json", DIR .. "/sessions", DIR .. "/changes"
 local POLL_MS = 40
 local PROTOCOL = 4     -- the channel protocol of pi/index.ts
 local PLAN_WIDTH = 56  -- the timeline in the status bar, in characters
@@ -466,6 +466,51 @@ go_session = function()
 	end)
 end
 
+-- The diff key -------------------------------------------------------------
+-- pi/changes.ts keeps, per file, the text before pi's last turn first changed
+-- it and the text after. ctrl+k w shows that diff for the open file, or for
+-- the last file pi changed.
+
+-- Lines for open_diff; a final "\n" does not make an empty last line.
+local function split(text)
+	local out = {}
+	if type(text) ~= "string" then return out end
+	local i = 1
+	while i <= #text do
+		local j = text:find("\n", i, true)
+		if not j then
+			table.insert(out, text:sub(i))
+			break
+		end
+		table.insert(out, text:sub(i, j - 1))
+		i = j + 1
+	end
+	return out
+end
+
+local function show_changes()
+	local ok, index = pcall(json.decode, fs.read(CHANGES .. "/index.json") or "")
+	if not ok or type(index) ~= "table" or type(index.files) ~= "table" or #index.files == 0 then
+		return ttt.notify("symbiosis: pi changed no file in its last turn", "info")
+	end
+	local open = editor.file_path()
+	local pick = index.files[#index.files]
+	for _, f in ipairs(index.files) do
+		if f.path == open then pick = f end
+	end
+	local fine, change = pcall(json.decode, fs.read(CHANGES .. "/" .. pick.key .. ".json") or "")
+	if not fine or type(change) ~= "table" then
+		return ttt.notify("symbiosis: the changes to " .. name(pick.path) .. " are not readable", "warning")
+	end
+	if change.before == change.after then
+		return ttt.notify("symbiosis: " .. name(pick.path) .. " is the same as before pi's last turn", "info")
+	end
+	ttt.open_diff("pi: " .. name(pick.path) .. " (last turn)", split(change.before), split(change.after), pick.path)
+	if open and open ~= "" and pick.path ~= open then
+		ttt.notify("symbiosis: pi did not change this file; this is " .. name(pick.path) .. ", its last change", "info")
+	end
+end
+
 -- Suggestions: AI!/AI? comments -------------------------------------------
 
 local OPENERS = { "<!--", "/*", "//", "--", "#", ";" }
@@ -600,6 +645,7 @@ ttt.register({
 		{ id = "symbiosis.nextSession", title = "symbiosis: Next pi Session Takes Over", handler = next_session },
 		{ id = "symbiosis.goToSession", title = "symbiosis: Go to the pi Session (herdr)", handler = go_session },
 		{ id = "symbiosis.showPlan", title = "symbiosis: Show pi's Plan", handler = function() open_plan() end },
+		{ id = "symbiosis.showChanges", title = "symbiosis: What pi Changed in Its Last Turn (diff)", handler = show_changes },
 	},
 	keybindings = {
 		{ key = "ctrl+k a", command = "symbiosis.togglePin" },
@@ -607,6 +653,7 @@ ttt.register({
 		{ key = "ctrl+k n", command = "symbiosis.nextSession" },
 		{ key = "ctrl+k g", command = "symbiosis.goToSession" },
 		{ key = "ctrl+k v", command = "symbiosis.showPlan" },
+		{ key = "ctrl+k w", command = "symbiosis.showChanges" },
 	},
 })
 

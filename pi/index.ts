@@ -6,8 +6,9 @@
 // gets the AI!/AI? markers. Without the plugin folder (ttt or the plugin not
 // installed) this extension writes nothing.
 import { existsSync, readFileSync } from 'node:fs';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { Changes } from './changes.ts';
 import { Channel, type PluginState, type Session } from './channel.ts';
 import { cleanSteps, PLAN_DESCRIPTION, prepareArguments, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
 import { findMarkers, suggestionMessage } from './suggest.ts';
@@ -31,6 +32,10 @@ function isTool(name: unknown): name is Tool {
 
 export default function symbiosis(pi: ExtensionAPI) {
 	const channel = new Channel(pluginDir());
+	const changes = new Changes(join(pluginDir(), 'changes'));
+	// The run (agent_start to agent_end) whose changes are kept, and the run now.
+	let changesRun = 0;
+	let run = 0;
 	const live = new Map<string, Live>();
 	let last: { path: string; line: number } | undefined;
 	let session: ExtensionContext | undefined;
@@ -168,9 +173,32 @@ export default function symbiosis(pi: ExtensionAPI) {
 		live.clear();
 	}
 
+	/** A failure to keep a diff must not fail the tool call. */
+	function safely(f: () => void): void {
+		try {
+			f();
+		} catch {
+			// The diff key shows less; the work goes on.
+		}
+	}
+
+	/** For ctrl+k w in ttt: the file's text before this run first changes it. Owner only. */
+	function keepBefore(input: unknown, cwd: string): void {
+		const path = (input as { path?: unknown })?.path;
+		if (typeof path !== 'string' || path === '' || !owner()) return;
+		safely(() => {
+			if (changesRun !== run) {
+				changes.start(id);
+				changesRun = run;
+			}
+			changes.before(absolutePath(path, cwd));
+		});
+	}
+
 	pi.on('agent_start', () => {
 		record.active = Date.now() / 1000;
 		record.working = true;
+		run = Date.now();
 		beat();
 		if (owner()) channel.rotate();
 	});
@@ -201,6 +229,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 	// and ttt reloads it.
 	pi.on('tool_call', async (event, ctx) => {
 		if (!isTool(event.toolName) || !channel.enabled()) return undefined;
+		keepBefore(event.input, ctx.cwd);
 		const entry = live.get(event.toolCallId);
 		if (!entry) return undefined;
 		entry.args = event.input as Record<string, unknown>;
@@ -216,6 +245,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		if (!isTool(event.toolName) || !channel.enabled()) return undefined;
 		const path = (event.input as { path?: unknown }).path;
 		if (typeof path !== 'string' || path === '') return undefined;
+		if (changesRun === run) safely(() => changes.after(absolutePath(path, ctx.cwd)));
 		const streamed = live.delete(event.toolCallId);
 		if (!streamed && !owner()) return undefined;
 		const done = { op: 'done' as const, call: event.toolCallId, tool: event.toolName, path: absolutePath(path, ctx.cwd), line: firstLine(event.toolName, event.details), ok: !event.isError };

@@ -122,11 +122,25 @@ the keys while it is open, so a plugin key cannot close it: Esc does, as in
 every ttt drawer. When the editor moved after the drawer opened (a stop),
 `ctrl+k v` gives the drawer the focus again.
 
+## The diff key
+
+`ctrl+k w` shows what pi changed in its last turn (agent_start to
+agent_end), in ttt's own diff tab (`ttt.open_diff`). Before is the file as it
+was when pi first touched it in that turn; after is the file after pi's last
+change. So five edits to one file show as one diff. The open file, or, if pi
+did not change it, the last file pi changed.
+
+Only the owner keeps these, in `changes/` in the plugin folder
+(`pi/changes.ts`): ttt.fs cannot read outside the workspace, so the
+extension writes both texts there. A new turn of the owner drops the last
+one. Files over 1 MB are not kept.
+
 ## The cost
 
 Streaming: no model tokens, the extension reads what pi streams anyway.
 Suggestions: one user message per `ctrl+k d`, about 40 tokens plus ~20 per
 marker.
+Diff key: no model tokens; each file pi touches is copied twice per turn.
 Timeline: the `plan` tool is in every request, about 150 tokens (schema,
 one-line snippet, one guideline). Each call costs the steps it sends, about
 10 tokens a step, plus a one-line result.
