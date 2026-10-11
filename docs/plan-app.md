@@ -87,7 +87,7 @@ Each slice is a branch and a pull request. You merge.
    config, record, start pi in RPC mode, run ttt, stop pi. A small JSONL client
    of our own (pi's `RpcClient` cannot answer dialogs). Dialogs are answered in
    ttt from the start, so the backend pi never hangs. Prompts are typed in a
-   temporary one-line command (`ctrl+k i`), so the slice is usable.
+   temporary one-line command (`ctrl+k q`; ttt keeps `ctrl+k i` for hover), so the slice is usable.
 2. **The chat panel.** Chat events in the channel, the panel (tail rendering,
    PgUp/PgDn, header, tool lines, input, Esc), prompts for both kinds of pi.
 3. **Install and herdr.** `install.sh` installs the launcher and the shim and
