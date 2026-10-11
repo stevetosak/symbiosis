@@ -12,12 +12,12 @@ import { Changes } from './changes.ts';
 import { Channel, type PluginState, type Session } from './channel.ts';
 import { cleanSteps, PLAN_DESCRIPTION, prepareArguments, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
 import { findMarkers, suggestionMessage } from './suggest.ts';
-import { absolutePath, adler32, type ChannelEvent, firstLine, pluginDir, type Tool, Tracker } from './stream.ts';
+import { absolutePath, adler32, BEFORE_MAX, type ChannelEvent, firstLine, pluginDir, type Tool, Tracker } from './stream.ts';
 
 /** At most one text write per call in this time: the plugin polls every 40 ms. */
 const FLUSH_MS = 40;
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 7;
+export const PROTOCOL = 8;
 /** The files a session record lists as written by it. */
 const MAX_FILES = 20;
 
@@ -39,6 +39,8 @@ export default function symbiosis(pi: ExtensionAPI) {
 	let changesRun = 0;
 	let run = 0;
 	const live = new Map<string, Live>();
+	/** The calls pi sent `ready` for that the editor has not shown yet. */
+	let behind: string[] = [];
 	let last: { path: string; line: number } | undefined;
 	let session: ExtensionContext | undefined;
 	let lastRequest: string | undefined;
@@ -177,10 +179,21 @@ export default function symbiosis(pi: ExtensionAPI) {
 			t.path = absolutePath(path, cwd);
 			t.started = true;
 			wrote(t.path);
-			events.push({ op: 'start', call: t.id, tool: t.tool, path: t.path, sum: existsSync(t.path) ? adler32(readFileSync(t.path)) : null });
+			events.push({ op: 'start', call: t.id, tool: t.tool, path: t.path, ...onDisk(t.path) });
 		}
 		events.push(...t.update(entry.args, final));
 		channel.emit(...events);
+	}
+
+	function sumOf(path: string): number | null {
+		return existsSync(path) ? adler32(readFileSync(path)) : null;
+	}
+
+	/** The file now: its sum, and its text when it is not too big. */
+	function onDisk(path: string): { sum: number | null; before?: string } {
+		if (!existsSync(path)) return { sum: null };
+		const bytes = readFileSync(path);
+		return bytes.length <= BEFORE_MAX ? { sum: adler32(bytes), before: bytes.toString('utf-8') } : { sum: adler32(bytes) };
 	}
 
 	/** Every call that started but will not run gets its preview undone. */
@@ -243,9 +256,9 @@ export default function symbiosis(pi: ExtensionAPI) {
 		}
 	});
 
-	// Just before the tool runs: the final text, then `ready`, then wait until
-	// the plugin has undone its preview, so the write lands on a clean buffer
-	// and ttt reloads it.
+	// Just before the tool runs: the final text, then `ready`. The editor
+	// replays the changes at the operator's speed, behind pi: pi waits only
+	// when more changes than the operator's limit are not shown yet.
 	pi.on('tool_call', async (event, ctx) => {
 		if (!isTool(event.toolName) || !channel.enabled()) return undefined;
 		const target = (event.input as { path?: unknown })?.path;
@@ -258,8 +271,15 @@ export default function symbiosis(pi: ExtensionAPI) {
 		if (!entry.tracker.started) return undefined;
 		entry.tracker.readied = true;
 		channel.emit({ op: 'ready', call: entry.tracker.id });
-		// The plugin types the preview at the operator's speed: pi waits for it.
-		if (plugin().alive) await channel.waitAck(entry.tracker.id, () => !ctx.signal?.aborted && owner());
+		const state = plugin();
+		if (!state.alive) {
+			behind = [];
+			return undefined;
+		}
+		behind.push(entry.tracker.id);
+		// Calls of one message run at the same time: each waits on the shared list.
+		await channel.waitBehind(behind, state.lag, () => !ctx.signal?.aborted && owner() && plugin().alive);
+		behind = channel.unshown(behind);
 		return undefined;
 	});
 
@@ -270,7 +290,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		if (changesRun === run) safely(() => changes.after(absolutePath(path, ctx.cwd)));
 		const streamed = live.delete(event.toolCallId);
 		if (!streamed && !owner()) return undefined;
-		const done = { op: 'done' as const, call: event.toolCallId, tool: event.toolName, path: absolutePath(path, ctx.cwd), line: firstLine(event.toolName, event.details), ok: !event.isError };
+		const done = { op: 'done' as const, call: event.toolCallId, tool: event.toolName, path: absolutePath(path, ctx.cwd), line: firstLine(event.toolName, event.details), ok: !event.isError, sum: sumOf(absolutePath(path, ctx.cwd)) };
 		if (done.ok) last = { path: done.path, line: done.line };
 		channel.emit(done);
 		return undefined;

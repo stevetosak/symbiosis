@@ -27,9 +27,9 @@ test('events are appended and head.json tracks the size', () => {
 test('the heartbeat says if ttt is alive and pinned', () => {
 	const dir = temp();
 	const c = new Channel(dir, () => 10_000);
-	assert.deepEqual(c.plugin(), { alive: false, pinned: false });
+	assert.deepEqual(c.plugin(), { alive: false, pinned: false, lag: 3 });
 	writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 9, pinned: true }));
-	assert.deepEqual(c.plugin(), { alive: true, pinned: true });
+	assert.deepEqual(c.plugin(), { alive: true, pinned: true, lag: 3 });
 	writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 6 }));
 	assert.equal(c.plugin().alive, false);
 });
@@ -38,7 +38,16 @@ test('the heartbeat names the owner: the session the editor follows', () => {
 	const dir = temp();
 	const c = new Channel(dir, () => 10_000);
 	writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 9, owner: 's1' }));
-	assert.deepEqual(c.plugin(), { alive: true, pinned: false, owner: 's1' });
+	assert.deepEqual(c.plugin(), { alive: true, pinned: false, lag: 3, owner: 's1' });
+});
+
+test('the heartbeat says how far pi may run ahead; a bad value is the default', () => {
+	const dir = temp();
+	const c = new Channel(dir, () => 10_000);
+	for (const [lag, want] of [[0, 0], [10, 10], [-1, -1], [-2, 3], [1.5, 3], ['x', 3]] as const) {
+		writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 9, lag }));
+		assert.equal(c.plugin().lag, want, String(lag));
+	}
 });
 
 test('session records are written, removed, and pruned when stale', () => {
@@ -85,6 +94,21 @@ test('waitAck waits as long as it may, with no time limit', async () => {
 	// The wait ends when the caller says so: the plugin stopped, or the turn was aborted.
 	let left = 3;
 	assert.equal(await c.waitAck('c2', () => left-- > 0, 10), false);
+});
+
+test('pi waits only while more changes than the limit are not shown', async () => {
+	const dir = temp();
+	const c = new Channel(dir);
+	writeFileSync(join(dir, 'ack.json'), JSON.stringify(['c1']));
+	// c2..c4 not shown: with a limit of 3, no wait.
+	assert.deepEqual(await c.waitBehind(['c1', 'c2', 'c3', 'c4'], 3, () => true, 10), ['c2', 'c3', 'c4']);
+	// No limit: no wait, even far behind.
+	assert.equal((await c.waitBehind(['a', 'b', 'c', 'd', 'e'], -1, () => true, 10)).length, 5);
+	// A limit of 1 with c2, c3 not shown: the wait ends when the editor shows c2.
+	setTimeout(() => writeFileSync(join(dir, 'ack.json'), JSON.stringify(['c1', 'c2'])), 200);
+	const t = Date.now();
+	assert.deepEqual(await c.waitBehind(['c2', 'c3'], 1, () => true, 10), ['c3']);
+	assert.ok(Date.now() - t >= 150);
 });
 
 test('install links the extension once and leaves a foreign path alone', () => {

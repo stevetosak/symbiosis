@@ -1,14 +1,18 @@
 -- symbiosis, the ttt side. pi (the extension in pi/) appends events to
 -- events.jsonl in this folder; this plugin reads them every 40 ms and
---   * types each write and edit into the buffer while the model writes it,
---     as a preview in one undo group;
---   * undoes the preview when the tool is about to run (`ready`) and writes
---     ack.json, so the file on disk changes under a clean buffer and ttt
---     reloads it: the file on disk is always the truth;
+--   * replays each write and edit in the buffer at the speed you set, as a
+--     preview: one undo group for each run of changes to one file;
+--   * writes ack.json when it has shown a change. pi does not wait for the
+--     editor: it waits only when more changes than your limit (`lag`) are
+--     not shown yet. So the file on disk is where pi is now, and the buffer
+--     is the replay, behind it;
+--   * at the end of a run: undoes the preview and opens the file again from
+--     disk: the file on disk is always the truth;
 --   * follows the result: opens the file at the changed line.
--- Rules: a buffer with unsaved changes is never touched; pinned (ctrl+k a)
--- means no preview and no jumps, but the end of the turn (a stop) moves the
--- editor anyway; a key press in the editor ends the preview. See docs/design.md.
+-- Rules: a buffer with unsaved changes is never touched; while a run is
+-- replayed in a file, your typing there waits; pinned (ctrl+k a) means no
+-- preview and no jumps, but the end of the turn (a stop) moves the editor
+-- anyway. See docs/design.md.
 --
 -- Sessions: each pi writes sessions/<id>.json. The editor follows one of them,
 -- the owner: the session whose folder holds the open file (the most recent
@@ -34,14 +38,19 @@ local SPEEDS = { 10, 20, 40, 80, 160, 320, 640, 1280, 0 }
 local SPEED = 5        -- the speed before you choose one: 160 characters per second
 -- Autosave: milliseconds after your last key press; 0 = off.
 local AUTOSAVES = { 0, 1000, 3000 }
+-- How many changes pi may make that the editor has not shown yet; -1 = no limit.
+-- 0 = pi waits for each change, as it did before.
+local LAGS = { 0, 3, 10, -1 }
 local POLL_MS = 40
-local PROTOCOL = 7     -- the channel protocol of pi/index.ts
+local PROTOCOL = 8     -- the channel protocol of pi/index.ts
 local PLAN_WIDTH = 56  -- the timeline in the status bar, in characters
 
 local gen, offset = nil, 0
 local pinned = false
 local calls = {}       -- call id -> call
-local active = nil     -- the call whose undo group is open
+local run = nil        -- {path, line, calls, changed}: the file being replayed, one undo group
+local active = nil     -- the call the replay types now (in `run`)
+local disk = {}        -- path -> the sum of the file after pi's last change, as read
 local acks = {}        -- the last call ids acknowledged
 local here = nil       -- {path, line, mark}: what the status bar shows
 local editing = false  -- true while this plugin changes the buffer
@@ -52,14 +61,16 @@ local outside = false  -- the owner is only the most recent session, not this fi
 local plan_seen = nil  -- the plan as last shown, to redraw only on a change
 local drawer = nil     -- the plan drawer's panel, once opened: redrawn on a change
 local speed = SPEED    -- index in SPEEDS; ctrl+k - and ctrl+k = change it, settings.json keeps it
-local paused = false   -- ctrl+k space: the preview stops, and pi waits
+local paused = false   -- ctrl+k space: the replay stops; pi goes on up to the lag limit
+local lag = 2          -- index in LAGS: 3 changes
+local behind = 0       -- the changes pi made that the replay has not shown yet
 local autosave = 2     -- index in AUTOSAVES: 1 s
 local save_timer = nil
 local queue = {}       -- the events read from the log, not yet applied
 local qhead = 1
 local budget = 0       -- the characters the preview may type now
 local rush = nil       -- ctrl+k .: the call whose preview shows at once
-local toggle_pin, end_preview, heartbeat, go_session, open_plan
+local toggle_pin, finish, heartbeat, go_session, open_plan
 
 -- Positions -----------------------------------------------------------------
 
@@ -219,16 +230,31 @@ open_plan = function()
 	ttt.open_drawer({ width = 48, min_width = 30, side = "right", render = render_plan })
 end
 
-local function pace_text()
-	if paused then return "⏸ paused" end
+local function speed_text()
 	local cps = SPEEDS[speed]
-	return cps == 0 and "▶ max" or string.format("▶ %d/s", cps)
+	return cps == 0 and "max" or string.format("%d/s", cps)
+end
+
+local function lag_text()
+	local n = LAGS[lag]
+	if n < 0 then return "no limit" end
+	if n == 0 then return "0 (pi waits for each change)" end
+	return string.format("%d changes", n)
+end
+
+local function pace_text()
+	local text = paused and "⏸ paused" or "▶ " .. speed_text()
+	if behind > 0 then text = text .. string.format(" · %d behind", behind) end
+	return text
 end
 
 local cycle_speed
 
+local held = nil -- a timer: "your typing waits" stays in the bar for a while
+
 local function show(text)
 	local mode = pinned and "pinned" or "following"
+	if held then mode = mode .. " · your typing waits" end
 	ttt.set_status_item("left", "symbiosis.speed", pace_text(), { priority = 1001, on_click = function() cycle_speed() end })
 	if text then
 		ttt.set_status_item("left", "symbiosis", "pi " .. text .. " · " .. mode, { on_click = function() toggle_pin() end })
@@ -252,8 +278,8 @@ end
 
 toggle_pin = function()
 	pinned = not pinned
-	-- Pinning ends a preview; leaving the pin goes to where the agent is now.
-	if pinned and active then end_preview(active) end
+	-- Pinning ends the replay; leaving the pin goes to where the agent is now.
+	if pinned and run then finish() end
 	if not pinned then go() end
 	show()
 end
@@ -280,66 +306,97 @@ local function grow(value, ev)
 end
 
 -- Calls ---------------------------------------------------------------------
+-- A run: the changes that the replay shows in one file, one after the other,
+-- in one undo group. Each call types on top of the one before, so an edit
+-- finds its old text in the buffer as pi did on disk. The run ends when the
+-- replay goes to another file, at the end of the turn, or when it has shown
+-- all that pi sent: then `finish` undoes the group and opens the file again,
+-- which reloads it from disk.
 
 local function ack(id)
 	table.insert(acks, id)
-	while #acks > 20 do table.remove(acks, 1) end
+	while #acks > 200 do table.remove(acks, 1) end
 	fs.write(ACK, json.encode(acks))
 end
 
-local function on_buffer(c)
-	if editor.file_path() ~= c.path then ttt.open_file(c.path) end
-	return editor.file_path() == c.path
+local function on_buffer(path)
+	if editor.file_path() ~= path then ttt.open_file(path) end
+	return editor.file_path() == path
 end
 
-local function close_group(c)
-	if active == c then
-		editor.end_undo_group()
-		active = nil
+-- Ends the run: the preview is undone and the file comes from disk again.
+-- A buffer with unsaved changes does not reload when the file changes on
+-- disk, and after the undo it is clean but old: closing the tab and opening
+-- the file again reloads it. ttt's notice about the change on disk goes too.
+finish = function()
+	local r = run
+	if not r then return end
+	run, active = nil, nil
+	for id in pairs(r.calls) do
+		local c = calls[id]
+		if c then c.skip = c.skip or "ended" end
 	end
-end
-
--- Undoes the preview of `c`, once. The buffer is clean again.
-end_preview = function(c)
-	close_group(c)
-	if c.changed and not c.undone and on_buffer(c) then
-		editing = true
-		ttt.exec_command("editor.undo")
-		editing = false
-	end
-	c.undone = true
-	c.skip = c.skip or "ended"
+	editor.end_undo_group()
+	if not r.changed or not on_buffer(r.path) then return end
+	editing = true
+	ttt.exec_command("editor.undo")
+	ttt.exec_command("tab.close")
+	editing = false
+	local line = here and here.path == r.path and here.line or r.line or 1
+	ttt.open_file(r.path, line)
+	ttt.notify("")
 end
 
 local function busy(path)
-	for _, c in pairs(calls) do
-		if c.path == path and c.changed and not c.undone then return true end
-	end
-	return false
+	return run ~= nil and run.path == path
+end
+
+-- The text of the whole buffer: line 1, column 1 to the end.
+local function whole()
+	local text = editor.buffer_text()
+	return { line = 1, col = 1, text = text }
 end
 
 local function start(ev)
 	local c = { id = ev.call, tool = ev.tool, path = ev.path, edits = {}, values = {} }
 	calls[ev.call] = c
 	if pinned then c.skip = "pinned" return end
-	if busy(ev.path) then c.skip = "busy" return end
-	if active then close_group(active) end
-	ttt.open_file(ev.path)
-	if editor.file_path() ~= ev.path then c.skip = "not opened" return end
-	local text = editor.buffer_text()
-	local clean = ev.sum == nil and text == "" or adler32(text) == ev.sum
-	if not clean then
-		c.skip = "unsaved"
-		ttt.notify("symbiosis: " .. name(ev.path) .. " has unsaved changes; no preview", "warning")
-		return
+	if run and run.path ~= ev.path then finish() end
+	if run then
+		-- The next change in the same file: it types on top of the one before.
+		if not on_buffer(ev.path) then c.skip = "not opened" return end
+	else
+		ttt.open_file(ev.path)
+		if editor.file_path() ~= ev.path then c.skip = "not opened" return end
+		local text = editor.buffer_text()
+		-- Clean: the buffer is the file as pi found it, or as pi last wrote it
+		-- (a clean buffer reloads when pi is ahead of the replay).
+		local sum = adler32(text)
+		local clean = (ev.sum == nil and text == "") or sum == ev.sum or sum == disk[ev.path]
+		if not clean then
+			c.skip = "unsaved"
+			ttt.notify("symbiosis: " .. name(ev.path) .. " has unsaved changes; no preview", "warning")
+			return
+		end
+		editor.begin_undo_group()
+		run = { path = ev.path, calls = {}, changed = false }
+		-- pi may already have changed the file again: show the change from
+		-- the text pi started from.
+		local before = ev.before or (ev.sum == nil and "" or nil)
+		if before and before ~= text then
+			editing = true
+			set_region(whole(), before)
+			editing = false
+			run.changed = true
+		end
 	end
-	editor.begin_undo_group()
+	run.calls[c.id] = true
 	active = c
 	show("✎ writing " .. name(ev.path))
 	if ev.tool == "write" then
 		-- A full write clears the buffer and types the new text in.
-		c.region = { line = 1, col = 1, text = text }
-		if text ~= "" then set_region(c.region, "") c.changed = true end
+		c.region = whole()
+		if c.region.text ~= "" then set_region(c.region, "") run.changed = true end
 	end
 end
 
@@ -356,22 +413,24 @@ local function edit_text(c, i, part, value)
 		local el, ec = after(line, col, value)
 		editor.set_selection(line, col, el, ec)
 		reveal(line)
+		run.line = line
 	elseif e.region then
 		editor.clear_selection()
 		set_region(e.region, value)
-		c.changed = true
+		run.changed = true
 	end
 end
 
 local function text(ev)
 	local c = calls[ev.call]
 	if not c or c.skip then return end
-	if active ~= c or not on_buffer(c) then c.skip = "lost" return end
+	if not run or active ~= c or not on_buffer(c.path) then c.skip = "lost" return end
 	local value = grow(c.values[ev.key], ev)
 	c.values[ev.key] = value
 	if ev.key == "content" then
 		set_region(c.region, value)
-		c.changed = true
+		run.changed = true
+		run.line = 1
 	else
 		local i, part = ev.key:match("^edits%.(%d+)%.(%a+)$")
 		if i then edit_text(c, tonumber(i), part, value) end
@@ -380,30 +439,53 @@ local function text(ev)
 	show(string.format("✎ writing %s +%d lines", name(c.path), lines))
 end
 
-local function ready(ev, final)
+-- The call's text is all shown: acknowledge it. The run goes on.
+local function ready(ev)
 	local c = calls[ev.call]
 	if c then
-		-- pi waits for the ack with no time limit: a failed undo must not stop it.
-		local ok, err = pcall(end_preview, c)
-		if not ok then ttt.log("error", "symbiosis undo: " .. tostring(err)) end
-		calls[ev.call] = nil
+		c.readied = true
+		if active == c then active = nil end
+		if editor.file_path() == c.path then editor.clear_selection() end
 	end
 	if rush == ev.call then rush = nil end
-	if final then ack(ev.call) end
+	ack(ev.call)
+end
+
+-- The call will not run: its preview must go, and it is mixed with the run's.
+local function abort(ev)
+	local c = calls[ev.call]
+	calls[ev.call] = nil
+	if rush == ev.call then rush = nil end
+	if c and run and run.calls[c.id] then pcall(finish) end
 end
 
 local function done(ev)
+	calls[ev.call] = nil
 	here = { path = ev.path, line = ev.line, mark = "✎" }
 	if not ev.ok then return show() end
+	-- In a run, the buffer is the replay: the jump waits for its end.
+	if busy(ev.path) then run.line = ev.line return show() end
+	if run then return show() end
 	-- A new file shown before it existed reloads only when opened again.
 	if not pinned then ttt.open_file(ev.path, ev.line) end
 	show()
 end
 
 local function stop(ev)
+	if run then pcall(finish) end
 	here = { path = ev.path, line = ev.line, mark = "■" }
 	ttt.open_file(ev.path, ev.line)
 	show()
+end
+
+-- True when the run has nothing left to type: every call in it was shown.
+local function run_done()
+	if not run then return false end
+	for id in pairs(run.calls) do
+		local c = calls[id]
+		if c and not c.readied then return false end
+	end
+	return true
 end
 
 -- Sessions ------------------------------------------------------------------
@@ -649,8 +731,8 @@ end
 local handlers = {
 	start = start,
 	text = text,
-	ready = function(ev) ready(ev, true) end,
-	abort = function(ev) ready(ev, false) end,
+	ready = ready,
+	abort = abort,
 	done = done,
 	stop = stop,
 	sent = sent,
@@ -688,8 +770,20 @@ local function rune_bytes(s, n)
 	return math.min(i - 1, #s)
 end
 
+-- The changes pi made (it sent `ready`) that the replay has not shown yet.
+local function count_behind()
+	local n = 0
+	for i = qhead, #queue do
+		if queue[i].op == "ready" then n = n + 1 end
+	end
+	if n ~= behind then
+		behind = n
+		show()
+	end
+end
+
 local function pace()
-	if paused then return end
+	if paused then return count_behind() end
 	local cps = SPEEDS[speed]
 	-- At most 0.2 s of typing saved up: no burst after a quiet moment.
 	if cps > 0 then budget = math.min(budget + cps * POLL_MS / 1000, math.max(cps / 5, 1)) end
@@ -719,11 +813,17 @@ local function pace()
 	end
 	if qhead > #queue then
 		queue, qhead = {}, 1
+		-- All that pi sent is shown: the run ends, the buffer comes from disk.
+		if run_done() then
+			local fine, err = pcall(finish)
+			if not fine then ttt.log("error", "symbiosis finish: " .. tostring(err)) end
+		end
 	end
+	count_behind()
 end
 
 local function save_settings()
-	fs.write(SETTINGS, json.encode({ speed = SPEEDS[speed], autosave = AUTOSAVES[autosave] }))
+	fs.write(SETTINGS, json.encode({ speed = SPEEDS[speed], autosave = AUTOSAVES[autosave], lag = LAGS[lag] }))
 end
 
 local function load_settings()
@@ -734,6 +834,9 @@ local function load_settings()
 	end
 	for i, ms in ipairs(AUTOSAVES) do
 		if ms == saved.autosave then autosave = i end
+	end
+	for i, n in ipairs(LAGS) do
+		if n == saved.lag then lag = i end
 	end
 end
 
@@ -755,6 +858,13 @@ end
 local function autosave_text()
 	local ms = AUTOSAVES[autosave]
 	return ms == 0 and "off" or string.format("%g s after you type", ms / 1000)
+end
+
+-- How far pi may run ahead of the replay. pi reads it from ttt.json.
+local function cycle_lag()
+	lag = lag % #LAGS + 1
+	save_settings()
+	heartbeat()
 end
 
 local function cycle_autosave()
@@ -781,7 +891,7 @@ local function schedule_save()
 	end)
 end
 
--- ctrl+k space: the preview stops where it is; pi waits until you go on.
+-- ctrl+k space: the replay stops where it is; pi goes on up to the lag limit.
 local function toggle_pause()
 	paused = not paused
 	show()
@@ -817,12 +927,24 @@ local function poll()
 	for line in lines(chunk) do
 		offset = offset + #line
 		local ok, ev = pcall(json.decode, line)
-		if ok and ev and handlers[ev.op] then table.insert(queue, ev) end
+		if ok and ev and handlers[ev.op] then
+			table.insert(queue, ev)
+			-- pi changed the file now; the replay may be behind.
+			if ev.op == "done" then
+				disk[ev.path] = ev.sum
+				-- ttt says the file changed on disk under the replay: not news here.
+				if busy(ev.path) then
+					for _, ms in ipairs({ 250, 700 }) do
+						ttt.set_timeout(ms, function() if busy(ev.path) then ttt.notify("") end end)
+					end
+				end
+			end
+		end
 	end
 end
 
 heartbeat = function()
-	fs.write(ALIVE, json.encode({ t = os.time(), pinned = pinned, owner = owner and owner.id or nil }))
+	fs.write(ALIVE, json.encode({ t = os.time(), pinned = pinned, owner = owner and owner.id or nil, lag = LAGS[lag] }))
 end
 
 -- The panel: ctrl+k h --------------------------------------------------------
@@ -834,7 +956,7 @@ local KEYS = {
 	{ key = "ctrl+k h", value = "this panel" },
 	{ key = "ctrl+k a", value = "pin / unpin the editor" },
 	{ key = "ctrl+k - / =", value = "preview slower / faster" },
-	{ key = "ctrl+k space", value = "pause the preview (pi waits)" },
+	{ key = "ctrl+k space", value = "pause the replay" },
 	{ key = "ctrl+k .", value = "rest of this change at once" },
 	{ key = "ctrl+k v", value = "pi's plan" },
 	{ key = "ctrl+k w", value = "what pi changed (diff)" },
@@ -848,7 +970,8 @@ local function render_help(panel)
 	panel:label({ text = "Settings · Enter changes", style = "bold" })
 	panel:list({
 		items = {
-			{ id = "speed", label = "Preview speed   " .. pace_text() },
+			{ id = "speed", label = "Replay speed    " .. speed_text() },
+			{ id = "lag", label = "pi ahead (max)  " .. lag_text() },
 			{ id = "autosave", label = "Autosave        " .. autosave_text() },
 			{ id = "pin", label = "Editor          " .. (pinned and "pinned" or "follows pi") },
 		},
@@ -858,6 +981,7 @@ local function render_help(panel)
 				if command == "slower" then set_speed(-1)
 				elseif command == "faster" then set_speed(1)
 				else cycle_speed() end
+			elseif command == "activate" and node.id == "lag" then cycle_lag()
 			elseif command == "activate" and node.id == "autosave" then cycle_autosave()
 			elseif command == "activate" and node.id == "pin" then toggle_pin() end
 		end,
@@ -934,10 +1058,26 @@ local function edits_text(key)
 	return k == "enter" or k == "tab" or k == "backspace" or k == "delete"
 end
 
--- Your key press in the editor ends the preview: the buffer is yours again.
+-- ctrl+v, ctrl+x, ctrl+z, ctrl+y, ctrl+s: they change or save the buffer.
+local CHANGES_KEYS = { v = true, x = true, z = true, y = true, s = true }
+
+local function changes_buffer(key)
+	if edits_text(key) then return true end
+	local k = tostring(key.key or key.rune or ""):lower():match("(%a)$")
+	return key.mod == "ctrl" and k ~= nil and CHANGES_KEYS[k] == true
+end
+
+-- While the replay runs in this file, your typing waits: the buffer is the
+-- replay, and pi has already changed the file on disk. Moves still work.
 events.on("key.press", function(key)
-	if active and not editing and not key.mod then end_preview(active) show() end
-	if not editing and edits_text(key) then schedule_save() end
+	if editing then return false end
+	if run and editor.file_path() == run.path and changes_buffer(key) then
+		if held then ttt.clear_timeout(held) end
+		held = ttt.set_timeout(1500, function() held = nil show() end)
+		show()
+		return true
+	end
+	if edits_text(key) then schedule_save() end
 	return false
 end)
 

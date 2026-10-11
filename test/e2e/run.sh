@@ -9,7 +9,8 @@ OUT=${1:-$(mktemp -d)}
 mkdir -p "$OUT/cfg/plugins/symbiosis" "$OUT/ws"
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"
 # SPEED: the preview's typing speed in characters per second (0 = max); default the plugin's.
-if [ -n "${SPEED:-}" ]; then echo "{\"speed\":$SPEED}" > "$OUT/cfg/plugins/symbiosis/settings.json"; fi
+# LAG: how many changes pi may make before the editor shows them (-1 = no limit); default the plugin's.
+echo "{${SPEED:+\"speed\":$SPEED,}\"lag\":${LAG:-3}}" > "$OUT/cfg/plugins/symbiosis/settings.json"
 perms=$(python3 -c "import json; print(json.dumps(json.load(open('$repo/ttt/symbiosis/plugin.ttt.json'))['permissions']))")
 echo "[{\"name\":\"symbiosis\",\"displayName\":\"symbiosis\",\"version\":\"0.1.0\",\"enabled\":true,\"permissions\":$perms}]" > "$OUT/cfg/plugins.ttt.json"
 printf 'notes\n' > "$OUT/ws/notes.txt"

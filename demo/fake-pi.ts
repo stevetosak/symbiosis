@@ -172,7 +172,7 @@ export class FakePi {
 		// The plugin types the preview at its own speed; pi waits here until it is all on screen.
 		await this.fire('tool_call', { toolCallId: id, toolName: name, input: args });
 		const file = args.path.startsWith('/') ? args.path : join(this.cwd, args.path);
-		this.log(`${name} ${relative(this.cwd, file)}: the editor showed it in ${((Date.now() - t) / 1000).toFixed(1)} s`);
+		this.log(`${name} ${relative(this.cwd, file)}: pi waited ${((Date.now() - t) / 1000).toFixed(1)} s for the editor`);
 		let details: unknown;
 		let isError = false;
 		try {

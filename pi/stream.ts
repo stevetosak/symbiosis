@@ -12,16 +12,21 @@ import { isAbsolute, join, resolve } from 'node:path';
 export type Tool = 'write' | 'edit';
 
 export type ChannelEvent =
-	/** A call starts streaming. `sum` is the Adler-32 of the file on disk, null when it does not exist. */
-	| { op: 'start'; call: string; tool: Tool; path: string; sum: number | null }
+	/**
+	 * A call starts streaming. `sum` is the Adler-32 of the file on disk, null
+	 * when it does not exist. `before` is that text, when it is not too big:
+	 * the editor may replay this call after pi has changed the file again, so
+	 * it shows the change from this text.
+	 */
+	| { op: 'start'; call: string; tool: Tool; path: string; sum: number | null; before?: string }
 	/** `key` is `content`, `edits.<i>.old` (sent once, complete) or `edits.<i>.new`. `from` counts UTF-8 bytes. */
 	| { op: 'text'; call: string; key: string; from: number; text: string }
-	/** The tool is about to run: undo the preview, then acknowledge. */
+	/** The tool is about to run: the arguments are complete. The plugin acknowledges once it has shown them. */
 	| { op: 'ready'; call: string }
 	/** The call will not run (the turn ended without it): undo the preview. */
 	| { op: 'abort'; call: string }
-	/** The tool ran. `line` is the first changed line. */
-	| { op: 'done'; call: string; tool: Tool; path: string; line: number; ok: boolean }
+	/** The tool ran. `line` is the first changed line; `sum` is the Adler-32 of the file now. */
+	| { op: 'done'; call: string; tool: Tool; path: string; line: number; ok: boolean; sum: number | null }
 	/** The agent's turn ended; the editor goes to the last edit even when pinned. */
 	| { op: 'stop'; path: string; line: number }
 	/** Session `session` read a send request (ctrl+k d) and sent `count` markers to its agent. */
@@ -102,6 +107,9 @@ function isHighSurrogate(code: number): boolean {
 export function utf8Bytes(text: string): number {
 	return Buffer.byteLength(text, 'utf-8');
 }
+
+/** A file's text for a `start` event: up to this size. Bigger files get only the sum. */
+export const BEFORE_MAX = 256 * 1024;
 
 /** Adler-32 over the bytes: the ttt plugin computes the same over its buffer, to see unsaved changes. */
 export function adler32(bytes: Uint8Array): number {

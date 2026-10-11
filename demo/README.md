@@ -21,8 +21,11 @@ npm run demo
 2. Turn 1: the plan in the status bar, `format.ts` typed in as a new file,
    then edits in `store.ts`, `cli.ts` (three in one call) and
    `store.test.ts`. Try the keys while it types: `ctrl+k -` / `ctrl+k =`
-   (speed), `ctrl+k space` (pause), `ctrl+k .` (the rest of this change at
-   once), `ctrl+k v` (the plan), `ctrl+k h` (the panel).
+   (speed), `ctrl+k space` (pause the replay), `ctrl+k .` (the rest of this change at
+   once), `ctrl+k v` (the plan), `ctrl+k h` (the panel). The script runs
+   ahead of the editor: the bar shows `· 2 behind`, and its log says how
+   long pi waited. "pi ahead (max)" in the panel sets the limit (0 = pi
+   waits for each change). Typing in the replayed file waits.
 3. At the end of the turn: `ctrl+k w` shows the diff of the turn.
 4. Then you: write a comment that ends in `AI!` or `AI?`, for example
    `// add remove(id) AI!` above `list()` in `store.ts`, and press

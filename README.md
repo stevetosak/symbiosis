@@ -34,13 +34,15 @@ allow the plugin's permissions.
 - `ctrl+k a` (or a click on the status item): pin the editor. Pinned, the
   agent does not move it; at the end of the agent's turn it moves anyway.
 - Command palette: `symbiosis: Go to the Agent's Last Edit`.
-- Press a key in the buffer during a preview: the preview stops, the buffer
-  is yours.
-- The preview types at a speed you set, and pi waits until you saw it all:
-  `ctrl+k -` slower, `ctrl+k =` faster (10 to 1280 characters per second, then
-  max), `ctrl+k space` pause (pi waits), `ctrl+k .` the rest of this change at
-  once. The status bar shows `▶ 160/s` or `⏸ paused`; a click on it cycles the
-  speed.
+- The editor replays pi's changes at a speed you set, behind pi: the file on
+  disk is where pi is now. pi waits only when more of its changes than your
+  limit are not shown (3 by default; 0 = pi waits for each change; 10; no
+  limit; in the panel). `ctrl+k -` slower, `ctrl+k =` faster (10 to 1280
+  characters per second, then max), `ctrl+k space` pause (the replay only),
+  `ctrl+k .` the rest of this change at once. The status bar shows
+  `▶ 160/s · 2 behind` or `⏸ paused`; a click on it cycles the speed.
+- While a file is replayed, your typing in it waits (the bar says so); moves
+  work. At the end of the replay the file comes from disk again.
 - Autosave (on by default): a file is saved 1 s after you last typed in it,
   so pi's next write gets a preview and a reload. Never while pi changes that
   file. Off or 3 s in the panel.
@@ -75,4 +77,5 @@ PLAN_AT=26 PLAN_CLOSE_AT=34 HOLD_MS=4000 npm run e2e   # also opens the plan dra
 DIFF_AT=30 HOLD_MS=4000 npm run e2e                     # also shows the diff (ctrl+k w)
 bash test/e2e/suggest.sh   # the same, for sessions and suggestions
 bash test/e2e/demo.sh      # the demo, with an AI! comment; the workspace tests must pass
+bash test/e2e/lag.sh       # the replay behind pi (LAG=-1, SPEED=80); typing waits; buffer = disk at the end
 ```

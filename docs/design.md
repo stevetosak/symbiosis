@@ -12,7 +12,7 @@ Then the editor shows the result at the changed line.
 |---|---|---|
 | pi extension | `pi/index.ts` | Reads the tool calls while they stream. Writes events. |
 | Events | `pi/stream.ts` | Pure: turns growing arguments into small `text` events. |
-| Channel | `pi/channel.ts` | Files in the plugin folder: `events.jsonl`, `head.json`, `ttt.json`, `ack.json`. |
+| Channel | `pi/channel.ts` | Files in the plugin folder: `events.jsonl`, `head.json`, `ttt.json` (with the lag limit), `ack.json` (the changes shown). |
 | Suggestions | `pi/suggest.ts` | Pure: finds `AI!` and `AI?` comments, writes the message for pi. |
 | ttt plugin | `ttt/symbiosis/plugin.lua` | Polls every 40 ms. Shows the preview. Follows the result. Marks suggestions. Opens the chat. |
 
@@ -21,25 +21,57 @@ workspace. Thus the channel is files in the plugin folder.
 
 ## The buffer: one rule
 
-**The file on disk is the truth. The preview is never saved.**
+**The file on disk is the truth. The preview is never saved.** pi does not
+wait for the editor (up to a limit, see the replay below): the file on disk
+is where pi is now, and the buffer is a replay of pi's changes, behind it.
 
-1. `start`: the plugin opens the file. If the buffer has unsaved changes (its
-   Adler-32 is not the sum pi sent), there is no preview for this call.
-2. `text`: the plugin opens one undo group and types into the buffer. A write
-   clears the buffer and types the new content. An edit selects its `oldText`
-   (only if it occurs once), then types `newText` over it.
-3. `ready`: pi is about to run the tool. The plugin closes the undo group,
-   undoes it once (the buffer is clean again) and writes the call id to
-   `ack.json`. pi waits for the ack with no time limit, as long as the plugin
-   lives, still follows this session, and the turn is not aborted (Esc).
-   The plugin acks only after it typed the whole preview (see the speed).
-4. The tool writes the file. ttt reloads a clean buffer by itself.
-5. `done`: the editor goes to the changed line. `stop` (end of the turn) goes
-   there even when you pinned the editor.
+1. `start`: the plugin opens the file. It sends the file's Adler-32 (`sum`)
+   and its text (`before`, up to 256 KB). If the buffer is neither that text
+   nor the file as pi last wrote it (the `sum` of the last `done`), it has
+   unsaved changes: no preview for this call.
+2. A run starts: one undo group. If pi already changed the file again, the
+   plugin first sets the buffer to `before`, so the change shows from the
+   text pi started from. A write clears the buffer and types the new
+   content. An edit selects its `oldText` (only if it occurs once), then
+   types `newText` over it. The next call to the same file types on top, in
+   the same run, as pi did on disk.
+3. `ready`: the arguments are complete. When the replay has typed all of
+   them, the plugin writes the call id to `ack.json` (shown).
+4. The tool writes the file at once. ttt says the file changed on disk under
+   the replay; the plugin clears that notice.
+5. The run ends when the replay goes to another file, at the end of the turn,
+   or when it has shown all that pi sent. Then the plugin closes the undo
+   group, undoes it (the buffer is clean but old), closes the tab and opens
+   the file again: ttt reads it from disk.
+6. `done`: the editor goes to the changed line (after the run, when one is
+   open). `stop` (end of the turn) goes there even when you pinned the editor.
 
-Measured with headless ttt 1.7.1: undo FIRST, then the disk change, gives a
-reload. A disk change under a dirty buffer gives no reload, and a later undo
-leaves a clean but stale buffer. That is why the order in step 3 is fixed.
+Measured with headless ttt 1.7.1: a disk change under a dirty buffer gives a
+notice ("changed on disk; you have unsaved changes", about 4 s over the
+status bar) and no reload; a later undo leaves a clean but old buffer.
+Closing the tab and opening the file again reloads it. `ttt.notify("")`
+clears the notice. There is no revert command.
+
+## The replay: pi runs ahead
+
+Operator: "Because now we can stream the response being written in slower
+speeds, that should not stop the agent from actually doing other things
+proactively." Decision B: a limit. pi waits in `tool_call` only while more
+of its changes than the limit are not shown (`Channel.waitBehind`). The
+plugin puts the limit in `ttt.json` (`lag`): 0 (pi waits for each change, as
+before), 3 (the start value), 10, or no limit; Enter on "pi ahead (max)"
+in the panel cycles it.
+
+- No separate writer program: the disk must change at once, or pi's next
+  read or test would see old code. The plugin is the replayer.
+- While a file is replayed, your typing in it waits (characters, Enter, Tab,
+  Backspace, Delete, ctrl+v/x/z/y/s): the buffer is the replay, and pi has
+  already changed the file on disk. The bar says `your typing waits`. Moves
+  still work. Pin (`ctrl+k a`) ends the replay.
+- Pause stops only the replay; pi goes on up to the limit.
+- The bar shows the lag: `▶ 160/s · 2 behind` (the `ready` events queued).
+- Risk: pi can run its tests on code you have not seen yet. That is the
+  limit's job; 0 gives the old behaviour for guided work.
 
 ## The speed
 
@@ -50,15 +82,16 @@ and max (as fast as pi sends). The speed is kept in `settings.json` in the
 plugin folder. 160/s is only the start value until you choose one.
 
 Only the text that the preview shows costs time: a write's content and an
-edit's new text. Every other event waits for the text before it, so `ready`
-comes after the last character, and pi writes the file only after you saw it
-all. The agent is that much slower: a 3 KB write at 160/s takes about 19 s.
+edit's new text. Every other event waits for the text before it, so the ack
+comes after the last character. A 3 KB write at 160/s takes about 19 s to
+show; pi waits for it only past the lag limit.
 
-- `ctrl+k space`: pause. The preview stops where it is, and pi waits. Press it
-  again to go on.
+- `ctrl+k space`: pause. The replay stops where it is; pi goes on up to the
+  limit. Press it again to go on.
 - `ctrl+k .`: the rest of this call's preview at once, also the text pi has
   not sent yet. The next call is typed at your speed again.
-- The status bar shows the speed: `· ▶ 160/s`, `· ▶ max`, `· ⏸ paused`.
+- The status bar shows the speed: `· ▶ 160/s`, `· ▶ max`, `· ⏸ paused`,
+  and the lag: `· 2 behind`.
 
 Operator's choice (A + C): pi waits for the preview, plus a pause key; the
 speed is adjustable, the start value not chosen yet.
@@ -91,17 +124,20 @@ so the new value was hidden. Now:
 ## The other rules
 
 - Pinned (`ctrl+k a`, or click the status item): no preview and no jumps.
-- One preview at a time. A new call closes the open undo group.
-- A key press in the editor ends the preview: the buffer is yours.
-- A call that will not run (the turn ended) gets `abort`: the preview is undone.
-- pi runs the calls of one message in parallel. Only one preview can be open,
-  so the second call of a message may show no preview.
+- One run at a time: a call to another file ends the run.
+- A call that will not run (the turn ended) gets `abort`: the run ends.
+- pi runs the calls of one message in parallel. Calls to one file follow each
+  other in one run; calls that alternate between two files of one message may
+  show no preview (`before` is the text before the message).
 
 ## Known weak points
 
-- Between the undo and the reload, the old text shows for up to ~1.5 s.
-- pi waits for the ack with no time limit. If the plugin acks nothing while it
-  lives (a bug), Esc in pi ends the wait.
+- When the replay catches up before pi writes, the old text shows between the
+  undo and the reload, for up to ~1.5 s.
+- ttt's "changed on disk" notice shows for up to 0.25 s before the plugin
+  clears it.
+- Past the limit pi waits with no time limit. If the plugin acks nothing
+  while it lives (a bug), Esc in pi ends the wait.
 - A new file: ttt shows "New file", and after the undo the plugin opens the
   file again so ttt reads it from disk.
 - Two sessions in the same folder: the most recent one wins until you choose.
@@ -194,7 +230,8 @@ one. Files over 1 MB are not kept.
 ## The cost
 
 Streaming: no model tokens, the extension reads what pi streams anyway. The
-speed costs wall-clock time only: pi waits for the preview.
+speed costs wall-clock time only, and only past the lag limit. Each `start`
+carries the file's text (up to 256 KB) in the channel log.
 Suggestions: one user message per `ctrl+k d`, about 40 tokens plus ~20 per
 marker.
 Diff key: no model tokens; each file pi touches is copied twice per turn.

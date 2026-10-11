@@ -8,7 +8,7 @@ OUT=${1:-$(mktemp -d)}
 export DEMO_DIR="$OUT/ws" TTT_CONFIG_DIR="$OUT/cfg" PAUSE_MS=${PAUSE_MS:-300} SUGGEST_MS=${SUGGEST_MS:-60000}
 mkdir -p "$OUT/cfg/plugins/symbiosis"
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"
-echo "{\"speed\":${SPEED:-1280}}" > "$OUT/cfg/plugins/symbiosis/settings.json"
+echo "{\"speed\":${SPEED:-1280},\"lag\":${LAG:-3}}" > "$OUT/cfg/plugins/symbiosis/settings.json"
 perms=$(python3 -c "import json; print(json.dumps(json.load(open('$repo/ttt/symbiosis/plugin.ttt.json'))['permissions']))")
 echo "[{\"name\":\"symbiosis\",\"displayName\":\"symbiosis\",\"version\":\"0.1.0\",\"enabled\":true,\"permissions\":$perms}]" > "$OUT/cfg/plugins.ttt.json"
 
