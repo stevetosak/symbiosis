@@ -136,6 +136,8 @@ test('install finds the pi package by path or GitHub URL', () => {
 	assert.equal(hasPackage({ packages: ['https://github.com/stevetosak/symbiosis'] }, '/repo'), true);
 	assert.equal(hasPackage({ packages: ['npm:symbiosis-other'] }, '/repo'), false);
 	assert.equal(hasPackage({}, '/repo'), false);
+	// As pi writes it: relative to ~/.pi/agent.
+	assert.equal(hasPackage({ packages: ['../../work/symbiosis'] }, '/home/u/work/symbiosis', '/home/u/.pi/agent'), true);
 });
 
 test('pi copies the plugin when it starts, only when ttt is there', () => {

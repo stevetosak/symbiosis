@@ -31,14 +31,17 @@ export function planOldLink(extensionsDir: string, repo: string): Step {
 	return { what, state: 'remove', run: () => unlinkSync(link) };
 }
 
-/** True when pi's settings already list this package, by path or by the GitHub URL. */
-export function hasPackage(settings: unknown, repo: string): boolean {
+/**
+ * True when pi's settings already list this package, by path or by the GitHub
+ * URL. pi writes a local path relative to the settings file's folder (`base`).
+ */
+export function hasPackage(settings: unknown, repo: string, base = '/'): boolean {
 	const list = (settings as { packages?: unknown })?.packages;
 	if (!Array.isArray(list)) return false;
 	return list.some((p) => {
 		const source = typeof p === 'string' ? p : (p as { source?: unknown })?.source;
 		if (typeof source !== 'string') return false;
-		return resolve(source) === repo || /github\.com\/stevetosak\/symbiosis(\.git)?(@.*)?$/.test(source);
+		return resolve(base, source) === repo || /github\.com\/stevetosak\/symbiosis(\.git)?(@.*)?$/.test(source);
 	});
 }
 
@@ -48,7 +51,7 @@ export function planPiPackage(piDir: string, repo: string, pi = 'pi'): Step {
 	try {
 		settings = JSON.parse(readFileSync(join(piDir, 'settings.json'), 'utf-8'));
 	} catch {}
-	if (hasPackage(settings, repo)) return { what, state: 'ok' };
+	if (hasPackage(settings, repo, piDir)) return { what, state: 'ok' };
 	return {
 		what,
 		state: 'create',
