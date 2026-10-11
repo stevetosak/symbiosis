@@ -7,7 +7,8 @@
 #  - herdr --tab: a new tab runs symbiosis again with --here, nothing here;
 #  - tmux, default: a new window that does not take the focus;
 #  - neither: ttt only, and how to start pi;
-#  - a second symbiosis for the same folder says it already runs;
+#  - a second symbiosis for the same folder goes to the first one's tab, or
+#    says where it runs when it cannot;
 #  - when ttt quits, the record is gone.
 # Usage: test/e2e/app.sh [out-dir]
 set -euo pipefail
@@ -23,6 +24,9 @@ echo "herdr $*" >> "$CALLS"
 case "$1 $2" in
 	"tab create") echo '{"result":{"root_pane":{"pane_id":"w9:pT"},"tab":{"tab_id":"w9:tT"}}}' ;;
 	"pane split") echo '{"result":{"pane":{"pane_id":"w9:pS"}}}' ;;
+	"pane get")
+		if [ "$3" = "${HERDR_GONE:-}" ]; then echo '{"error":{"message":"pane not found"}}'; exit 1; fi
+		echo "{\"result\":{\"pane\":{\"pane_id\":\"$3\",\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\"}}}" ;;
 	*) echo '{"result":{}}' ;;
 esac
 SH
@@ -38,7 +42,7 @@ sleep "${TTT_HOLD:-0.3}"
 SH
 chmod +x "$OUT/bin/"*
 export PATH="$OUT/bin:$PATH"
-unset HERDR_PANE_ID TMUX TMUX_PANE SYMBIOSIS_PI SYMBIOSIS_TTT
+unset HERDR_PANE_ID HERDR_BIN_PATH TMUX TMUX_PANE SYMBIOSIS_PI SYMBIOSIS_TTT
 
 fails=0
 ok() { echo "ok   $1"; }
@@ -78,16 +82,39 @@ has "$OUT/out.txt" "not in herdr or tmux, so this opens ttt only" "it says why"
 has "$OUT/out.txt" "cd $OUT/ws && pi --model fake" "and how to start pi"
 has "$CALLS" "ttt $OUT/ws" "ttt still opens"
 
-echo "== a second symbiosis for the folder"
+echo "== a second symbiosis for the folder: it goes to the first"
 : > "$CALLS"
 (cd "$OUT/ws" && TTT_HOLD=3 HERDR_PANE_ID=w9:p1 "$repo/bin/symbiosis" < /dev/null > /dev/null 2>&1) &
 first=$!
 sleep 1.5
-(cd "$OUT/ws" && HERDR_PANE_ID=w9:p2 "$repo/bin/symbiosis" < /dev/null > "$OUT/second.txt" 2>&1) && c=0 || c=$?
+(cd "$OUT/ws" && HERDR_PANE_ID=w9:p2 "$repo/bin/symbiosis" --tab < /dev/null > "$OUT/second.txt" 2>&1) && c=0 || c=$?
+has "$OUT/second.txt" "went to its herdr pane w9:p1" "it says it went there"
+[ "$c" = 0 ] && ok "and ends well" || bad "the second exit is $c"
+has "$CALLS" "herdr workspace focus w9" "its workspace in front"
+has "$CALLS" "herdr tab focus w9:t1" "its tab in front"
+[ "$(grep -c "herdr tab create" "$CALLS")" = 1 ] && ok "no second tab" || bad "a second tab was made"
+(cd "$OUT/ws" && HERDR_GONE=w9:p1 HERDR_PANE_ID=w9:p2 "$repo/bin/symbiosis" < /dev/null > "$OUT/third.txt" 2>&1) && c=0 || c=$?
+has "$OUT/third.txt" "already runs for $OUT/ws in herdr pane w9:p1" "its pane is gone: it says where it runs"
+[ "$c" = 1 ] && ok "and stops" || bad "the third exit is $c"
 wait $first
-has "$OUT/second.txt" "already runs for $OUT/ws in herdr pane w9:p1" "it says where it runs"
-[ "$c" = 1 ] && ok "and stops" || bad "the second exit is $c"
 if ls "$OUT/state/symbiosis/"*.json > /dev/null 2>&1; then bad "the record is left"; else ok "the record is gone"; fi
+
+echo "== the herdr action runs symbiosis <folder> --tab"
+mkdir -p "$OUT/sbin"
+printf '#!/bin/sh\necho "symbiosis $*" >> "$CALLS"\n[ -z "${SYM_FAIL:-}" ] || { echo "$SYM_FAIL" >&2; exit 1; }\n' > "$OUT/sbin/symbiosis"
+chmod +x "$OUT/sbin/symbiosis"
+action() { : > "$CALLS"; HERDR_BIN_PATH="$OUT/bin/herdr" SYMBIOSIS_BIN_DIR="$OUT/sbin" HERDR_PLUGIN_CONTEXT_JSON='{"workspace_cwd":"/w","focused_pane_cwd":"/f"}' sh "$repo/herdr-plugin/scripts/open.sh" && c=0 || c=$?; }
+action
+has "$CALLS" "symbiosis /f --tab" "the focused pane's folder, in a new tab"
+hasnt "$CALLS" "notification" "no notification when it works"
+SYM_FAIL="symbiosis: boom" action
+has "$CALLS" "herdr notification show symbiosis --body symbiosis: boom" "a failure shows as a herdr notification"
+[ "$c" = 1 ] && ok "and the action fails" || bad "the action exit is $c"
+rm "$OUT/sbin/symbiosis"
+PATH_BEFORE=$PATH; PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v "/.local/bin" | paste -sd:)
+action
+PATH=$PATH_BEFORE
+has "$CALLS" "The symbiosis command is not installed" "no command: it says so"
 
 echo "== a broken layout in the config"
 echo '{"layout": "grid"}' > "$OUT/xdg/symbiosis/config.json"

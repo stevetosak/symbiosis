@@ -100,6 +100,33 @@ export function paneFromOutput(kind: Host['kind'], stdout: string): string {
 	throw new Error(`herdr gave no pane: ${typeof json.error?.message === 'string' ? json.error.message : stdout.trim()}`);
 }
 
+/** The workspace and tab of a herdr pane, from `herdr pane get <pane>`. */
+export function herdrPlace(stdout: string): { workspace: string; tab: string } | undefined {
+	try {
+		const pane = (JSON.parse(stdout) as { result?: { pane?: { workspace_id?: unknown; tab_id?: unknown } } }).result?.pane;
+		if (typeof pane?.workspace_id === 'string' && typeof pane.tab_id === 'string') return { workspace: pane.workspace_id, tab: pane.tab_id };
+	} catch {}
+	return undefined;
+}
+
+/**
+ * The commands that bring a pane to the front. herdr focuses its workspace and
+ * tab (`place` from `herdr pane get`); tmux selects its window and pane.
+ */
+export function goTo(host: Host, place?: { workspace: string; tab: string }): Argv[] {
+	if (host.kind === 'tmux') {
+		return [
+			['tmux', 'select-window', '-t', host.pane],
+			['tmux', 'select-pane', '-t', host.pane],
+		];
+	}
+	if (!place) return [];
+	return [
+		['herdr', 'workspace', 'focus', place.workspace],
+		['herdr', 'tab', 'focus', place.tab],
+	];
+}
+
 /** The pi command line: -c continues, then the config's args, then the ones after `--`. */
 export function piCommand(pi: string, cont: boolean, configArgs: string[], args: string[]): Argv {
 	return [pi, ...(cont ? ['--continue'] : []), ...configArgs, ...args];

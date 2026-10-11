@@ -86,7 +86,7 @@ Each slice is a branch and a pull request. You merge.
 1. **The launcher** (merged, PR #3).
 2. ~~The chat panel~~ → **the layout** (`feat/layout`): pi in a tab or a split,
    `--tab`/`--here`, stop key, `? waits for you`; the RPC parts removed.
-3. **Install and herdr.** `install.sh` installs the shim and works without
+3. **Install and herdr** (`feat/slice3-install`). `install.sh` installs the shim and works without
    herdr; the herdr action runs `symbiosis --tab`. Remove
    `herdr-plugin/scripts/open.sh` and `SYMBIOSIS_RATIO`. Rewrite the README
    around `symbiosis`.
@@ -113,4 +113,5 @@ Each slice is a branch and a pull request. You merge.
 - The launcher types the pi command into a shell; a shell that changes the
   line (an alias for `pi`) changes what runs.
 - pi's tab or pane stays after ttt quits; close it in herdr or tmux.
-- "Already open" says where it runs; it does not move you there yet.
+- "Already open" goes to the first one's pane only in the same herdr or tmux
+  server; otherwise it says where it runs.

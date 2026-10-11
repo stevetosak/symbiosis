@@ -320,5 +320,17 @@ and dropped: the panel was a poorer copy of pi's own terminal.)
   extension's dialog (a guard's "Allow?", a question). The session record
   gets `waiting`, the bar shows `π name ? waits for you`, and a notice says
   so; `ctrl+k g` goes to pi's pane to answer it.
-- **Already open.** A second `symbiosis` for the same folder says where the
-  first one runs (its herdr or tmux pane) and stops; `--new` opens another.
+- **Already open.** A second `symbiosis` for the same folder goes to the pane
+  where the first one runs (herdr: `pane get`, then `workspace focus` and
+  `tab focus`; tmux: `select-window` and `select-pane`). When that fails it
+  says where it runs and stops. `--new` opens another.
+- **Install.** `install.sh` installs ttt and pi when missing, then the pi
+  package, then runs the package's `bin/setup.sh`: it copies the ttt plugin
+  and links `~/.local/bin/symbiosis` to `bin/symbiosis` in pi's copy of the
+  package. So the launcher, the extension and the plugin come from one copy,
+  and `pi update` updates all three. herdr is optional; install.sh does not
+  install it.
+- **herdr.** With herdr there, install.sh adds the herdr plugin and a key.
+  Its action **Open symbiosis** (`herdr-plugin/scripts/open.sh`) runs
+  `symbiosis <folder> --tab` for the focused pane's folder; herdr runs
+  actions without a terminal, so an error shows as a herdr notification.

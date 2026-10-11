@@ -2,12 +2,14 @@
 //   * the pi package: `pi install <this folder>` (pi loads it from here, no copy)
 //   * the ttt plugin: a COPY in ~/.config/ttt/plugins/symbiosis. pi also does
 //     this copy each time it starts, so this is only for the first time.
+//   * the command: ~/.local/bin/symbiosis -> <this folder>/bin/symbiosis
+//     (SYMBIOSIS_BIN_DIR changes the folder), as bin/setup.sh does for users.
 //   * removes the old link ~/.pi/agent/extensions/symbiosis -> <repo>/pi, which
 //     would load the extension a second time.
 // Users install with install.sh or `pi install git:github.com/stevetosak/symbiosis`.
-// Honours PI_CODING_AGENT_DIR and TTT_CONFIG_DIR. Usage: bin/run-node install.ts [--check]
+// Honours PI_CODING_AGENT_DIR, TTT_CONFIG_DIR and SYMBIOSIS_BIN_DIR. Usage: bin/run-node install.ts [--check]
 import { spawnSync } from 'node:child_process';
-import { lstatSync, readFileSync, readlinkSync, unlinkSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,6 +47,28 @@ export function hasPackage(settings: unknown, repo: string, base = '/'): boolean
 	});
 }
 
+/** The `symbiosis` command: a link in `binDir` to `target`. Anything else there is left alone. */
+export function planCommandLink(binDir: string, target: string): Step {
+	const link = join(binDir, 'symbiosis');
+	const what = `command ${link}`;
+	let current: string | undefined;
+	try {
+		if (!lstatSync(link).isSymbolicLink()) return { what, state: 'skip', why: 'exists and is not a link; remove it by hand' };
+		current = readlinkSync(link);
+	} catch {}
+	if (current !== undefined && resolve(binDir, current) === target) return { what, state: 'ok' };
+	return {
+		what,
+		state: current === undefined ? 'create' : 'update',
+		why: `-> ${target}`,
+		run: () => {
+			mkdirSync(binDir, { recursive: true });
+			if (current !== undefined) unlinkSync(link);
+			symlinkSync(target, link);
+		},
+	};
+}
+
 export function planPiPackage(piDir: string, repo: string, pi = 'pi'): Step {
 	const what = `pi package ${repo}`;
 	let settings: unknown = {};
@@ -65,7 +89,13 @@ export function planPiPackage(piDir: string, repo: string, pi = 'pi'): Step {
 if (import.meta.main) {
 	const repo = dirname(fileURLToPath(import.meta.url));
 	const piDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), '.pi', 'agent');
-	const steps = [planOldLink(join(piDir, 'extensions'), repo), planPiPackage(piDir, repo), planTttPlugin(pluginDir(), PLUGIN_SOURCE)];
+	const binDir = process.env.SYMBIOSIS_BIN_DIR || join(homedir(), '.local', 'bin');
+	const steps = [
+		planOldLink(join(piDir, 'extensions'), repo),
+		planPiPackage(piDir, repo),
+		planTttPlugin(pluginDir(), PLUGIN_SOURCE),
+		planCommandLink(binDir, join(repo, 'bin', 'symbiosis')),
+	];
 	const check = process.argv.includes('--check');
 	for (const s of steps) {
 		console.log(`${s.state.padEnd(6)} ${s.what}${s.why ? ` (${s.why})` : ''}`);

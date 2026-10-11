@@ -14,7 +14,7 @@ import { constants } from 'node:os';
 import { parseArgs, USAGE, UsageError } from './args.ts';
 import { ConfigError, configPath, readConfig } from './config.ts';
 import { projectFolder } from './folder.ts';
-import { label, newTab, noHost, type PaneStart, paneFromOutput, piCommand, piStart } from './layout.ts';
+import { type Argv, goTo, herdrPlace, label, newTab, noHost, type PaneStart, paneFromOutput, piCommand, piStart } from './layout.ts';
 import { alreadyOpen, findOpen, type Host, hostOf, removeRecord, stateDir, writeRecord } from './record.ts';
 import { pluginDir } from '../pi/stream.ts';
 
@@ -30,12 +30,30 @@ function exitCode(code: number | null, signal: NodeJS.Signals | null): number {
 	return 128 + (n ?? 1);
 }
 
+/** Runs a multiplexer command; herdr's own binary when herdr names it (in a plugin action). */
+function run(argv: Argv): string {
+	const bin = argv[0] === 'herdr' && process.env.HERDR_BIN_PATH ? process.env.HERDR_BIN_PATH : argv[0];
+	return execFileSync(bin, argv.slice(1), { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
 /** Makes the pane and types the command into it; returns the pane id. */
 function start(pane: PaneStart): string {
-	const run = (argv: string[]) => execFileSync(argv[0], argv.slice(1), { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
 	const id = paneFromOutput(pane.kind, run(pane.create));
 	for (const argv of pane.run(id)) run(argv);
 	return id;
+}
+
+/** Brings the pane of a running symbiosis to the front; false when that fails. */
+function goThere(host: Host): boolean {
+	try {
+		const place = host.kind === 'herdr' ? herdrPlace(run(['herdr', 'pane', 'get', host.pane])) : undefined;
+		const steps = goTo(host, place);
+		if (steps.length === 0) return false;
+		for (const argv of steps) run(argv);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 function why(error: unknown): string {
@@ -77,7 +95,13 @@ async function main(): Promise<number> {
 	const states = stateDir();
 	if (!args.fresh) {
 		const found = findOpen(states, folder);
-		if (found) fail(alreadyOpen(found));
+		if (found) {
+			if (found.host && goThere(found.host)) {
+				process.stderr.write(`symbiosis already runs for ${found.folder}: went to its ${found.host.kind} pane ${found.host.pane}.\n`);
+				return 0;
+			}
+			fail(alreadyOpen(found));
+		}
 	}
 	const plugin = pluginDir();
 	if (!existsSync(plugin)) {

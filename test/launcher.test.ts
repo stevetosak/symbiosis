@@ -7,7 +7,7 @@ import { parseArgs, UsageError } from '../launcher/args.ts';
 import { ConfigError, DEFAULTS, parseConfig, readConfig } from '../launcher/config.ts';
 import { projectFolder } from '../launcher/folder.ts';
 import { findOpen, hostOf, recordPath, removeRecord, writeRecord } from '../launcher/record.ts';
-import { label, newTab, noHost, paneFromOutput, piCommand, piStart, shellLine, shellQuote, workspaceOf } from '../launcher/layout.ts';
+import { goTo, herdrPlace, label, newTab, noHost, paneFromOutput, piCommand, piStart, shellLine, shellQuote, workspaceOf } from '../launcher/layout.ts';
 
 function temp(): string {
 	return mkdtempSync(join(tmpdir(), 'symbiosis-launcher-'));
@@ -111,6 +111,22 @@ test('layout: pane ids from herdr and tmux, and a clear error', () => {
 	assert.throws(() => paneFromOutput('herdr', 'oops'), /not answer in JSON/);
 	assert.equal(paneFromOutput('tmux', '%12\n'), '%12');
 	assert.throws(() => paneFromOutput('tmux', ''), /did not print a pane id/);
+});
+
+test('layout: going to a running symbiosis', () => {
+	const place = herdrPlace('{"result":{"pane":{"pane_id":"w4:p3","tab_id":"w4:t2","workspace_id":"w4"},"type":"pane_info"}}');
+	assert.deepEqual(place, { workspace: 'w4', tab: 'w4:t2' });
+	assert.deepEqual(goTo({ kind: 'herdr', pane: 'w4:p3' }, place), [
+		['herdr', 'workspace', 'focus', 'w4'],
+		['herdr', 'tab', 'focus', 'w4:t2'],
+	]);
+	assert.equal(herdrPlace('{"error":{"message":"pane not found"}}'), undefined);
+	assert.equal(herdrPlace('not json'), undefined);
+	assert.deepEqual(goTo({ kind: 'herdr', pane: 'w4:p3' }), []);
+	assert.deepEqual(goTo({ kind: 'tmux', pane: '%3' }), [
+		['tmux', 'select-window', '-t', '%3'],
+		['tmux', 'select-pane', '-t', '%3'],
+	]);
 });
 
 test('layout: shell quoting for the command typed into the pane', () => {
