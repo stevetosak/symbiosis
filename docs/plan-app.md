@@ -90,7 +90,9 @@ Each slice is a branch and a pull request. You merge.
    herdr; the herdr action runs `symbiosis --tab`. Remove
    `herdr-plugin/scripts/open.sh` and `SYMBIOSIS_RATIO`. Rewrite the README
    around `symbiosis`.
-4. **The demo** through the launcher.
+4. **The demo** through the launcher (`feat/demo-launcher`): `npm run demo`
+   runs `symbiosis` on the copy with the scripted pi (`demo/scripted-pi`) as
+   its pi; `--real` starts a real pi with `--name demo @demo/PROMPT.md`.
 
 ## Tests
 

@@ -1,21 +1,33 @@
-// The symbiosis demo: a scripted pi, no model, no tokens. It resets a copy of
-// demo/workspace, waits until ttt follows it, does one small task in the
-// to-do app (plan, a new file, edits, a test), then answers your helpi!
-// comments with set answers. See demo/README.md.
+// The symbiosis demo: a small task in a to-do app, in a fresh copy of
+// demo/workspace, with ttt and pi opened by the symbiosis command.
 //
-//   npm run demo             the whole demo
-//   npm run demo -- --reset  only reset the workspace (for a real pi: demo/PROMPT.md)
+//   npm run demo                the scripted pi: no model, no tokens, the same every time
+//   npm run demo -- --real      a real pi, given demo/PROMPT.md at once (costs tokens)
+//   npm run demo -- --reset     only make a fresh copy
 //
-// DEMO_DIR (default /tmp/symbiosis-demo) is the workspace copy. PAUSE_MS is the
-// time between steps; SUGGEST_MS stops the wait for helpi! (0: until ctrl+c).
+// Other arguments go to the symbiosis command (--split, --tab, -- <pi args>).
+// The scripted pi is this file with --scripted (demo/scripted-pi): it waits
+// until ttt follows it, does the task (plan, a new file, edits, a test), then
+// answers your helpi! comments with set answers. See demo/README.md.
+//
+// DEMO_DIR (default /tmp/symbiosis-demo) is the workspace copy; the scripted
+// pi uses its working folder when that is a demo copy. PAUSE_MS is the time
+// between steps; SUGGEST_MS stops the wait for helpi! (0: until ctrl+c).
+import { spawn } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { findOpen, stateDir } from '../launcher/record.ts';
 import { FakePi, sleep } from './fake-pi.ts';
 
-const DIR = process.env.DEMO_DIR ?? '/tmp/symbiosis-demo';
+const TAG = '.symbiosis-demo';
+const OURS = ['--scripted', '--real', '--reset'];
+const argv = process.argv.slice(2);
+const scripted = argv.includes('--scripted');
+const DIR = scripted && existsSync(join(process.cwd(), TAG)) ? process.cwd() : (process.env.DEMO_DIR ?? '/tmp/symbiosis-demo');
 const PAUSE_MS = Number(process.env.PAUSE_MS ?? 1500);
 const SUGGEST_MS = Number(process.env.SUGGEST_MS ?? 0);
-const TAG = '.symbiosis-demo';
+const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
 const say = (line: string) => console.log(`\x1b[2m[demo]\x1b[0m ${line}`);
 const pause = () => sleep(PAUSE_MS);
@@ -26,15 +38,47 @@ function reset(): void {
 		if (!existsSync(join(DIR, TAG))) throw new Error(`${DIR} exists and is not a demo workspace: not deleting it`);
 		rmSync(DIR, { recursive: true, force: true });
 	}
-	cpSync(new URL('./workspace', import.meta.url), DIR, { recursive: true });
+	cpSync(here('./workspace'), DIR, { recursive: true });
 	writeFileSync(join(DIR, TAG), 'Made by symbiosis demo/run.ts. The demo deletes and copies this folder again.\n');
 }
 
-reset();
-say(`workspace: ${DIR}`);
-if (process.argv.includes('--reset')) {
-	say('reset only. Give a real pi the task in demo/PROMPT.md.');
-	process.exit(0);
+/** The symbiosis command on the workspace, with the scripted pi or a real one given PROMPT.md. */
+function launch(real: boolean, rest: string[]): Promise<number> {
+	const cut = rest.indexOf('--');
+	const flags = cut < 0 ? rest : rest.slice(0, cut);
+	const piArgs = cut < 0 ? [] : rest.slice(cut + 1);
+	if (real) piArgs.push('--name', 'demo', `@${here('./PROMPT.md')}`);
+	const env = real ? process.env : { ...process.env, SYMBIOSIS_PI: here('./scripted-pi') };
+	const args = [...process.execArgv, here('../launcher/main.ts'), DIR, ...flags, ...(piArgs.length ? ['--', ...piArgs] : [])];
+	const child = spawn(process.execPath, args, { stdio: 'inherit', env });
+	// ttt has the keys in raw mode: ctrl+c is its key, not a signal for us.
+	process.on('SIGINT', () => {});
+	return new Promise((resolve) => {
+		child.on('error', (error) => {
+			say(`could not run the symbiosis command: ${error.message}`);
+			resolve(1);
+		});
+		child.on('exit', (code) => resolve(code ?? 1));
+	});
+}
+
+if (!scripted) {
+	// Before the reset: a running demo's files are not pulled away under it.
+	const open = findOpen(stateDir(), DIR);
+	if (open && !argv.includes('--reset')) {
+		const where = open.host ? `in ${open.host.kind} pane ${open.host.pane}` : `as process ${open.pid}`;
+		say(`the demo already runs ${where}: quit its ttt first.`);
+		process.exit(1);
+	}
+	reset();
+	say(`workspace: ${DIR}`);
+	if (argv.includes('--reset')) {
+		say('reset only. A real pi: npm run demo -- --real, or give it demo/PROMPT.md.');
+		process.exit(0);
+	}
+	const real = argv.includes('--real');
+	say(real ? 'a real pi, given demo/PROMPT.md: it starts at once and costs tokens.' : 'the scripted pi: no model, no tokens.');
+	process.exit(await launch(real, argv.filter((a) => !OURS.includes(a))));
 }
 
 // ---- helpi!: the demo's "model" has three set answers, by a word in the question ----
@@ -63,8 +107,21 @@ process.on('SIGINT', async () => {
 });
 await pi.start();
 
-say(`open the workspace in ttt:  ttt ${DIR}`);
-say('waiting until the editor follows this session ("π demo" in the status bar) ...');
+say(`the scripted pi, in ${DIR}`);
+// Under the symbiosis command: when its ttt quits, the demo ends too, so an
+// old scripted pi does not stay behind for the next run.
+if (findOpen(stateDir(), DIR)) {
+	const watch = setInterval(async () => {
+		if (findOpen(stateDir(), DIR)) return;
+		clearInterval(watch);
+		say('ttt quit: the demo ends.');
+		await pi.stop();
+		process.exit(0);
+	}, 1000);
+	watch.unref();
+}
+say('waiting until ttt follows this session ("π demo" in its status bar) ...');
+say(`  (no ttt yet? open it: ttt ${DIR})`);
 await pi.waitOwner();
 say('the editor follows "demo". Start in 3 s. Try ctrl+k h (the panel), ctrl+k - / = (speed), ctrl+k space (pause).');
 await sleep(3000);

@@ -1,0 +1,7 @@
+#!/bin/sh
+# The demo's scripted pi: `npm run demo` gives it to the symbiosis command as
+# the pi to start beside ttt. It runs in the demo workspace (its working
+# folder) and ignores the arguments meant for a real pi.
+set -eu
+repo=$(cd "$(dirname "$0")/.." && pwd)
+exec "$repo/bin/node-ts" "$repo/demo/run.ts" --scripted
