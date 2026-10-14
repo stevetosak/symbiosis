@@ -29,6 +29,8 @@ local fs = require("ttt.fs")
 local json = require("ttt.json")
 local events = require("ttt.events")
 local system = require("ttt.system")
+-- The gutter marks of the text pi types (editor.bookmarks permission).
+local has_marks, bookmarks = pcall(require, "ttt.bookmarks")
 
 local DIR = ttt.plugin_dir()
 local HEAD, EVENTS, ACK, ALIVE = DIR .. "/head.json", DIR .. "/events.jsonl", DIR .. "/ack.json", DIR .. "/ttt.json"
@@ -316,6 +318,13 @@ end
 -- Makes the region read `text`: replaces only what changed after the common
 -- prefix. The cursor goes to its end, or `below` lines under its end.
 local function set_region(r, text, below)
+	-- The other regions of the change below this one move with its line count.
+	local d = select(2, text:gsub("\n", "")) - select(2, r.text:gsub("\n", ""))
+	if d ~= 0 and active and active.regions then
+		for _, o in ipairs(active.regions) do
+			if o ~= r and o.line > r.line then o.line = o.line + d end
+		end
+	end
 	local p = prefix(r.text, text)
 	local pl, pc = after(r.line, r.col, r.text:sub(1, p))
 	local el, ec = after(r.line, r.col, r.text)
@@ -325,6 +334,7 @@ local function set_region(r, text, below)
 	r.text = text
 	local cl, cc = after(r.line, r.col, text)
 	if below then cl, cc = cl + below.lines, below.col end
+	if run then run.at = cl end
 	editor.set_cursor(cl, cc)
 	reveal(cl)
 end
@@ -341,6 +351,66 @@ end
 -- replay goes to another file, at the end of the turn, or when it has shown
 -- all that pi sent: then `finish` undoes the group and opens the file again,
 -- which reloads it from disk.
+
+-- The gutter: ▌ on each line pi typed in this change (the call shown now),
+-- π on the line it types now. Gutter marks are ttt's bookmarks, one per line, shared with other
+-- plugins: a line with another plugin's mark keeps it. They stay at their
+-- line numbers when the text moves, so they are drawn again on each tick
+-- (only when something changed). They go when the change is all shown.
+local BAR, NOW = "▌", "π"
+local marked, marked_path, marks_key = {}, nil, ""
+
+local function ours(line)
+	local b = bookmarks.get(line)
+	return b and (b.icon == BAR or b.icon == NOW)
+end
+
+local function draw_marks()
+	if not has_marks then return end
+	local path = editor.file_path()
+	if path ~= marked_path then marked, marked_path, marks_key = {}, path, "" end
+	local want, now = {}, nil
+	if run and active and active.path == path then
+		local last = editor.line_count()
+		for _, r in ipairs(active.regions) do
+			if r.text ~= "" then
+				local n = select(2, r.text:gsub("\n", ""))
+				if n > 0 and r.text:sub(-1) == "\n" then n = n - 1 end
+				for l = r.line, math.min(r.line + n, last) do want[l] = BAR end
+			end
+		end
+		if run.at and run.at <= last then
+			now = run.at
+			want[now] = NOW
+		end
+	end
+	local parts = {}
+	for l, icon in pairs(want) do table.insert(parts, l .. icon) end
+	table.sort(parts)
+	local key = table.concat(parts, ",")
+	-- Another plugin may have replaced every mark (on opening a file).
+	if key == marks_key and not (now and not ours(now)) then return end
+	marks_key = key
+	for l in pairs(marked) do
+		if not want[l] and ours(l) then bookmarks.remove(l) end
+	end
+	marked = {}
+	for l, icon in pairs(want) do
+		local b = bookmarks.get(l)
+		if not b or b.icon == BAR or b.icon == NOW then
+			if not b or b.icon ~= icon then bookmarks.set(l, icon, "success") end
+			marked[l] = true
+		end
+	end
+end
+
+local function marks()
+	local fine, err = pcall(draw_marks)
+	if not fine then
+		has_marks = false
+		ttt.log("error", "symbiosis gutter marks: " .. tostring(err))
+	end
+end
 
 local function ack(id)
 	table.insert(acks, id)
@@ -361,6 +431,7 @@ finish = function()
 	local r = run
 	if not r then return end
 	run, active = nil, nil
+	marks()
 	for id in pairs(r.calls) do
 		local c = calls[id]
 		if c then c.skip = c.skip or "ended" end
@@ -387,7 +458,7 @@ local function whole()
 end
 
 local function start(ev)
-	local c = { id = ev.call, tool = ev.tool, path = ev.path, edits = {}, values = {} }
+	local c = { id = ev.call, tool = ev.tool, path = ev.path, edits = {}, values = {}, regions = {} }
 	calls[ev.call] = c
 	if pinned then c.skip = "pinned" return end
 	if run and run.path ~= ev.path then finish() end
@@ -427,6 +498,7 @@ local function start(ev)
 		-- A full write clears the buffer and types the new text in.
 		c.region = whole()
 		if c.region.text ~= "" then set_region(c.region, "") run.changed = true end
+		table.insert(c.regions, c.region)
 	end
 end
 
@@ -443,9 +515,13 @@ local function edit_text(c, i, part, value)
 		local el, ec = after(line, col, value)
 		editor.set_selection(line, col, el, ec)
 		reveal(line)
-		run.line = line
+		run.line, run.at = line, line
 	elseif e.region then
 		editor.clear_selection()
+		if not e.marked then
+			e.marked = true
+			table.insert(c.regions, e.region)
+		end
 		set_region(e.region, value)
 		run.changed = true
 	end
@@ -791,6 +867,7 @@ local function pace()
 			if not fine then ttt.log("error", "symbiosis finish: " .. tostring(err)) end
 		end
 	end
+	marks()
 	count_behind()
 end
 

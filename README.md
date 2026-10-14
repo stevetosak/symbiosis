@@ -116,6 +116,10 @@ argument, else the git root, else this folder.
   characters per second, then max), `ctrl+k space` pause (the replay only),
   `ctrl+k .` the rest of this change at once. The status bar shows
   `▶ 160/s · 2 behind` or `⏸ paused`; a click on it cycles the speed.
+- The gutter marks the change being replayed: `▌` on each line of this
+  change, `π` on the line being typed now. The marks go when the change ends
+  (`ctrl+k w` shows it after). A line with another plugin's mark (a bookmark)
+  keeps that mark.
 - While a file is replayed, your typing in it waits (the bar says so); moves
   work. At the end of the replay the file comes from disk again.
 - Autosave (on by default): a file is saved 1 s after you last typed in it,
@@ -176,6 +180,7 @@ bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the work
 bash test/e2e/lag.sh       # the replay behind pi (LAG=-1, SPEED=80); typing waits; buffer = disk at the end
 bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel shows a file outside the folder
 bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, no multiplexer, already open
+bash test/e2e/marks.sh     # the gutter: ▌ on the change's lines and π on the line typed now, none after
 bash test/e2e/stop.sh      # "? waits for you" while pi shows a dialog; ctrl+k q stops pi's turn
 sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi): without herdr, with it, twice, key taken, own command file
 ```

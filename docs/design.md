@@ -203,6 +203,27 @@ the keys while it is open, so a plugin key cannot close it: Esc does, as in
 every ttt drawer. When the editor moved after the drawer opened (a stop),
 `ctrl+k v` gives the drawer the focus again.
 
+## The gutter marks
+
+While the editor replays a change, ttt's gutter (`ttt.bookmarks`, the column
+left of the line numbers) shows `▌` on each line of that change and `π` on
+the line being typed now. Only the change in the open file, only while it
+runs: when it ends, the marks go, and `ctrl+k w` shows the turn after.
+
+- Each call keeps its own line ranges (a write: one; an edit: one per
+  replaced text). When a range grows or shrinks, the ranges below it move by
+  the same number of lines.
+- Bookmarks stay on their line number when lines come in above them, so the
+  plugin draws again each tick when the set changes (not at all when it is
+  the same).
+- One mark per line. The plugin never draws on a line that has another
+  plugin's mark, and removes only its own. A bookmarks plugin that sets all
+  its marks again (on file open) clears ours; they come back on the next tick.
+- Not used: a selection trail (the selection already marks the old text of an
+  edit) and diagnostics (they show in the Problems panel as problems).
+- The marks stay on screen until the next tick after the change ends; a
+  failed draw turns the marks off until ttt starts again; the replay goes on.
+
 ## The diff key
 
 `ctrl+k w` shows what pi changed in its last turn (agent_start to
