@@ -3,7 +3,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FakePi, sleep } from '../../demo/fake-pi.ts';
-import { pluginDir } from '../../pi/stream.ts';
+import { pluginDir } from '../../core/channel/file.ts';
 
 const dir = process.argv[2];
 const pi = new FakePi({

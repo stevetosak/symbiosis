@@ -5,7 +5,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from '
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pluginDir } from './stream.ts';
+import { pluginDir } from '../core/channel/file.ts';
 
 export type Step = { what: string; state: 'create' | 'update' | 'remove' | 'ok' | 'skip'; why?: string; run?: () => void };
 

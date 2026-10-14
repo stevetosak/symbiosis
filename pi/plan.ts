@@ -1,13 +1,7 @@
 // The plan: pi's own short list of steps, shown in the editor as a timeline
 // (done › now › next). pi sends the whole list with each `plan` call. Pure, so
 // the tests need no pi.
-
-export type StepState = 'done' | 'now' | 'next';
-
-export interface Step {
-	text: string;
-	state: StepState;
-}
+import type { Step, StepState } from '../core/protocol.ts';
 
 /** Labels longer than this are cut: the timeline is one line. */
 const MAX_TEXT = 80;

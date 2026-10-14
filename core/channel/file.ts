@@ -1,5 +1,6 @@
 // The file channel between pi and the ttt plugin, in the plugin's own folder.
-// A ttt plugin cannot reach localhost, so files are the only way in.
+// A ttt plugin cannot reach localhost, so files are the only way in. It
+// implements the Channel interface (./channel.ts).
 //
 //   events.jsonl  pi appends one ChannelEvent per line.
 //   head.json     {gen, size}: the plugin reads this small file on every tick
@@ -11,75 +12,26 @@
 //                 changes pi may make before the editor has shown them.
 //   ack.json      [call ids]: the changes the editor has shown (replayed).
 //   help.json     HelpRequest: the plugin asks session `to` a helpi!
-//                 question (pi/help.ts), or to stop it (`cancel`).
+//                 question (core/help.ts), or to stop it (`cancel`).
 //   stop.json     {id, to}: the plugin asks session `to` to stop its turn
 //                 (ctrl+k q); `id` is new for each press.
 //   sessions/<id>.json  one Session per running pi, written every second.
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { type HelpRequest, parseRequest } from './help.ts';
-import type { Step } from './plan.ts';
-import type { ChannelEvent } from './stream.ts';
+import { parseRequest } from '../help.ts';
+import { type ChannelEvent, DEFAULT_LAG, type HelpRequest, type PluginState, type Session, type StopRequest } from '../protocol.ts';
+import type { Channel } from './channel.ts';
 
 /** The log starts again from empty at the start of a turn once it is this big. */
 const ROTATE_BYTES = 256 * 1024;
 
-export interface PluginState {
-	alive: boolean;
-	pinned: boolean;
-	/** The session the editor follows, if any. */
-	owner?: string;
-	/** How many changes pi may make that the editor has not shown yet; -1 = no limit. */
-	lag: number;
+/** The plugin's folder: a ttt plugin can read only there and in the workspace. */
+export function pluginDir(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+	return join(env.TTT_CONFIG_DIR || join(home, '.config', 'ttt'), 'plugins', 'symbiosis');
 }
 
-/** The lag limit before the operator sets one. */
-export const DEFAULT_LAG = 3;
-
-/** What a pi session tells the plugin about itself. Times are Unix seconds. */
-export interface Session {
-	id: string;
-	/** The channel protocol of this extension; the plugin flags an older one. */
-	version: number;
-	/** The pane of this pi, when it runs in herdr or tmux: ctrl+k g goes there. */
-	pane: string | null;
-	/** Which multiplexer `pane` belongs to. */
-	host: 'herdr' | 'tmux' | null;
-	/** The model, for the ctrl+k h panel. */
-	model: string | null;
-	/** The title of the dialog pi waits on (a guard's "Allow?"), else null. */
-	waiting: string | null;
-	cwd: string;
-	name: string;
-	pid: number;
-	/** Heartbeat. */
-	t: number;
-	/** When the agent last started work. */
-	active: number;
-	working: boolean;
-	/** pi's plan, shown as the timeline. Empty when pi has not sent one. */
-	plan: Step[];
-	/** The files this session wrote or edited, the last one last. The editor
-	 * follows the session that wrote the open file. */
-	files: string[];
-	/** pi's session name (`/name`), to tell sessions in one folder apart. */
-	title: string | null;
-}
-
-/** ctrl+k q in ttt: stop the turn of session `to`. */
-export interface StopRequest {
-	id: string;
-	to: string;
-}
-
-/** The pane pi runs in, from the multiplexer's environment. */
-export function paneOf(env: NodeJS.ProcessEnv): { pane: string | null; host: 'herdr' | 'tmux' | null } {
-	if (env.HERDR_PANE_ID) return { pane: env.HERDR_PANE_ID, host: 'herdr' };
-	if (env.TMUX && env.TMUX_PANE) return { pane: env.TMUX_PANE, host: 'tmux' };
-	return { pane: null, host: null };
-}
-
-export class Channel {
+export class FileChannel implements Channel {
 	private gen = 0;
 	private size = 0;
 

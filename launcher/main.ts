@@ -16,7 +16,7 @@ import { ConfigError, configPath, readConfig } from './config.ts';
 import { projectFolder } from './folder.ts';
 import { type Argv, goTo, herdrPlace, label, newTab, noHost, type PaneStart, paneFromOutput, piCommand, piStart } from './layout.ts';
 import { alreadyOpen, findOpen, type Host, hostOf, removeRecord, stateDir, writeRecord } from './record.ts';
-import { pluginDir } from '../pi/stream.ts';
+import { pluginDir } from '../core/channel/file.ts';
 
 function fail(message: string, code = 1): never {
 	process.stderr.write(`${message}\n`);

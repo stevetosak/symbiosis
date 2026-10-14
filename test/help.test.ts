@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { askMessage, helpPrompt, type HelpRequest, lastAssistantText, parseAnswer, parseRequest } from '../pi/help.ts';
+import { askMessage, helpPrompt, lastAssistantText, parseAnswer, parseRequest } from '../core/help.ts';
+import type { HelpRequest } from '../core/protocol.ts';
 
 const request = (over: Partial<HelpRequest> = {}): HelpRequest => ({
 	id: 'h1',

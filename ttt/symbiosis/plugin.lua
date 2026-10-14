@@ -45,7 +45,7 @@ local AUTOSAVES = { 0, 1000, 3000 }
 -- 0 = pi waits for each change, as it did before.
 local LAGS = { 0, 3, 10, -1 }
 local POLL_MS = 40
-local PROTOCOL = 10    -- the channel protocol of pi/index.ts
+local PROTOCOL = 10    -- the channel protocol of core/protocol.ts
 local PLAN_WIDTH = 56  -- the timeline in the status bar, in characters
 
 local gen, offset = nil, 0
@@ -961,7 +961,7 @@ end
 -- A comment that ends in `helpi!` asks the session the editor follows, at
 -- once: 600 ms after your last change, or on Enter at the end of its line.
 -- help.json carries the question and the code around it, as in the buffer.
--- pi asks its model in a side call (pi/help.ts) and sends events back:
+-- pi asks its model in a side call (core/help.ts) and sends events back:
 --   help        pi has the question; it is thinking
 --   help_start  the kind: note, code or ask; for code, the imports it needs
 --   help_text   the answer so far (all of it)
