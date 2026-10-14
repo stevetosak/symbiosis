@@ -8,35 +8,7 @@
 // (`done`, `stop`). See docs/design.md.
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-
-export type Tool = 'write' | 'edit';
-
-export type ChannelEvent =
-	/**
-	 * A call starts streaming. `sum` is the Adler-32 of the file on disk, null
-	 * when it does not exist. `before` is that text, when it is not too big:
-	 * the editor may replay this call after pi has changed the file again, so
-	 * it shows the change from this text.
-	 */
-	| { op: 'start'; call: string; tool: Tool; path: string; sum: number | null; before?: string }
-	/** `key` is `content`, `edits.<i>.old` (sent once, complete) or `edits.<i>.new`. `from` counts UTF-8 bytes. */
-	| { op: 'text'; call: string; key: string; from: number; text: string }
-	/** The tool is about to run: the arguments are complete. The plugin acknowledges once it has shown them. */
-	| { op: 'ready'; call: string }
-	/** The call will not run (the turn ended without it): undo the preview. */
-	| { op: 'abort'; call: string }
-	/** The tool ran. `line` is the first changed line; `sum` is the Adler-32 of the file now. */
-	| { op: 'done'; call: string; tool: Tool; path: string; line: number; ok: boolean; sum: number | null }
-	/** The agent's turn ended; the editor goes to the last edit even when pinned. */
-	| { op: 'stop'; path: string; line: number }
-	/** helpi!: session `session` got the question `id` and asks its model. */
-	| { op: 'help'; id: string; session: string }
-	/** The answer starts: its kind, and for code the imports the file needs. */
-	| { op: 'help_start'; id: string; kind: 'note' | 'code' | 'ask'; imports: string[] }
-	/** The answer so far, all of it (not a delta). */
-	| { op: 'help_text'; id: string; text: string }
-	/** The answer is complete (`text`), stopped (Esc), or failed (`error`). */
-	| { op: 'help_done'; id: string; text: string; error?: string; stopped?: boolean };
+import type { ChannelEvent, Tool } from './protocol.ts';
 
 export interface EditArg {
 	oldText?: unknown;
@@ -138,9 +110,4 @@ export function absolutePath(path: string, cwd: string, home = homedir()): strin
 export function firstLine(tool: Tool, details: unknown): number {
 	const first = (details as { firstChangedLine?: unknown } | undefined)?.firstChangedLine;
 	return tool === 'edit' && typeof first === 'number' && first > 0 ? first : 1;
-}
-
-/** The plugin's folder: a ttt plugin can read only there and in the workspace. */
-export function pluginDir(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
-	return join(env.TTT_CONFIG_DIR || join(home, '.config', 'ttt'), 'plugins', 'symbiosis');
 }

@@ -3,22 +3,26 @@
 //
 // Many pi sessions can run. Each writes a session record; the plugin picks the
 // one the editor follows (the owner) and only the owner writes events and
-// answers helpi! questions (pi/help.ts). Without the plugin folder (ttt or the plugin not
+// answers helpi! questions (core/help.ts). Without the plugin folder (ttt or the plugin not
 // installed) this extension writes nothing.
+//
+// This file wires core/ into pi. The rules live in core/, which knows nothing
+// of pi, so another agent or another channel can use them.
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
+import type { Channel } from '../core/channel/channel.ts';
+import { FileChannel, pluginDir } from '../core/channel/file.ts';
+import { askMessage, HELP_SYSTEM, helpPrompt, lastAssistantText, parseAnswer } from '../core/help.ts';
+import { type ChannelEvent, DEFAULT_LAG, type HelpRequest, type PluginState, PROTOCOL, type Session, type Tool } from '../core/protocol.ts';
+import { paneOf } from '../core/session.ts';
+import { absolutePath, adler32, BEFORE_MAX, firstLine, Tracker } from '../core/stream.ts';
 import { Changes } from './changes.ts';
-import { Channel, DEFAULT_LAG, paneOf, type PluginState, type Session } from './channel.ts';
 import { cleanSteps, PLAN_DESCRIPTION, prepareArguments, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
-import { askMessage, HELP_SYSTEM, type HelpRequest, helpPrompt, lastAssistantText, parseAnswer } from './help.ts';
 import { syncTttPlugin } from './setup.ts';
-import { absolutePath, adler32, BEFORE_MAX, type ChannelEvent, firstLine, pluginDir, type Tool, Tracker } from './stream.ts';
 
 /** At most one text write per call in this time: the plugin polls every 40 ms. */
 const FLUSH_MS = 40;
-/** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 10;
 /** The files a session record lists as written by it. */
 const MAX_FILES = 20;
 
@@ -34,7 +38,7 @@ function isTool(name: unknown): name is Tool {
 }
 
 export default function symbiosis(pi: ExtensionAPI) {
-	const channel = new Channel(pluginDir());
+	const channel: Channel = new FileChannel(pluginDir());
 	const changes = new Changes(join(pluginDir(), 'changes'));
 	// The run (agent_start to agent_end) whose changes are kept, and the run now.
 	let changesRun = 0;

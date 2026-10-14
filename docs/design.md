@@ -10,16 +10,25 @@ Then the editor shows the result at the changed line.
 
 | Part | File | Job |
 |---|---|---|
-| pi extension | `pi/index.ts` | Reads the tool calls while they stream. Writes events. |
-| Events | `pi/stream.ts` | Pure: turns growing arguments into small `text` events. |
-| Channel | `pi/channel.ts` | Files in the plugin folder: `events.jsonl`, `head.json`, `ttt.json` (with the lag limit), `ack.json` (the changes shown). |
-| helpi! | `pi/help.ts` | Pure: the request, the side call's prompt, the answer parser (kind, imports, body). |
+| pi extension | `pi/index.ts` | Reads the tool calls while they stream. Writes events. Wires `core/` into pi. |
+| Protocol | `core/protocol.ts` | Types only: every event and record that crosses the channel, and `PROTOCOL`. |
+| Events | `core/stream.ts` | Pure: turns growing arguments into small `text` events. |
+| Channel | `core/channel/channel.ts` | The interface the agent side talks to: send events, publish the session, read the editor's state and requests. |
+| File channel | `core/channel/file.ts` | The one implementation: files in the plugin folder, `events.jsonl`, `head.json`, `ttt.json` (with the lag limit), `ack.json` (the changes shown). |
+| helpi! | `core/help.ts` | Pure: the request, the side call's prompt, the answer parser (kind, imports, body). |
 | Launcher | `launcher/main.ts` (`bin/symbiosis`) | Starts a real pi in its own herdr or tmux pane, runs ttt here as its child, ends when ttt quits. One record per folder in `~/.local/state/symbiosis/`. |
 | Layout | `launcher/layout.ts` | Pure: the herdr and tmux command lines for a pi tab, a split, or a new tab for symbiosis itself. |
 | ttt plugin | `ttt/symbiosis/plugin.lua` | Polls every 40 ms. Shows the preview. Follows the result. Sends helpi! questions and writes the answers. |
 
 A ttt plugin cannot open a socket and can read only its own folder and the
 workspace. Thus the channel is files in the plugin folder.
+
+`core/` holds what does not depend on pi: the protocol, the rules that turn
+a tool call into events, and the channel. It imports nothing from pi, so
+another agent harness, or a socket in place of the files, is a new adapter or
+a new `Channel` implementation, not a change to the rules. `pi/` holds only
+what speaks pi: the extension, its `plan` tool, the change log it keeps for
+the editor, and the setup.
 
 ## The buffer: one rule
 
@@ -278,7 +287,7 @@ one-line snippet, one guideline). Each call costs the steps it sends, about
 
 You write a comment that ends in `helpi!`. 600 ms after your last change, or
 at once on Enter at the end of that line, the plugin writes `help.json`
-(`HelpRequest` in `pi/help.ts`) addressed to the owner: the line, its number,
+(`HelpRequest` in `core/protocol.ts`) addressed to the owner: the line, its number,
 the language, and the code (the whole file up to 150 lines, else the first 20
 lines and lines -40/+20 around the question). One question at a time. The
 pause asks a line only once (unless it failed): ctrl+z, which brings the

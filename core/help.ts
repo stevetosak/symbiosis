@@ -9,28 +9,7 @@
 //   code  the code for that place: it takes the place of your comment
 //   ask   it needs more than this code: the question goes to the main session
 import { relative } from 'node:path';
-import type { Step } from './plan.ts';
-
-export type HelpKind = 'note' | 'code' | 'ask';
-
-/** What the plugin sends: the question and the code around it, as in the buffer (it may not be saved). */
-export interface HelpRequest {
-	id: string;
-	/** The session that answers. */
-	to: string;
-	path: string;
-	/** The line of the question, 1-based. */
-	line: number;
-	/** The question's whole line, as in the buffer. */
-	question: string;
-	language: string;
-	/** The top of a long file (its imports), or "" when `window` is the whole file. */
-	head: string;
-	/** The lines around the question, from line `first`. */
-	window: { first: number; text: string };
-	/** You pressed Esc: stop the answer with this id. */
-	cancel: boolean;
-}
+import type { HelpKind, HelpRequest, Step } from './protocol.ts';
 
 /** A help request from the plugin's JSON, or undefined when it is not one. */
 export function parseRequest(value: unknown): HelpRequest | undefined {
