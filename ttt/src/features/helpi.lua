@@ -21,36 +21,20 @@ local ttt = require("ttt")
 local editor = require("ttt.editor")
 local util = require("core.util")
 local buffer = require("core.buffer")
+local marker = require("core.marker")
 
 local runes = util.runes
 
-local OPENERS = { "<!--", "/*", "//", "--", "#", ";" }
 local CLOSERS = { ["<!--"] = " -->", ["/*"] = " */" }
 local HELP_MS = 600
 local MAX_LINES = 150 -- a longer file sends its top and the lines around the question
 local FRAMES = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
 
 -- The comment on `line` when it ends in helpi!: where its opener is, and the indent.
-local function helpi(line)
-	local body = line:gsub("%s*%*/%s*$", ""):gsub("%s*%-%->%s*$", "")
-	if not body:match("helpi!%s*$") then return nil end
-	local best = nil
-	for _, o in ipairs(OPENERS) do
-		local b = body:find(o, 1, true)
-		if b and b < #body - 5 then best = { byte = b, opener = o } break end
-	end
-	if not best then return nil end
-	best.col = runes(line:sub(1, best.byte - 1)) + 1
-	best.indent = line:match("^%s*")
-	return best
-end
+local function helpi(line) return marker.find(line, "helpi!") end
 
 -- The line without its last `helpi!` (and the space before it).
-local function unmark(line)
-	local at = line:match(".*()helpi!")
-	if not at then return line end
-	return line:sub(1, at - 1):gsub("%s+$", "") .. line:sub(at + 6)
-end
+local function unmark(line) return marker.strip(line, "helpi!") end
 
 -- The text the answer region holds for `body`. h: {kind, indent, opener}.
 local function render(h, body, final)

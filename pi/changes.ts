@@ -15,6 +15,8 @@ export interface Change {
 	path: string;
 	before: string | null;
 	after: string | null;
+	/** The agent's reasons for the choices in this turn's changes to the file. */
+	whys?: string[];
 }
 
 interface Entry {
@@ -81,13 +83,14 @@ export class Changes {
 		write(join(this.dir, `${keyOf(path)}.json`), JSON.stringify({ path, before: text, after: text } satisfies Change));
 	}
 
-	/** After pi wrote `path`: keep its new text and list it as the last change. */
-	after(path: string): void {
+	/** After pi wrote `path`: keep its new text, and `why` it gave, and list it as the last change. */
+	after(path: string, why?: string): void {
 		if (!this.seen.has(path)) return;
 		const file = join(this.dir, `${keyOf(path)}.json`);
 		if (!existsSync(file)) return;
 		const change = JSON.parse(readFileSync(file, 'utf-8')) as Change;
 		change.after = readText(path);
+		if (why) change.whys = [...(change.whys ?? []), why];
 		write(file, JSON.stringify(change));
 		this.files = this.files.filter((f) => f.path !== path);
 		this.files.push({ path, key: keyOf(path), t: this.now() / 1000 });

@@ -24,6 +24,7 @@ app:use("features.replay")
 app:use("features.marks")
 app:use("features.autosave")
 app:use("features.helpi")
+app:use("features.fill")
 app:use("features.changes")
 app:use("features.panel")
 

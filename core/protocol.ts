@@ -1,9 +1,10 @@
 // The protocol between the agent side and the editor side: every message that
 // crosses the channel, as types. No logic and no I/O, so any agent adapter
 // and any channel implementation can share it. See docs/design.md.
+import type { ProposeKind, Scope } from './guard.ts';
 
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 10;
+export const PROTOCOL = 11;
 
 /** The tools whose calls stream into the editor. */
 export type Tool = 'write' | 'edit';
@@ -20,10 +21,13 @@ export type ChannelEvent =
 	| { op: 'text'; call: string; key: string; from: number; text: string }
 	/** The tool is about to run: the arguments are complete. The plugin acknowledges once it has shown them. */
 	| { op: 'ready'; call: string }
-	/** The call will not run (the turn ended without it): undo the preview. */
-	| { op: 'abort'; call: string }
-	/** The tool ran. `line` is the first changed line; `sum` is the Adler-32 of the file now. */
-	| { op: 'done'; call: string; tool: Tool; path: string; line: number; ok: boolean; sum: number | null }
+	/** The call will not run (the turn ended without it, or the guard blocked it: `reason`): undo the preview. */
+	| { op: 'abort'; call: string; reason?: string }
+	/**
+	 * The tool ran. `line` is the first changed line; `sum` is the Adler-32 of
+	 * the file now; `why` is the agent's reason for a choice that is not obvious.
+	 */
+	| { op: 'done'; call: string; tool: Tool; path: string; line: number; ok: boolean; sum: number | null; why?: string }
 	/** The agent's turn ended; the editor goes to the last edit even when pinned. */
 	| { op: 'stop'; path: string; line: number }
 	/** helpi!: session `session` got the question `id` and asks its model. */
@@ -33,7 +37,13 @@ export type ChannelEvent =
 	/** The answer so far, all of it (not a delta). */
 	| { op: 'help_text'; id: string; text: string }
 	/** The answer is complete (`text`), stopped (Esc), or failed (`error`). */
-	| { op: 'help_done'; id: string; text: string; error?: string; stopped?: boolean };
+	| { op: 'help_done'; id: string; text: string; error?: string; stopped?: boolean }
+	/** The agent asks for a change the guard blocks; the editor answers in answer.json. */
+	| ({ op: 'propose' } & Proposal)
+	/** Proposal `id` needs no answer any more (answered, or the turn stopped). */
+	| { op: 'propose_end'; id: string }
+	/** Something for the developer to read, from the agent side. */
+	| { op: 'notice'; text: string; level: 'info' | 'warn' | 'error' };
 
 /** What the editor tells the agent side about itself. */
 export interface PluginState {
@@ -43,6 +53,8 @@ export interface PluginState {
 	owner?: string;
 	/** How many changes pi may make that the editor has not shown yet; -1 = no limit. */
 	lag: number;
+	/** How far the guard lets a fill reach (core/guard.ts). */
+	scope: Scope;
 }
 
 /** The lag limit before the operator sets one. */
@@ -84,6 +96,8 @@ export interface Session {
 	files: string[];
 	/** pi's session name (`/name`), to tell sessions in one folder apart. */
 	title: string | null;
+	/** The stub this session fills, if any: the guard holds its edits to it. */
+	stub: { path: string; name: string; line: number } | null;
 }
 
 /** ctrl+k q in ttt: stop the turn of session `to`. */
@@ -111,4 +125,31 @@ export interface HelpRequest {
 	window: { first: number; text: string };
 	/** You pressed Esc: stop the answer with this id. */
 	cancel: boolean;
+}
+
+/** fill! or the palette: fill the stub at `line` of `path` (saved first), or end the fill (`release`). */
+export interface FillRequest {
+	id: string;
+	to: string;
+	path: string;
+	line: number;
+	release: boolean;
+}
+
+/** A change the agent asks for while it fills a stub. */
+export interface Proposal {
+	id: string;
+	session: string;
+	kind: ProposeKind;
+	/** What the guard names: a path, an import, a declaration's name, the stub's name. */
+	target: string;
+	what: string;
+	why: string;
+}
+
+/** The developer's answer to proposal `id`, with an optional one-line note. */
+export interface ProposalAnswer {
+	id: string;
+	accept: boolean;
+	note: string;
 }

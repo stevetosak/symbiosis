@@ -19,7 +19,8 @@ echo 'export const x = 1;' > "$OUT/ws/a.ts"
 steps="wait 3500; screenshot $OUT/notice.txt; wait 4500; screenshot $OUT/waits.txt; wait 2000; screenshot $OUT/working.txt; key ctrl+k q; wait 1500; quit"
 (cd "$OUT/ws" && ttt --size 140x24 a.ts --exec "$steps" > /dev/null 2>&1) &
 ttt=$!
-sleep 1.2
+# The fake pi loads pi's package first (about 0.8 s): it starts earlier.
+sleep 0.4
 "$repo/bin/run-node" "$repo/test/e2e/stop.ts" "$OUT/ws" > "$OUT/pi.log" 2>&1 &
 pi=$!
 wait $ttt || true

@@ -17,6 +17,7 @@ local function reset()
 	M.buffer = { path = nil, lines = { "" } }
 	M.cursor = { line = 1, col = 1 }
 	M.groups = 0
+	M.drawer = nil
 end
 reset()
 M.reset = reset
@@ -42,7 +43,7 @@ local ttt = {
 	log = function(level, message) table.insert(M.logs, { level = level, message = message }) end,
 	notify = function(text, level) table.insert(M.notices, { text = text, level = level }) end,
 	set_status_item = function(_, id, text) M.status[id] = text end,
-	remove_status_item = function(_, id) M.status[id] = nil end,
+	remove_status_item = function(id) M.status[id] = nil end,
 	register = function(reg) M.registered = reg end,
 	set_timeout = function(ms, fn)
 		M.timer_seq = M.timer_seq + 1
@@ -58,8 +59,12 @@ local ttt = {
 	clear_interval = function(id) M.timers[id] = nil end,
 	open_file = function(path) table.insert(M.opened, path) M.buffer.path = path end,
 	open_drawer = function(opts) M.drawer = opts end,
+	close_drawer = function() M.drawer = nil end,
 	open_diff = function(...) M.diff = { ... } end,
-	exec_command = function(name) table.insert(M.commands, name) end,
+	exec_command = function(name)
+		table.insert(M.commands, name)
+		if name == "file.save" and M.buffer.path then M.files[M.buffer.path] = table.concat(M.buffer.lines, "\n") end
+	end,
 }
 
 -- Runs the timers that are due once (timeouts), and each interval once.
@@ -120,7 +125,18 @@ local fs = {
 	read = function(path) return M.files[path] end,
 	write = function(path, text) M.files[path] = text return true end,
 	exists = function(path) return M.files[path] ~= nil end,
-	list = function() return {} end,
+	-- The files directly in `dir`.
+	list = function(dir)
+		local out = {}
+		for path in pairs(M.files) do
+			local name = path:sub(#dir + 2)
+			if path:sub(1, #dir + 1) == dir .. "/" and not name:find("/", 1, true) then
+				table.insert(out, { name = name, is_dir = false })
+			end
+		end
+		table.sort(out, function(a, b) return a.name < b.name end)
+		return out
+	end,
 }
 
 local events = {
