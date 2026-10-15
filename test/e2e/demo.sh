@@ -5,7 +5,9 @@
 # At the end the workspace's own tests must pass. Usage: test/e2e/demo.sh [out-dir]
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-OUT=${1:-$(mktemp -d)}
+OUT=${1:-$(mktemp -d /tmp/symbiosis-e2e.XXXXXX)}
+# The real path: ttt's fs sees no symlinks (macOS: /tmp, /var -> /private/...).
+mkdir -p "$OUT" && OUT=$(cd "$OUT" && pwd -P)
 export DEMO_DIR="$OUT/ws" XDG_STATE_HOME="$OUT/state" TTT_CONFIG_DIR="$OUT/cfg" PAUSE_MS=${PAUSE_MS:-300} SUGGEST_MS=${SUGGEST_MS:-60000}
 mkdir -p "$OUT/cfg/plugins/symbiosis"
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"

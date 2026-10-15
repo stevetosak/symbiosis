@@ -5,7 +5,9 @@
 # to $OUT/debug.json. Usage: test/e2e/run.sh [out-dir]
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-OUT=${1:-$(mktemp -d)}
+OUT=${1:-$(mktemp -d /tmp/symbiosis-e2e.XXXXXX)}
+# The real path: ttt's fs sees no symlinks (macOS: /tmp, /var -> /private/...).
+mkdir -p "$OUT" && OUT=$(cd "$OUT" && pwd -P)
 mkdir -p "$OUT/cfg/plugins/symbiosis" "$OUT/ws"
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"
 # SPEED: the preview's typing speed in characters per second (0 = max); default the plugin's.

@@ -1286,9 +1286,9 @@ end
 -- any path. While that panel is on screen, the tree is not moved to the
 -- explorer: the reveal would take the sidebar away from it.
 
--- "~" for the home folder.
+-- "~" for the home folder (Linux, macOS).
 local function short(path)
-	return (path:gsub("^/home/[^/]+", "~"))
+	return (path:gsub("^/home/[^/]+", "~"):gsub("^/Users/[^/]+", "~"))
 end
 
 local function parent(path)

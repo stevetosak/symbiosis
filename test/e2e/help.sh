@@ -6,7 +6,9 @@
 # Only the workspace session may answer. Usage: test/e2e/help.sh [out-dir]
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-OUT=${1:-$(mktemp -d)}
+OUT=${1:-$(mktemp -d /tmp/symbiosis-e2e.XXXXXX)}
+# The real path: ttt's fs sees no symlinks (macOS: /tmp, /var -> /private/...).
+mkdir -p "$OUT" && OUT=$(cd "$OUT" && pwd -P)
 export TTT_CONFIG_DIR="$OUT/cfg"
 mkdir -p "$OUT/cfg/plugins/symbiosis" "$OUT/ws" "$OUT/other"
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"
@@ -43,7 +45,7 @@ steps="$steps; key ctrl+s; wait 300; quit"
 wait $ws $other || true
 echo "== ws"; cat "$OUT/pi-ws.txt"
 echo "== other"; cat "$OUT/pi-other.txt"
-echo "== store.ts"; cat -A "$OUT/ws/store.ts" | sed 's/\^I/→/g; s/\$$//'
+echo "== store.ts"; sed 's/	/→/g' "$OUT/ws/store.ts"
 fail() { echo "FAIL: $*"; echo "out: $OUT"; exit 1; }
 f="$OUT/ws/store.ts"
 grep -q "^import { mkdirSync } from 'node:fs';$" "$f" || fail "the import did not go in"
