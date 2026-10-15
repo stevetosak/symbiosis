@@ -16,6 +16,10 @@ Then the editor shows the result at the changed line.
 | Channel | `core/channel/channel.ts` | The interface the agent side talks to: send events, publish the session, read the editor's state and requests. |
 | File channel | `core/channel/file.ts` | The one implementation: files in the plugin folder, `events.jsonl`, `head.json`, `ttt.json` (with the lag limit), `ack.json` (the changes shown). |
 | helpi! | `core/help.ts` | Pure: the request, the side call's prompt, the answer parser (kind, imports, body). |
+| Syntax | `core/syntax/` | tree-sitter (WASM): a file's outline (functions with signature, body, intent, stub flag; imports; declarations). One file per language in `languages/`. |
+| Stubs | `core/stubs.ts` | Pure: find a stub on a line, find it again after an edit, the fill message. |
+| Imports | `core/imports/` | One policy per language: does a new import resolve to the project, the standard library or the manifest. |
+| Scope guard | `core/guard.ts` | Pure: is an edit or write inside the stub being filled; what blocks it and which `propose` kind lifts that. |
 | Launcher | `launcher/main.ts` (`bin/symbiosis`) | Starts a real pi in its own herdr or tmux pane, runs ttt here as its child, ends when ttt quits. One record per folder in `~/.local/state/symbiosis/`. |
 | Layout | `launcher/layout.ts` | Pure: the herdr and tmux command lines for a pi tab, a split, or a new tab for symbiosis itself. |
 | ttt plugin | `ttt/symbiosis/plugin.lua` | Polls every 40 ms. Shows the preview. Follows the result. Sends helpi! questions and writes the answers. |
@@ -24,7 +28,8 @@ A ttt plugin cannot open a socket and can read only its own folder and the
 workspace. Thus the channel is files in the plugin folder.
 
 `core/` holds what does not depend on pi: the protocol, the rules that turn
-a tool call into events, and the channel. It imports nothing from pi, so
+a tool call into events, the channel, and the stub rules (syntax, imports,
+guard). It imports nothing from pi, so
 another agent harness, or a socket in place of the files, is a new adapter or
 a new `Channel` implementation, not a change to the rules. `pi/` holds only
 what speaks pi: the extension, its `plan` tool, the change log it keeps for
@@ -324,6 +329,69 @@ Weak points: the kind comes from the model; a wrong kind (a note where you
 wanted code) is undone with ctrl+z. The 3 s "did not take the question" timer
 can fire on a slow first token only if pi does not write `help` (it does, at
 once).
+
+## Stubs and the scope guard
+
+You write the signature and a one-line intent above it; the body is only a
+`TODO(pi)` comment and the language's placeholder (`throw new Error()`,
+`TODO()`, `panic()`, `pass` or `...`, `error()`, or nothing). That is a
+stub. The agent fills the body, and the guard keeps it there.
+
+The parser is tree-sitter through its WASM build (`web-tree-sitter`), with
+the official grammars: TypeScript (and JavaScript, TSX), Kotlin, C#, Go,
+Python and Lua. A grammar loads on the first file of its language and stays
+(C# takes about 0.35 s, the others less). `core/syntax/parse.ts` turns a tree
+into an `Outline` and frees the tree at once, so the rules read plain data
+and their tests need no parser. A language is one file in
+`core/syntax/languages/`: which nodes are functions, where the body starts,
+what a placeholder is, what an import is, which declarations are private.
+The intent is the comment block right above the function (no blank line
+between), or a Python docstring.
+
+The guard (`guard()` in `core/guard.ts`) gets both versions of the file, each
+with its outline, and the stub (`StubRef`: path, name, signature, line). It
+finds the stub again by its signature, nearest its old line, as an edit
+above it moves it. Then it masks the stub's body and every import line in
+both versions, cuts the declarations that are new, and compares what is left
+with whitespace collapsed (a re-indent is not a change). What it reports:
+
+| Kind | When |
+|---|---|
+| `outside_edit` | The rest of the file differs, an import is removed, another file is edited. Another stub in the file is outside too. |
+| `signature` | The stub's signature changes, or the function is gone. |
+| `new_decl` | A new declaration outside the body: a function, a class, a member. In `file` scope a new private one is allowed. |
+| `dependency` | A new import that the language's policy does not resolve. |
+| `new_file` | A write to a file that does not exist. |
+
+Local functions and closures inside the body are the body. A `write` is
+checked like an edit: the old text against the new. Each kind is also a
+`propose` kind. An accepted proposal is an allowance: it lets one violation
+of its kind through, once, and only when nothing else blocks the call. The
+reason the model gets names every violation and the kinds to propose.
+
+The import policies (`core/imports/`) read the project once: package.json;
+the Gradle files and the version catalog (group ids); the .csproj files;
+go.mod; requirements and pyproject.toml, and `python3` for its standard
+library; rockspecs and module files for Lua. A relative import, the
+standard library and the file's own package root always resolve.
+
+Weak points: a package whose import name is not its manifest name
+(`kotlinx.coroutines` from `org.jetbrains.kotlinx`, `yaml` from PyYAML) does
+not resolve, so the model must propose it. Two functions with the same
+signature are told apart only by their line. A file that does not parse
+well can lose the stub; the guard then reports `signature`.
+
+The guard is also wider than it looks in places. An allowance covers any one
+violation of its kind, not the target that was proposed; 2b ties it to the
+target through `propose`. `file` scope lets in private code that runs at load
+time (TypeScript `const _x = sideEffect()`); only Go `init` and `var _` and
+C# static constructors are refused. The own package root is the first two
+package segments in Kotlin and the first namespace segment in C#, which is
+wide for `io.github.*` or `Microsoft.*`. A C# `using X = …` alias of a
+namespace that resolves is allowed. Expression-body stubs
+(`fun f() = TODO() // TODO(pi)`, C# `=> throw`) are not found. An import
+inside a `try:` or `if TYPE_CHECKING:` block is not an import line, so a new
+one reads as `outside_edit`.
 
 ## The symbiosis command: ttt and a real pi
 
