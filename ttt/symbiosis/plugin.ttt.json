@@ -2,7 +2,7 @@
   "name": "symbiosis",
   "displayName": "symbiosis",
   "description": "Integrate the PI agent into ttt, for a seamless IDE first workflow. Call the agent inline with a comment that ends with: helpi!, either to ask a question or to write code",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "author": "stevetosak",
   "entry": "plugin.lua",
   "api": 1,

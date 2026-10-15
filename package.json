@@ -16,6 +16,8 @@
 	"type": "module",
 	"scripts": {
 		"test": "bin/run-node --test 'test/**/*.test.ts'",
+		"build": "bin/run-node ttt/build.ts",
+		"test:lua": "luajit test/lua/run.lua .",
 		"e2e": "test/e2e/run.sh",
 		"demo": "bin/run-node demo/run.ts",
 		"install:local": "bin/run-node install.ts"

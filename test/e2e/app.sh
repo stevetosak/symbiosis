@@ -13,7 +13,11 @@
 # Usage: test/e2e/app.sh [out-dir]
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-OUT=${1:-$(mktemp -d)}
+OUT=${1:-$(mktemp -d /tmp/symbiosis-e2e.XXXXXX)}
+# The real path: ttt's fs sees no symlinks (macOS: /tmp, /var -> /private/...).
+mkdir -p "$OUT" && OUT=$(cd "$OUT" && pwd -P)
+# macOS has no timeout(1): the same with perl.
+command -v timeout > /dev/null || timeout() { perl -e 'alarm shift; exec @ARGV' "$@"; }
 export TTT_CONFIG_DIR="$OUT/cfg" XDG_STATE_HOME="$OUT/state" XDG_CONFIG_HOME="$OUT/xdg" CALLS="$OUT/calls.log"
 mkdir -p "$OUT/cfg/plugins/symbiosis" "$OUT/ws" "$OUT/xdg/symbiosis" "$OUT/bin"
 echo '{"piArgs": ["--model", "fake"]}' > "$OUT/xdg/symbiosis/config.json"
@@ -111,7 +115,7 @@ SYM_FAIL="symbiosis: boom" action
 has "$CALLS" "herdr notification show symbiosis --body symbiosis: boom" "a failure shows as a herdr notification"
 [ "$c" = 1 ] && ok "and the action fails" || bad "the action exit is $c"
 rm "$OUT/sbin/symbiosis"
-PATH_BEFORE=$PATH; PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v "/.local/bin" | paste -sd:)
+PATH_BEFORE=$PATH; PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v "/.local/bin" | paste -sd: -)
 action
 PATH=$PATH_BEFORE
 has "$CALLS" "The symbiosis command is not installed" "no command: it says so"

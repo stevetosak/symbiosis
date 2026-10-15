@@ -168,10 +168,21 @@ answers. No model, no tokens, the same every time. `npm run demo -- --real`
 gives the same task (`demo/PROMPT.md`) to a real pi, which costs tokens. See
 `demo/README.md`.
 
+## The ttt plugin
+
+The plugin's sources are in `ttt/src`: a small host (`ttt/src/core`) and one
+file per feature (`ttt/src/features`: the replay, helpi!, the sessions, the
+plan, ...). ttt runs one Lua file per plugin, so `npm run build` bundles them
+into `ttt/symbiosis/plugin.lua`, which is committed. Edit `ttt/src`, never
+the bundle; `npm test` fails when the bundle is not up to date. How to add a
+feature: `ttt/README.md`.
+
 ## Test
 
 ```bash
-npm test          # unit tests
+npm test          # unit tests; also the plugin's Lua tests (test/lua) when luajit is installed
+npm run build     # bundles ttt/src into ttt/symbiosis/plugin.lua
+npm run test:lua  # only the Lua tests: luajit test/lua/run.lua .
 npm run e2e       # a fake pi against a headless ttt; prints the output folder
 PLAN_AT=26 PLAN_CLOSE_AT=34 HOLD_MS=4000 npm run e2e   # also opens the plan drawer
 DIFF_AT=30 HOLD_MS=4000 npm run e2e                     # also shows the diff (ctrl+k w)
