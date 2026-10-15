@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { absolutePath, adler32, commonPrefix, firstLine, pluginDir, Tracker } from '../pi/stream.ts';
+import { pluginDir } from '../core/channel/file.ts';
+import { absolutePath, adler32, commonPrefix, firstLine, Tracker } from '../core/stream.ts';
 
 test('a write streams its content as growing text, sending only the change', () => {
 	const t = new Tracker('c1', 'write');

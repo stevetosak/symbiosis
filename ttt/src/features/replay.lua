@@ -15,6 +15,7 @@
 -- anyway. See docs/design.md.
 --
 -- Hooks it emits: "follow" (path) when the editor followed pi into a file.
+-- replay.typing() is the change typed now, for the gutter (features/marks.lua).
 -- Other features may hold the replay (replay.hold) or lock a file against
 -- your typing (replay.lock).
 local ttt = require("ttt")
@@ -122,6 +123,19 @@ return {
 		-- all that pi sent: then `finish` undoes the group and opens the file again,
 		-- which reloads it from disk.
 
+		-- buffer.set_region, and: the other regions of the change below this one
+		-- move with its line count; run.at is the line the cursor ends on.
+		local function set_region(r, text)
+			local d = select(2, text:gsub("\n", "")) - select(2, r.text:gsub("\n", ""))
+			if d ~= 0 and active and active.regions then
+				for _, o in ipairs(active.regions) do
+					if o ~= r and o.line > r.line then o.line = o.line + d end
+				end
+			end
+			buffer.set_region(r, text)
+			if run then run.at = (util.after(r.line, r.col, text)) end
+		end
+
 		local function ack(id)
 			table.insert(acks, id)
 			while #acks > 200 do table.remove(acks, 1) end
@@ -156,7 +170,7 @@ return {
 		end
 
 		local function start(ev)
-			local c = { id = ev.call, tool = ev.tool, path = ev.path, edits = {}, values = {} }
+			local c = { id = ev.call, tool = ev.tool, path = ev.path, edits = {}, values = {}, regions = {} }
 			calls[ev.call] = c
 			if pinned() then c.skip = "pinned" return end
 			if run and run.path ~= ev.path then finish() end
@@ -184,7 +198,7 @@ return {
 				local before = ev.before or (ev.sum == nil and "" or nil)
 				if before and before ~= text then
 					buffer.editing = true
-					buffer.set_region(buffer.whole(), before)
+					set_region(buffer.whole(), before)
 					buffer.editing = false
 					run.changed = true
 				end
@@ -195,7 +209,8 @@ return {
 			if ev.tool == "write" then
 				-- A full write clears the buffer and types the new text in.
 				c.region = buffer.whole()
-				if c.region.text ~= "" then buffer.set_region(c.region, "") run.changed = true end
+				if c.region.text ~= "" then set_region(c.region, "") run.changed = true end
+				table.insert(c.regions, c.region)
 			end
 		end
 
@@ -212,10 +227,14 @@ return {
 				local el, ec = util.after(line, col, value)
 				editor.set_selection(line, col, el, ec)
 				buffer.reveal(line)
-				run.line = line
+				run.line, run.at = line, line
 			elseif e.region then
 				editor.clear_selection()
-				buffer.set_region(e.region, value)
+				if not e.marked then
+					e.marked = true
+					table.insert(c.regions, e.region)
+				end
+				set_region(e.region, value)
 				run.changed = true
 			end
 		end
@@ -232,7 +251,7 @@ return {
 			local value = grow(c.values[ev.key], ev)
 			c.values[ev.key] = value
 			if ev.key == "content" then
-				buffer.set_region(c.region, value)
+				set_region(c.region, value)
 				run.changed = true
 				run.line = 1
 			else
@@ -463,6 +482,11 @@ return {
 			finish = finish,
 			busy = busy,
 			running = function() return run ~= nil end,
+			-- The change typed now: {path, regions, at}, or nil.
+			typing = function()
+				if not (run and active) then return nil end
+				return { path = active.path, regions = active.regions, at = run.at }
+			end,
 			-- The file pi changes now, for the "pi files" panel.
 			now_path = function() return run and run.path or (here and here.path) end,
 			-- Nothing of the replay is under way for `path`: no call, no queue, no hold.

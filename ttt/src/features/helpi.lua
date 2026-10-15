@@ -1,7 +1,7 @@
 -- helpi!: a comment that ends in `helpi!` asks the session the editor
 -- follows, at once: 600 ms after your last change, or on Enter at the end of
 -- its line. help.json carries the question and the code around it, as in
--- the buffer. pi asks its model in a side call (pi/help.ts) and sends events
+-- the buffer. pi asks its model in a side call (core/help.ts) and sends events
 -- back:
 --   help        pi has the question; it is thinking
 --   help_start  the kind: note, code or ask; for code, the imports it needs

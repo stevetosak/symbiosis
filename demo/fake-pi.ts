@@ -6,7 +6,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
 import symbiosis from '../pi/index.ts';
-import { pluginDir } from '../pi/stream.ts';
+import { pluginDir } from '../core/channel/file.ts';
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 type Tool = { name: string; execute: (id: string, params: unknown) => Promise<unknown> };

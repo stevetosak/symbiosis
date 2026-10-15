@@ -9,6 +9,7 @@
 --   plan      pi's plan in the status bar, ctrl+k v
 --   tree      the "pi files" sidebar
 --   replay    pi's writes and edits typed in the buffer, at your speed
+--   marks     the gutter: ▌ on the change typed now, π on its line
 --   autosave  saves your file a while after you type
 --   helpi     a comment that ends in `helpi!` asks pi
 --   changes   ctrl+k w: what pi changed in its last turn
@@ -20,6 +21,7 @@ app:use("features.sessions")
 app:use("features.plan")
 app:use("features.tree")
 app:use("features.replay")
+app:use("features.marks")
 app:use("features.autosave")
 app:use("features.helpi")
 app:use("features.changes")
