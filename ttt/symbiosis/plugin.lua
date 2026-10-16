@@ -14,9 +14,9 @@
 --    1467  ttt/src/features/plan.lua
 --    1570  ttt/src/features/replay.lua
 --    2077  ttt/src/features/run.lua
---    2853  ttt/src/features/sessions.lua
---    3099  ttt/src/features/tree.lua
---    3236  ttt/src/main.lua
+--    2887  ttt/src/features/sessions.lua
+--    3133  ttt/src/features/tree.lua
+--    3270  ttt/src/main.lua
 local modules, loaded, loading = {}, {}, {}
 local host_require = require
 -- The bundle's require: a module in the bundle, else one of ttt's.
@@ -2209,6 +2209,13 @@ function M.guess_folder(file, exists)
 end
 
 -- tail.txt's text → its lines.
+-- The runs list's width in a Run panel w wide: the one dragged (wanted),
+-- else 28% of it; never so wide or narrow that a pane disappears.
+function M.split_width(w, wanted)
+	local width = wanted or math.min(28, math.max(16, math.floor(w * 0.28)))
+	return math.max(8, math.min(math.floor(width), w - 16))
+end
+
 -- The screen cell of a bottom panel's top left, from ttt.debug's state: the
 -- BottomPanel widget, below its tab row and the divider. Nil when not found.
 function M.panel_origin(state)
@@ -2558,13 +2565,15 @@ function M.setup(app)
 		panel:tree({
 			items = M.picker_items(picker.items, now and now.id),
 			key_commands = { s = "save", e = "edit" },
-			on_select = function(node)
-				local c = by_id(node.id)
-				if not c then return end
-				close_picker()
-				start(c)
-			end,
+			-- on_select comes with every move of the selection (the arrows);
+			-- Enter and a click are "activate".
 			on_command = function(command, node)
+				if command == "activate" then
+					local c = by_id(node and node.id)
+					if not c then return end
+					close_picker()
+					return start(c)
+				end
 				if command == "edit" then
 					close_picker()
 					return edit_run_json()
@@ -2577,7 +2586,7 @@ function M.setup(app)
 			end,
 		})
 		for _, p in ipairs(problems) do panel:label({ text = "⚠ " .. p, style = "warning" }) end
-		panel:label({ text = "Enter runs the first · Tab to the list · s saves it to run.json · e edits run.json · Esc", style = "muted", margin_top = 1 })
+		panel:label({ text = "Enter runs the first · ↓ to the list: Enter or a click runs one, s saves it to run.json, e edits run.json · Esc", style = "muted", margin_top = 1 })
 	end
 
 	local function show_picker()
@@ -2596,6 +2605,14 @@ function M.setup(app)
 	-- screen cells, and the panel its own size only. From ttt.debug, again
 	-- when the panel's size changes.
 	local origin = nil
+	-- The runs list's width: dragged at the │ between the panes, kept in run-layout.json.
+	local layout_file = app.dir .. "/run-layout.json"
+	local split = nil
+	local dragging = false
+	do
+		local ok, d = pcall(json.decode, fs.exists(layout_file) and fs.read(layout_file) or "")
+		if ok and type(d) == "table" and tonumber(d.left) then split = tonumber(d.left) end
+	end
 
 	local function render_panel(panel)
 		panel_ref = panel
@@ -2611,7 +2628,7 @@ function M.setup(app)
 			M.put(panel, 1, 2, "From .symbiosis/run.json, .vscode, package.json, Cargo.toml, go.mod, *.csproj, Makefile, ...", "muted")
 			return
 		end
-		local left = math.min(28, math.max(16, math.floor(w * 0.28)))
+		local left = M.split_width(w, split)
 		layout.left = left
 		layout.rows = {}
 		-- The runs, newest at the top.
@@ -2655,7 +2672,7 @@ function M.setup(app)
 			M.put(panel, x, 1 + i - first, util.cut(line, ow), st)
 		end
 		local hint = M.live(run) and "s stop · r restart" or "r run again · x remove"
-		hint = hint .. " · ↑↓ runs · PgUp/PgDn scroll · o full log · click a file:line · Esc editor"
+		hint = hint .. " · ↑↓ runs · PgUp/PgDn scroll · o full log · click a file:line · drag │ to resize · Esc editor"
 		if scroll > 0 then hint = "↓ " .. scroll .. " more · End follows · " .. hint end
 		M.put(panel, x, h - 1, util.cut(hint, ow), "muted")
 	end
@@ -2718,13 +2735,30 @@ function M.setup(app)
 		elseif ev.type == "mouse" then
 			if ev.button == "wheel_up" then scroll_by(3) return true end
 			if ev.button == "wheel_down" then scroll_by(-3) return true end
-			if ev.button ~= "left" then return false end
-			-- A click focuses the panel: ttt does that only for a panel that
-			-- tells it it took the click, which a plugin's cannot.
-			ttt.exec_command("panel.focus")
+			if ev.button ~= "left" then
+				if dragging then
+					dragging = false
+					pcall(fs.write, layout_file, json.encode({ left = split }))
+					return true
+				end
+				return false
+			end
 			if not origin then origin = { M.panel_origin(debug_state()) } end
 			if not origin[1] then return true end
 			local x, y = ev.x - origin[1], ev.y - origin[2]
+			-- The button held down: the │ goes where the mouse is.
+			if dragging then
+				split = M.split_width(layout.w, x)
+				redraw()
+				return true
+			end
+			-- A click focuses the panel: ttt does that only for a panel that
+			-- tells it it took the click, which a plugin's cannot.
+			ttt.exec_command("panel.focus")
+			if #runs > 0 and math.abs(x - layout.left) <= 1 then
+				dragging = true
+				return true
+			end
 			if x < layout.left then
 				local id = layout.rows[y]
 				if id then selected, scroll = id, 0 read_tail() redraw() end

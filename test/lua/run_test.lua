@@ -101,4 +101,11 @@ return {
 		t.eq(run.panel_origin({ widget_tree = { type = "Root" } }), nil)
 		t.eq(run.panel_origin(nil), nil)
 	end },
+	{ "run: the runs list's width, dragged or not", function()
+		t.eq(run.split_width(100), 28, "28% up to 28")
+		t.eq(run.split_width(50), 16, "at least 16")
+		t.eq(run.split_width(100, 60), 60, "where it was dragged")
+		t.eq(run.split_width(100, 95), 84, "the output keeps 16")
+		t.eq(run.split_width(100, 2), 8, "the list keeps 8")
+	end },
 }

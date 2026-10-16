@@ -166,13 +166,14 @@ Run a project from ttt, as in Rider or VS Code (debugging comes later).
 - `F5` runs the chosen configuration; with none chosen yet, it opens the
   picker. `shift+F5` stops it. `ctrl+k F5` (or a click on the status item)
   opens the picker: type to filter (Enter runs the first match), Tab to the
-  list, Enter runs one and chooses it for `F5`, `s` saves a detected one to
+  list (the arrows only move), Enter or a click runs one and chooses it for `F5`, `s` saves a detected one to
   `.symbiosis/run.json`, `e` opens that file.
 - Status bar: `▶ api` (chosen), `● api 0:42` (runs), `✓ api`, `✗ api 1`
   (its exit code), `+2` (others that run).
 - The Run tab of the bottom panel: the runs, newest at the top, and the
   output of one. A click in it, or `ctrl+k shift+F5`, gives it the keys (Esc
-  gives them back to the editor). Up/Down or a click choose a run, PgUp/PgDn/Home/End scroll (End
+  gives them back to the editor). Drag the `│` between its panes to resize
+  them; the panel's height drags at its top edge, as in ttt. Up/Down or a click choose a run, PgUp/PgDn/Home/End scroll (End
   follows the output again), `s` stops, `r` runs it again, `x` removes an
   ended run, `o` opens its whole log, Enter or a click opens a `file:line` from
   the output.

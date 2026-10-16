@@ -40,6 +40,9 @@ steps="$steps; key shift+f5; wait 1500; $s/stopped.txt"
 steps="$steps; key ctrl+k f5; wait 900; type fails; wait 300; key enter; wait 1500; $s/failed.txt"
 # ctrl+k shift+F5 focuses the Run panel: Down goes to the older run, Esc back to the editor.
 steps="$steps; key ctrl+k shift+f5; wait 300; key down; wait 400; $s/focused.txt; key escape; wait 300"
+# The picker's list: the arrows only move (Enter or a click runs). The │ between the Run panel's panes drags.
+steps="$steps; key ctrl+k f5; wait 900; key tab; wait 200; key down; wait 200; key down; wait 300; $s/moved.txt; key escape; wait 100; key escape; wait 300"
+steps="$steps; drag 29 20 50 20; wait 400; $s/dragged.txt"
 # F5 again: the chosen one, now "fails"; then ticker, and ctrl+q while it runs.
 steps="$steps; key ctrl+k f5; wait 900; type ticker; wait 300; key enter; wait 1200; key ctrl+q; wait 400; $s/quit.txt; type k; wait 1500; debug $OUT/debug.json; quit"
 cd "$ws"
@@ -63,6 +66,8 @@ grep -q 'boom at app.js:2' "$OUT/failed.txt" || fail "fails: no stderr"
 grep -q '✗ fails 3' "$OUT/failed.txt" || fail "the status bar does not say fails failed"
 grep -q '›■ ticker' "$OUT/focused.txt" || fail "Down in the focused Run panel did not choose ticker"
 grep -q 'ticker · stopped' "$OUT/focused.txt" || fail "the Run panel does not show ticker's output"
+grep -q '▼ Saved' "$OUT/moved.txt" || fail "the arrows in the picker's list ran a configuration"
+grep -q '"left":49' "$OUT/cfg/plugins/symbiosis/run-layout.json" || fail "dragging the │ did not resize the runs list"
 grep -q '"ticker" runs: s stops them and quits' "$OUT/quit.txt" || fail "ctrl+q did not ask"
 grep -q '1 program from the last time still runs' "$OUT/back.txt" || fail "no notice of the kept run"
 grep -q '● ticker' "$OUT/back.txt" || fail "the Run panel does not show the kept run"
