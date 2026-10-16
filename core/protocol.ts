@@ -1,7 +1,6 @@
 // The protocol between the agent side and the editor side: every message that
 // crosses the channel, as types. No logic and no I/O, so any agent adapter
 // and any channel implementation can share it. See docs/design.md.
-import type { ProposeKind, Scope } from './guard.ts';
 
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
 export const PROTOCOL = 11;
@@ -127,14 +126,16 @@ export interface HelpRequest {
 	cancel: boolean;
 }
 
-/** fill! or the palette: fill the stub at `line` of `path` (saved first), or end the fill (`release`). */
-export interface FillRequest {
-	id: string;
-	to: string;
-	path: string;
-	line: number;
-	release: boolean;
-}
+/** The stub guard's reach. `stub`: only the body. `file`: also new private declarations in its file. `off`: no guard. */
+export type Scope = 'stub' | 'file' | 'off';
+export const SCOPES: readonly Scope[] = ['stub', 'file', 'off'];
+
+/** What the agent may `propose`; each is also the kind of a violation. */
+export type ProposeKind = 'new_file' | 'new_decl' | 'signature' | 'dependency' | 'outside_edit';
+export const PROPOSE_KINDS: readonly ProposeKind[] = ['new_file', 'new_decl', 'signature', 'dependency', 'outside_edit'];
+
+/** fill! or the palette: fill the stub at `line` of `path` (saved first), or end the fill. */
+export type FillRequest = { id: string; to: string } & ({ release: false; path: string; line: number } | { release: true });
 
 /** A change the agent asks for while it fills a stub. */
 export interface Proposal {

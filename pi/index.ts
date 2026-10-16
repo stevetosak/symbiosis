@@ -22,7 +22,7 @@ import { type ChannelEvent, DEFAULT_LAG, type HelpRequest, type PluginState, PRO
 import { paneOf } from '../core/session.ts';
 import { absolutePath, adler32, BEFORE_MAX, firstLine, Tracker } from '../core/stream.ts';
 import { Changes } from './changes.ts';
-import { Filling, PROPOSE_DESCRIPTION, PROPOSE_PARAMETERS } from './fill.ts';
+import { Filling, PROPOSE_DESCRIPTION, PROPOSE_PARAMETERS, type ProposeParams } from './fill.ts';
 import { cleanSteps, PLAN_DESCRIPTION, prepareArguments, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
 import { syncTttPlugin } from './setup.ts';
 import { tools, whyOf } from './tools.ts';
@@ -108,9 +108,10 @@ export default function symbiosis(pi: ExtensionAPI) {
 		label: 'Propose',
 		description: PROPOSE_DESCRIPTION,
 		promptSnippet: 'Ask the developer for a change the symbiosis guard blocked while you fill a stub',
-		parameters: PROPOSE_PARAMETERS as any,
+		// A JSON schema: pi takes it as it takes TypeBox's (which builds the same).
+		parameters: PROPOSE_PARAMETERS as never,
 		executionMode: 'sequential',
-		async execute(call: string, params: any, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) {
+		async execute(call: string, params: ProposeParams, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) {
 			const text = await filling.propose(call, params, ctx?.cwd ?? process.cwd(), signal);
 			return { content: [{ type: 'text' as const, text }], details: undefined };
 		},
@@ -298,7 +299,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		poll = setInterval(() => {
 			checkHelp();
 			checkStop();
-			void filling.poll(ctx.cwd);
+			filling.poll(ctx.cwd).catch(() => undefined);
 			if (++ticks % 10 === 0) beat();
 		}, 100);
 		poll.unref?.();
@@ -427,9 +428,12 @@ export default function symbiosis(pi: ExtensionAPI) {
 	// replays the changes at the operator's speed, behind pi: pi waits only
 	// when more changes than the operator's limit are not shown yet.
 	pi.on('tool_call', async (event, ctx) => {
-		if (!isTool(event.toolName)) return undefined;
+		if (!isTool(event.toolName)) {
+			filling.keep(event.toolCallId);
+			return undefined;
+		}
 		// The guard first: the editor must not wait to show a call that will not run.
-		const blocked = await filling.check(event.toolName, event.input, ctx.cwd);
+		const blocked = await filling.check(event.toolCallId, event.toolName, event.input, ctx.cwd);
 		if (blocked) {
 			const entry = live.get(event.toolCallId);
 			live.delete(event.toolCallId);
@@ -461,7 +465,12 @@ export default function symbiosis(pi: ExtensionAPI) {
 	});
 
 	pi.on('tool_result', (event, ctx) => {
-		if (!isTool(event.toolName) || !channel.enabled()) return undefined;
+		if (!isTool(event.toolName)) {
+			const undone = filling.restore(event.toolCallId, ctx.cwd);
+			return undone ? { content: [...event.content, { type: 'text' as const, text: undone }], structuredContent: event.structuredContent } : undefined;
+		}
+		filling.ran(event.toolCallId, !event.isError);
+		if (!channel.enabled()) return undefined;
 		const path = (event.input as { path?: unknown }).path;
 		if (typeof path !== 'string' || path === '') return undefined;
 		const why = whyOf(event.input);

@@ -7,10 +7,17 @@ local M = {}
 
 M.OPENERS = { "<!--", "/*", "//", "--", "#", ";" }
 
+-- True when the word at byte `at` is a word of its own: "refill!" is not
+-- "fill!". (ttt's Lua has no %f frontier pattern: measured in 1.7.1.)
+local function own_word(text, at)
+	return not text:sub(at - 1, at - 1):match("[%w_]")
+end
+
 -- The comment on `line` when it ends in `word`: {byte, col, opener, indent}.
 function M.find(line, word)
 	local body = line:gsub("%s*%*/%s*$", ""):gsub("%s*%-%->%s*$", "")
-	if not body:match(util.escape(word) .. "%s*$") then return nil end
+	local at = body:match("()" .. util.escape(word) .. "%s*$")
+	if not at or not own_word(body, at) then return nil end
 	for _, o in ipairs(M.OPENERS) do
 		local b = body:find(o, 1, true)
 		if b and b <= #body - #word then
@@ -23,7 +30,7 @@ end
 -- `line` without its last `word` (and the space before it).
 function M.strip(line, word)
 	local at = line:match(".*()" .. util.escape(word))
-	if not at then return line end
+	if not at or not own_word(line, at) then return line end
 	return line:sub(1, at - 1):gsub("%s+$", "") .. line:sub(at + #word)
 end
 

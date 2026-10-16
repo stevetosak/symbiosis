@@ -12,13 +12,9 @@ import type { Resolver } from './imports/policy.ts';
 import { locate, normalize, type StubRef, stubRef } from './stubs.ts';
 import { contains, type Decl, type Fn, type Outline, type Range } from './syntax/outline.ts';
 
-/** `stub`: only the body. `file`: also new private declarations in its file. `off`: no guard. */
-export type Scope = 'stub' | 'file' | 'off';
-export const SCOPES: readonly Scope[] = ['stub', 'file', 'off'];
+import type { ProposeKind, Scope } from './protocol.ts';
 
-/** What the agent may `propose`; each is also the kind of a violation. */
-export type ProposeKind = 'new_file' | 'new_decl' | 'signature' | 'dependency' | 'outside_edit';
-export const PROPOSE_KINDS: readonly ProposeKind[] = ['new_file', 'new_decl', 'signature', 'dependency', 'outside_edit'];
+export { PROPOSE_KINDS, type ProposeKind, SCOPES, type Scope } from './protocol.ts';
 
 /**
  * An accepted proposal not used yet: it lets one violation of its kind and
@@ -251,14 +247,17 @@ function near(before: string, after: string): string {
 	return JSON.stringify(after.slice(at, at + 60).replaceAll(STUB_MASK, '<body>'));
 }
 
-/** Spends the allowances on the violations they cover; what is left blocks the call. */
+/**
+ * Spends the allowances on the violations they cover; what is left blocks the
+ * call. One allowance covers every violation of its kind and target in the
+ * call: one change can show as several (an import line and a constant).
+ */
 function settle(input: GuardInput, violations: Violation[], found: StubRef): GuardResult {
-	const left = [...input.allowances];
 	const used: Allowance[] = [];
 	const blocking = violations.filter((v) => {
-		const at = left.findIndex((a) => a.kind === v.kind && sameTarget(a.target, v.target));
-		if (at < 0) return true;
-		used.push(...left.splice(at, 1));
+		const allowance = input.allowances.find((a) => a.kind === v.kind && sameTarget(a.target, v.target));
+		if (!allowance) return true;
+		if (!used.includes(allowance)) used.push(allowance);
 		return false;
 	});
 	if (blocking.length === 0) return { ok: true, violations: [], used, stub: found, reason: '' };

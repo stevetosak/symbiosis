@@ -228,8 +228,27 @@ export class FakePi {
 		return text;
 	}
 
+	/**
+	 * The model runs a tool the extension does not register (bash): `run` is
+	 * its work. Resolves with the text the model gets back.
+	 */
+	async other(name: string, run: () => void): Promise<string> {
+		const id = `call-${++this.calls}`;
+		const blocked = await this.fire('tool_call', { toolCallId: id, toolName: name, input: {} });
+		if (blocked) return blocked.reason ?? '';
+		run();
+		let content: { type: string; text?: string }[] = [{ type: 'text', text: 'ran' }];
+		for (const h of this.handlers.get('tool_result') ?? []) {
+			const changed = (await h({ toolCallId: id, toolName: name, input: {}, content, isError: false }, this.ctx)) as { content?: typeof content } | undefined;
+			if (changed?.content) content = changed.content;
+		}
+		const text = content.map((c) => c.text ?? '').join('\n');
+		this.log(`${name}: ${text}`);
+		return text;
+	}
+
 	/** Streams one tool call, then runs it, like pi does. */
-	private async call(name: 'write' | 'edit', args: { path: string }): Promise<CallResult> {
+	private async call(name: 'write' | 'edit', args: { path: string } & Record<string, unknown>): Promise<CallResult> {
 		const id = `call-${++this.calls}`;
 		const json = JSON.stringify(args);
 		for (let i = this.chunk; i < json.length + this.chunk; i += this.chunk) {

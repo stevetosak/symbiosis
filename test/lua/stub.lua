@@ -17,6 +17,7 @@ local function reset()
 	M.buffer = { path = nil, lines = { "" } }
 	M.cursor = { line = 1, col = 1 }
 	M.groups = 0
+	M.save = nil        -- file.save: fn(text) instead of a save at once
 	M.drawer = nil
 end
 reset()
@@ -63,7 +64,10 @@ local ttt = {
 	open_diff = function(...) M.diff = { ... } end,
 	exec_command = function(name)
 		table.insert(M.commands, name)
-		if name == "file.save" and M.buffer.path then M.files[M.buffer.path] = table.concat(M.buffer.lines, "\n") end
+		if name == "file.save" and M.buffer.path then
+			local text = table.concat(M.buffer.lines, "\n")
+			if M.save then M.save(text) else M.files[M.buffer.path] = text end
+		end
 	end,
 }
 

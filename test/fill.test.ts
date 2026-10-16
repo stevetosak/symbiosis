@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 
 const base = mkdtempSync(join(tmpdir(), 'symbiosis-fill-'));
@@ -100,12 +100,24 @@ test('a proposal the developer accepts lets that one change through, once', asyn
 	assert.match(await answered, /^Accepted: dependency `lodash`, once\. Note from the developer: "fine"\./);
 	assert.ok(events().some((e) => e.op === 'propose_end' && e.id === proposal.id));
 
+	const before = readFileSync(file, 'utf-8');
 	assert.deepEqual(await addImport('lodash'), {});
-	// Spent: the next new dependency is blocked again.
-	assert.ok((await addImport('ramda')).blocked);
+	// Spent: the same change, once more, is blocked again.
+	writeFileSync(file, before);
+	assert.match((await addImport('lodash')).blocked ?? '', /kind "dependency", target "lodash"/);
 	await pi.endTurn();
 	// Not filled: the fill stays for the developer's next answer.
 	assert.equal(record().stub?.name, 'put');
+});
+
+test('another tool (bash) that changes the stub\'s file is undone; other work stands', async () => {
+	assert.equal(record().stub?.name, 'put', 'the fill from the test before');
+	const before = readFileSync(file, 'utf-8');
+	const undone = await pi.other('bash', () => writeFileSync(file, before.replace('const LIMIT = 10;', 'const LIMIT = 99;')));
+	assert.match(undone, /^ran\nsymbiosis undid this call's change to sample\.ts: you are filling the stub `put` there\./);
+	assert.equal(readFileSync(file, 'utf-8'), before);
+	const other = join(dirname(file), 'notes.txt');
+	assert.equal(await pi.other('bash', () => writeFileSync(other, 'x')), 'ran', 'another file is not watched');
 });
 
 test('a rejected proposal says so, with the note; release ends the fill', async () => {

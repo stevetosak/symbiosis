@@ -2,22 +2,22 @@
 -- edit this file; edit ttt/src and run `npm run build`.
 -- Lines of this file, by source (for errors in ttt's log):
 --      40  ttt/src/core/app.lua
---     361  ttt/src/core/buffer.lua
---     409  ttt/src/core/channel.lua
---     520  ttt/src/core/marker.lua
---     552  ttt/src/core/settings.lua
---     675  ttt/src/core/util.lua
---     823  ttt/src/features/autosave.lua
---     871  ttt/src/features/changes.lua
---     921  ttt/src/features/fill.lua
---    1138  ttt/src/features/helpi.lua
---    1543  ttt/src/features/marks.lua
---    1618  ttt/src/features/panel.lua
---    1686  ttt/src/features/plan.lua
---    1789  ttt/src/features/replay.lua
---    2299  ttt/src/features/sessions.lua
---    2546  ttt/src/features/tree.lua
---    2683  ttt/src/main.lua
+--     376  ttt/src/core/buffer.lua
+--     424  ttt/src/core/channel.lua
+--     535  ttt/src/core/marker.lua
+--     574  ttt/src/core/settings.lua
+--     697  ttt/src/core/util.lua
+--     845  ttt/src/features/autosave.lua
+--     893  ttt/src/features/changes.lua
+--     943  ttt/src/features/fill.lua
+--    1168  ttt/src/features/helpi.lua
+--    1573  ttt/src/features/marks.lua
+--    1648  ttt/src/features/panel.lua
+--    1716  ttt/src/features/plan.lua
+--    1819  ttt/src/features/replay.lua
+--    2329  ttt/src/features/sessions.lua
+--    2576  ttt/src/features/tree.lua
+--    2713  ttt/src/main.lua
 local modules, loaded, loading = {}, {}, {}
 local host_require = require
 -- The bundle's require: a module in the bundle, else one of ttt's.
@@ -288,6 +288,21 @@ function App:section(def)
 	sorted(self.sections)
 end
 
+-- The drawer: one at a time in ttt. `id` names who opened it last, so a
+-- feature closes only its own. ttt does not tell a plugin that Esc closed
+-- it: after that, close_drawer(id) closes nothing, or whatever ttt shows
+-- (a no-op when no drawer is open).
+function App:open_drawer(id, opts)
+	self.drawer = id
+	ttt.open_drawer(opts)
+end
+
+function App:close_drawer(id)
+	if self.drawer ~= id then return end
+	self.drawer = nil
+	ttt.close_drawer()
+end
+
 function App:note(text, order)
 	table.insert(self.notes, entry(self, { text = text, order = order or 50 }))
 	sorted(self.notes)
@@ -526,10 +541,17 @@ local M = {}
 
 M.OPENERS = { "<!--", "/*", "//", "--", "#", ";" }
 
+-- True when the word at byte `at` is a word of its own: "refill!" is not
+-- "fill!". (ttt's Lua has no %f frontier pattern: measured in 1.7.1.)
+local function own_word(text, at)
+	return not text:sub(at - 1, at - 1):match("[%w_]")
+end
+
 -- The comment on `line` when it ends in `word`: {byte, col, opener, indent}.
 function M.find(line, word)
 	local body = line:gsub("%s*%*/%s*$", ""):gsub("%s*%-%->%s*$", "")
-	if not body:match(util.escape(word) .. "%s*$") then return nil end
+	local at = body:match("()" .. util.escape(word) .. "%s*$")
+	if not at or not own_word(body, at) then return nil end
 	for _, o in ipairs(M.OPENERS) do
 		local b = body:find(o, 1, true)
 		if b and b <= #body - #word then
@@ -542,7 +564,7 @@ end
 -- `line` without its last `word` (and the space before it).
 function M.strip(line, word)
 	local at = line:match(".*()" .. util.escape(word))
-	if not at then return line end
+	if not at or not own_word(line, at) then return line end
 	return line:sub(1, at - 1):gsub("%s+$", "") .. line:sub(at + #word)
 end
 
@@ -997,14 +1019,20 @@ local function setup(app)
 		if not path or path == "" then return ttt.notify("symbiosis: save the file first", "warning") end
 		if not sessions.owner() then return owner() end
 		ttt.exec_command("file.save")
-		saving = { path = path, line = line, ticks = 0 }
+		saving = { path = path, line = line, ticks = 0, text = editor.buffer_text() }
+	end
+
+	-- The text as a save may write it: no CR, no final newlines.
+	local function saved_form(text)
+		return ((text or ""):gsub("\r", ""):gsub("\n+$", ""))
 	end
 
 	-- Each tick: the fill that waits for the save goes once the save is on disk.
 	local function send_saved()
 		if not saving then return end
 		saving.ticks = saving.ticks + 1
-		local on_disk = fs.read(saving.path) == editor.buffer_text()
+		-- The text when fill! came: what the developer typed after it is not waited on.
+		local on_disk = saved_form(fs.read(saving.path)) == saved_form(saving.text)
 		if not on_disk and saving.ticks < SAVE_TICKS then return end
 		local s = saving
 		saving = nil
@@ -1060,7 +1088,7 @@ local function setup(app)
 		ttt.notify("symbiosis: " .. (accept and "accepted" or "rejected") .. " " .. (KIND_TEXT[proposal.kind] or proposal.kind), "info")
 		proposal = nil
 		waiting(false)
-		ttt.close_drawer()
+		app:close_drawer("proposal")
 	end
 
 	local function render(panel)
@@ -1082,13 +1110,15 @@ local function setup(app)
 
 	function show_proposal()
 		if not proposal then return ttt.notify("symbiosis: pi waits for no answer", "info") end
-		ttt.open_drawer({ width = 52, min_width = 30, side = "right", render = render })
+		-- The input opens empty (measured in ttt 1.7.1): so does the note.
+		note = ""
+		app:open_drawer("proposal", { width = 52, min_width = 30, side = "right", render = render })
 	end
 
 	channel:on("propose", function(ev)
 		local o = sessions.owner()
 		if not o or ev.session ~= o.id then return end
-		proposal, note = ev, ""
+		proposal = ev
 		waiting(true)
 		show_proposal()
 	end)
@@ -1097,7 +1127,7 @@ local function setup(app)
 		if not proposal or ev.id ~= proposal.id then return end
 		proposal = nil
 		waiting(false)
-		ttt.close_drawer()
+		app:close_drawer("proposal")
 		ttt.notify("symbiosis: pi does not wait for that answer any more", "info")
 	end)
 
@@ -1671,7 +1701,7 @@ return {
 		end
 
 		local function open()
-			ttt.open_drawer({ width = 52, min_width = 36, side = "right", render = render })
+			app:open_drawer("panel", { width = 52, min_width = 36, side = "right", render = render })
 		end
 
 		app:command({ id = "symbiosis.help", title = "symbiosis: Settings, Sessions and Keys", key = "ctrl+k h", run = open })
@@ -1775,7 +1805,7 @@ return {
 		-- drawer takes the keys while it is open, so Esc closes it (as every ttt
 		-- drawer); a plugin key cannot reach it, and the editor cannot keep the focus.
 		open = function()
-			ttt.open_drawer({ width = 48, min_width = 30, side = "right", render = render })
+			app:open_drawer("plan", { width = 48, min_width = 30, side = "right", render = render })
 		end
 
 		app:on("sessions", show)

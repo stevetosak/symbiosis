@@ -160,7 +160,8 @@ argument, else the git root, else this folder.
   file is saved, and the session the editor follows fills the body. The
   status bar shows `· filling <name>`. While it fills, a guard blocks every
   write or edit that reaches past the body: another place in the file, the
-  signature, a new declaration, a new dependency, a new file. pi can ask for
+  signature, a new declaration, a new dependency, a new file. A change
+  another tool (bash) makes to the stub's file is undone. pi can ask for
   such a change with its `propose` tool: a drawer shows what and why, Enter
   in the note accepts, the Reject button rejects, and the note goes to pi.
   Esc only closes the drawer: `ctrl+k p` (or the `? pi proposes` item in the

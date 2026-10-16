@@ -52,13 +52,15 @@ test('the heartbeat says how far pi may run ahead; a bad value is the default', 
 	}
 });
 
-test('the heartbeat carries the scope; a bad value is stub', () => {
+test('the heartbeat carries the scope; a bad value, or an editor that is gone, is stub', () => {
 	const dir = temp();
 	const c = new FileChannel(dir, () => 10_000);
 	for (const [scope, want] of [['file', 'file'], ['off', 'off'], ['stub', 'stub'], ['all', 'stub'], [3, 'stub']] as const) {
 		writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 9, scope }));
 		assert.equal(c.plugin().scope, want, String(scope));
 	}
+	writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 1, scope: 'off' }));
+	assert.equal(c.plugin().scope, 'stub', 'an old ttt.json');
 });
 
 test('fill! requests and proposal answers are read; a bad one is none', () => {
@@ -68,7 +70,7 @@ test('fill! requests and proposal answers are read; a bad one is none', () => {
 	writeFileSync(join(dir, 'fill.json'), JSON.stringify({ id: 'f1', to: 's1', path: '/w/a.ts', line: 3 }));
 	assert.deepEqual(c.fill(), { id: 'f1', to: 's1', path: '/w/a.ts', line: 3, release: false });
 	writeFileSync(join(dir, 'fill.json'), JSON.stringify({ id: 'f2', to: 's1', release: true }));
-	assert.deepEqual(c.fill(), { id: 'f2', to: 's1', path: '', line: 0, release: true });
+	assert.deepEqual(c.fill(), { id: 'f2', to: 's1', release: true });
 	writeFileSync(join(dir, 'fill.json'), JSON.stringify({ id: 'f3', to: 's1', path: '/w/a.ts' }));
 	assert.equal(c.fill(), undefined);
 	writeFileSync(join(dir, 'answer.json'), JSON.stringify({ id: 'p1', accept: true, note: ' ok \n' }));

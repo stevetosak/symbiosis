@@ -171,6 +171,9 @@ return {
 		t.eq(marker.find("// TODO(pi) fill", "fill!"), nil)
 		t.eq(marker.strip("\t// TODO(pi) fill!", "fill!"), "\t// TODO(pi)")
 		t.eq(marker.strip("/* TODO(pi) fill! */", "fill!"), "/* TODO(pi) */")
+		t.eq(marker.find("// TODO: refill!", "fill!"), nil, "a word of its own")
+		t.eq(marker.strip("// TODO: refill!", "fill!"), "// TODO: refill!")
+		t.eq(marker.find("// TODO(pi):fill!", "fill!").opener, "//")
 	end },
 	{ "bundle: fill! saves the file and asks the session the editor follows", function()
 		local json = require("ttt.json")
@@ -186,9 +189,47 @@ return {
 		local req = json.decode(stub.files["/plugin/fill.json"])
 		t.eq({ req.to, req.path, req.line, req.release }, { "s1", "/w/a.ts", 2, false })
 		t.eq(stub.files["/w/a.ts"], stub.text(), "saved first")
+		t.eq(#stub.notices, 1, "no warning: " .. tostring(stub.notices[1] and stub.notices[1].text))
 		session({ stub = { path = "/w/a.ts", name = "f", line = 1 }, working = true })
 		stub.run_timers()
 		t.ok(stub.status["symbiosis.session"]:find("filling f", 1, true), stub.status["symbiosis.session"])
+	end },
+	{ "bundle: fill! waits for the save, not for what is typed after it", function()
+		local json = require("ttt.json")
+		load_bundle()
+		session()
+		stub.set_text("/w/a.ts", "function f() {\n\t// TODO(pi) fill!\n}")
+		stub.cursor = { line = 2, col = 18 }
+		stub.run_timers()
+		-- This save is slow, and writes a final newline.
+		stub.save = function(text) stub.saved_later = text .. "\n" end
+		stub.events["editor.change"]()
+		stub.run_timers() -- fill!: the save starts
+		stub.run_timers() -- a tick: not on disk yet
+		t.eq(stub.files["/plugin/fill.json"], nil, "waits for the save")
+		stub.files["/w/a.ts"] = stub.saved_later
+		stub.set_text("/w/a.ts", stub.text() .. "\n// typed after fill!")
+		stub.run_timers()
+		t.eq(json.decode(stub.files["/plugin/fill.json"]).line, 2)
+		for _, n in ipairs(stub.notices) do t.ok(not n.text:find("did not save", 1, true), n.text) end
+	end },
+	{ "bundle: propose_end closes only the proposal's drawer", function()
+		load_bundle()
+		session()
+		stub.set_text("/w/a.ts", "x")
+		stub.run_timers()
+		send({ { op = "propose", id = "p1", session = "s1", kind = "new_file", target = "/w/b.ts", what = "b", why = "c" } })
+		stub.run_timers()
+		stub.drawer = nil -- Esc
+		for _, c in ipairs(stub.registered.commands) do
+			if c.id == "symbiosis.help" then c.handler() end
+		end
+		local panel = stub.drawer
+		t.ok(panel ~= nil, "the panel is open")
+		send({ { op = "propose_end", id = "p1" } })
+		stub.run_timers()
+		t.eq(stub.drawer, panel, "the panel stays")
+		t.eq(stub.status["symbiosis.proposal"], nil)
 	end },
 	{ "bundle: a proposal: Enter in the note accepts, Esc leaves it waiting, propose_end ends it", function()
 		local json = require("ttt.json")

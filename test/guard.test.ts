@@ -145,6 +145,16 @@ test('ts: an allowance lets only its own target through', async () => {
 	assert.match(r.reason, /target `lodash`/);
 });
 
+test('ts: one allowance covers every violation of its kind and target in one call', async () => {
+	const change = (t: string) => TS_FILL(t).replace("import { helper } from './helper.ts';\n", '').replace('const LIMIT = 10;', 'const LIMIT = 20;');
+	const blocked = await check({ file: 'sample.ts', stub: 'sumFile', change });
+	assert.deepEqual(kinds(blocked), ['outside_edit', 'outside_edit']);
+	const allowance = { kind: 'outside_edit', target: blocked.violations[0].target } as const;
+	const r = await check({ file: 'sample.ts', stub: 'sumFile', allowances: [allowance], change });
+	assert.equal(r.ok, true, r.reason);
+	assert.deepEqual(r.used, [allowance]);
+});
+
 test('ts: a removed import is outside the body', async () => {
 	const r = await check({ file: 'sample.ts', stub: 'sumFile', change: (t) => TS_FILL(t).replace("import { helper } from './helper.ts';\n", '') });
 	assert.deepEqual(kinds(r), ['outside_edit']);

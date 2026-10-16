@@ -13,6 +13,16 @@ import { syntaxFor } from './syntax/parse.ts';
 /** Reads a file's text; null when it does not exist. */
 export type ReadText = (path: string) => string | null;
 
+export interface FillStart {
+	path: string;
+	line: number;
+	/** The path as the agent should see it in the message (relative to its folder). */
+	shown: string;
+	/** The project's folder: where imports resolve. */
+	root: string;
+	read: ReadText;
+}
+
 export class Fill {
 	stub: StubRef;
 	/** Accepted proposals not used yet. */
@@ -26,11 +36,8 @@ export class Fill {
 		this.read = read;
 	}
 
-	/**
-	 * A fill of the stub that holds `line` of `path`. `shown` is the path as
-	 * the agent should see it in the message (relative to its folder).
-	 */
-	static async start(path: string, line: number, shown: string, root: string, read: ReadText): Promise<{ fill: Fill; message: string } | { error: string }> {
+	/** A fill of the stub that holds `line` of `path`. */
+	static async start({ path, line, shown, root, read }: FillStart): Promise<{ fill: Fill; message: string } | { error: string }> {
 		const syntax = await syntaxFor(path);
 		if (!syntax) return { error: `symbiosis does not parse ${shown}` };
 		const text = read(path);
@@ -47,14 +54,13 @@ export class Fill {
 
 	/**
 	 * Checks one call that changes `path` from `before` (null: a new file) to
-	 * `after`. When it is ok, the allowances it uses are spent and the stub is
-	 * found again in the new text.
+	 * `after`. Changes nothing: `commit` the result once the call has run.
 	 */
 	async check(path: string, before: string | null, after: string, scope: Scope): Promise<GuardResult> {
 		const own = path === this.stub.path;
 		const syntax = own ? await syntaxFor(path) : undefined;
 		const version = (text: string): Version => ({ text, outline: syntax ? syntax.outline(text) : null });
-		const result = guard({
+		return guard({
 			scope,
 			stub: this.stub,
 			path,
@@ -63,11 +69,13 @@ export class Fill {
 			resolves: resolverFor(syntax?.language.id ?? '', fsProject(this.root)),
 			allowances: this.allowances,
 		});
-		if (result.ok) {
-			for (const used of result.used) this.allowances.splice(this.allowances.indexOf(used), 1);
-			if (result.stub) this.stub = result.stub;
-		}
-		return result;
+	}
+
+	/** A checked call ran: its allowances are spent and the stub is where it left it. */
+	commit(result: GuardResult): void {
+		if (!result.ok) return;
+		this.allowances = this.allowances.filter((a) => !result.used.includes(a));
+		if (result.stub) this.stub = result.stub;
 	}
 
 	/** True when the stub's body is filled: the function is there and no longer a stub. */

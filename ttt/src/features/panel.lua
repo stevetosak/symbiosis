@@ -54,7 +54,7 @@ return {
 		end
 
 		local function open()
-			ttt.open_drawer({ width = 52, min_width = 36, side = "right", render = render })
+			app:open_drawer("panel", { width = 52, min_width = 36, side = "right", render = render })
 		end
 
 		app:command({ id = "symbiosis.help", title = "symbiosis: Settings, Sessions and Keys", key = "ctrl+k h", run = open })

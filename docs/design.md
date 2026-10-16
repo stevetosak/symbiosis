@@ -396,6 +396,16 @@ namespace that resolves is allowed. Expression-body stubs
 inside a `try:` or `if TYPE_CHECKING:` block is not an import line, so a new
 one reads as `outside_edit`.
 
+The guard sees only what reaches it. A tool other than edit and write can
+change any file but the stub's own (only that one is put back), and it can
+write the plugin folder: a forged `fill.json` releases the fill. (A `scope`
+written to `ttt.json` lasts until ttt's next heartbeat, at most a second;
+from an editor that is gone it does not count.) An accepted `outside_edit`
+names the file, not the region: it lets any one call that edits outside the
+body through, whatever the proposal's `what` said. The developer chose to
+keep it so (2026-10-16); tying it to a region needs the model to send exact
+text, which it often gets wrong.
+
 ## Filling a stub
 
 `fill!` at the end of the marker line (or `ctrl+k f`) saves the file and
@@ -411,14 +421,26 @@ editor never waits to show a call that will not run. A `write` brings its
 new text. An `edit` does not: pi matches its old texts against the file
 itself. Thus `pi/tools.ts` runs pi's own edit code with a `writeFile` that
 throws the text it was given, and that text is what the edit would leave.
+The same probe runs pi's write code, so the path is pi's too (`@`, `~`,
+unicode spaces); then symlinks are resolved, as the editor sends real paths.
 Matching, line endings and the BOM stay pi's. A call the guard blocks gets
 the reason as its result; a preview that has started is undone with
-`abort` and that reason.
+`abort` and that reason. A call the guard lets through spends nothing yet:
+its allowances are spent, and the stub moves with it, only in `tool_result`
+of a call that ran. The editor's lag wait or Esc can still stop it.
+
+Every other tool (bash, another extension's tool) can change files too. The
+stub's file is kept before such a tool runs; if the tool changed it, the file
+is put back and the tool's result tells the agent to use edit or write, or
+propose. The developer chose this over blocking bash during a fill, so that
+tests and reads still run.
 
 The guard checks each call against the file as the call before left it. pi
 runs the tool calls of one message in parallel by default, so all their
 `tool_call` handlers would see the file before any of them ran. `edit` and
 `write` are therefore registered again with `executionMode: 'sequential'`.
+This holds in every session, with or without a fill or an editor: a message
+with an edit runs all its tool calls one after the other.
 The same registration adds `why`: an optional argument for the reason for a
 choice that is not obvious, taken off before pi's code runs. It travels in
 the `done` event (a notice when the replay shows the change) and in the

@@ -77,14 +77,20 @@ local function setup(app)
 		if not path or path == "" then return ttt.notify("symbiosis: save the file first", "warning") end
 		if not sessions.owner() then return owner() end
 		ttt.exec_command("file.save")
-		saving = { path = path, line = line, ticks = 0 }
+		saving = { path = path, line = line, ticks = 0, text = editor.buffer_text() }
+	end
+
+	-- The text as a save may write it: no CR, no final newlines.
+	local function saved_form(text)
+		return ((text or ""):gsub("\r", ""):gsub("\n+$", ""))
 	end
 
 	-- Each tick: the fill that waits for the save goes once the save is on disk.
 	local function send_saved()
 		if not saving then return end
 		saving.ticks = saving.ticks + 1
-		local on_disk = fs.read(saving.path) == editor.buffer_text()
+		-- The text when fill! came: what the developer typed after it is not waited on.
+		local on_disk = saved_form(fs.read(saving.path)) == saved_form(saving.text)
 		if not on_disk and saving.ticks < SAVE_TICKS then return end
 		local s = saving
 		saving = nil
@@ -140,7 +146,7 @@ local function setup(app)
 		ttt.notify("symbiosis: " .. (accept and "accepted" or "rejected") .. " " .. (KIND_TEXT[proposal.kind] or proposal.kind), "info")
 		proposal = nil
 		waiting(false)
-		ttt.close_drawer()
+		app:close_drawer("proposal")
 	end
 
 	local function render(panel)
@@ -162,13 +168,15 @@ local function setup(app)
 
 	function show_proposal()
 		if not proposal then return ttt.notify("symbiosis: pi waits for no answer", "info") end
-		ttt.open_drawer({ width = 52, min_width = 30, side = "right", render = render })
+		-- The input opens empty (measured in ttt 1.7.1): so does the note.
+		note = ""
+		app:open_drawer("proposal", { width = 52, min_width = 30, side = "right", render = render })
 	end
 
 	channel:on("propose", function(ev)
 		local o = sessions.owner()
 		if not o or ev.session ~= o.id then return end
-		proposal, note = ev, ""
+		proposal = ev
 		waiting(true)
 		show_proposal()
 	end)
@@ -177,7 +185,7 @@ local function setup(app)
 		if not proposal or ev.id ~= proposal.id then return end
 		proposal = nil
 		waiting(false)
-		ttt.close_drawer()
+		app:close_drawer("proposal")
 		ttt.notify("symbiosis: pi does not wait for that answer any more", "info")
 	end)
 

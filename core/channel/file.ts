@@ -23,8 +23,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renam
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseRequest } from '../help.ts';
-import { SCOPES, type Scope } from '../guard.ts';
-import { type ChannelEvent, DEFAULT_LAG, type FillRequest, type HelpRequest, type PluginState, type ProposalAnswer, type Session, type StopRequest } from '../protocol.ts';
+import { type ChannelEvent, DEFAULT_LAG, type FillRequest, type HelpRequest, type PluginState, type ProposalAnswer, SCOPES, type Scope, type Session, type StopRequest } from '../protocol.ts';
 import type { Channel } from './channel.ts';
 
 /** The log starts again from empty at the start of a turn once it is this big. */
@@ -81,8 +80,10 @@ export class FileChannel implements Channel {
 		const t = typeof state?.t === 'number' ? state.t : 0;
 		const owner = typeof state?.owner === 'string' ? state.owner : undefined;
 		const lag = typeof state?.lag === 'number' && Number.isInteger(state.lag) && state.lag >= -1 ? state.lag : DEFAULT_LAG;
-		const scope: Scope = SCOPES.includes(state?.scope as Scope) ? (state?.scope as Scope) : 'stub';
-		return { alive: this.now() / 1000 - t < 3, pinned: state?.pinned === true, lag, scope, ...(owner ? { owner } : {}) };
+		const alive = this.now() / 1000 - t < 3;
+		// A scope from an editor that is gone does not hold: the strict default does.
+		const scope: Scope = alive && SCOPES.includes(state?.scope as Scope) ? (state?.scope as Scope) : 'stub';
+		return { alive, pinned: state?.pinned === true, lag, scope, ...(owner ? { owner } : {}) };
 	}
 
 	/** Writes this session's record: the heartbeat the plugin reads. */
@@ -134,9 +135,9 @@ export class FileChannel implements Channel {
 	fill(): FillRequest | undefined {
 		const raw = readJson<Record<string, unknown>>(join(this.dir, 'fill.json'));
 		if (typeof raw?.id !== 'string' || typeof raw.to !== 'string') return undefined;
-		const release = raw.release === true;
-		if (!release && (typeof raw.path !== 'string' || typeof raw.line !== 'number')) return undefined;
-		return { id: raw.id, to: raw.to, path: String(raw.path ?? ''), line: Number(raw.line ?? 0), release };
+		if (raw.release === true) return { id: raw.id, to: raw.to, release: true };
+		if (typeof raw.path !== 'string' || typeof raw.line !== 'number') return undefined;
+		return { id: raw.id, to: raw.to, release: false, path: raw.path, line: raw.line };
 	}
 
 	/** The plugin's last answer to a proposal, if any. */

@@ -4,18 +4,22 @@
 // (pi/fill.ts) checks each call against the file as the call before left it.
 // The work is pi's own code: matching, line endings and the file queue stay
 // pi's.
+import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { basename, dirname, join, resolve } from 'node:path';
 import { createEditToolDefinition, createWriteToolDefinition } from '@earendil-works/pi-coding-agent';
 import { absolutePath } from '../core/stream.ts';
 
 export const WHY_DESCRIPTION =
 	'Optional. One or two sentences on each choice in this change that is not obvious (error handling, I/O, shared state, retries, caching). The developer reads it next to the change.';
 
-/** What the probe's writeFile throws: the text it would write is in hand. */
+/** What the probe's writeFile throws: the call's file and text are in hand. */
 class Probed extends Error {
+	readonly path: string;
 	readonly text: string;
-	constructor(text: string) {
+	constructor(path: string, text: string) {
 		super('probed');
+		this.path = path;
 		this.text = text;
 	}
 }
@@ -42,34 +46,58 @@ export function tools(cwd: string): Definition[] {
 	return [withWhy(createEditToolDefinition(cwd)), withWhy(createWriteToolDefinition(cwd))];
 }
 
+/** What a write or edit would leave: its file (real path) and the file's text. */
+export interface Planned {
+	path: string;
+	text: string;
+}
+
 /**
- * The text an `edit` would leave in its file, worked out by pi's own edit
- * code with the write taken away. Undefined when the edit would fail (its old
+ * What a `write` or `edit` would leave, worked out by pi's own code with the
+ * write taken away: the path is pi's (`@`, `~`, unicode spaces), matching and
+ * line endings are pi's. Undefined when the call would fail (an edit's old
  * text is not in the file): pi then fails it and no guard is needed.
  */
-export async function editResult(input: unknown, cwd: string): Promise<string | undefined> {
-	const probe = createEditToolDefinition(cwd, {
-		operations: {
-			readFile: (path) => readFile(path),
-			access: async () => undefined,
-			writeFile: async (_path, text) => {
-				throw new Probed(text);
-			},
-		},
-	});
+export async function planned(tool: 'write' | 'edit', input: unknown, cwd: string): Promise<Planned | undefined> {
+	const writeFile = async (path: string, text: string): Promise<void> => {
+		throw new Probed(path, text);
+	};
+	const probe =
+		tool === 'edit'
+			? createEditToolDefinition(cwd, { operations: { readFile: (path) => readFile(path), access: async () => undefined, writeFile } })
+			: createWriteToolDefinition(cwd, { operations: { mkdir: async () => undefined, writeFile } });
 	try {
-		const args = probe.prepareArguments ? probe.prepareArguments(input) : input;
+		const args = probe.prepareArguments ? probe.prepareArguments(input as never) : input;
 		await probe.execute('probe', args as never, undefined, undefined, { cwd } as never);
 		return undefined;
 	} catch (error) {
-		return error instanceof Probed ? error.text : undefined;
+		return error instanceof Probed ? { path: realPath(error.path), text: error.text } : undefined;
 	}
 }
 
-/** The path a write or edit call names, absolute; undefined when it names none. */
-export function pathOf(input: unknown, cwd: string): string | undefined {
-	const path = (input as { path?: unknown })?.path;
-	return typeof path === 'string' && path !== '' ? absolutePath(path, cwd) : undefined;
+/**
+ * The real path of a file that may not exist yet: its nearest folder that
+ * exists, with symlinks resolved, and the rest. The editor sends real paths;
+ * pi's folder may be a symlink.
+ */
+export function realPath(path: string): string {
+	const rest: string[] = [];
+	let at = resolve(path);
+	for (;;) {
+		try {
+			return join(realpathSync(at), ...rest.reverse());
+		} catch {
+			const parent = dirname(at);
+			if (parent === at) return resolve(path);
+			rest.push(basename(at));
+			at = parent;
+		}
+	}
+}
+
+/** A path the agent names (a proposal's target), as pi's tools would read it, real. */
+export function namedPath(path: string, cwd: string): string {
+	return realPath(absolutePath(path.trim().replace(/^@/, ''), cwd));
 }
 
 /** The `why` of a call, when it gave one. */
