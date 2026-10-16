@@ -8,6 +8,7 @@
 //                       [--input ID=VALUE [--input-label ID=LABEL]]... [--ask]
 //                       the config's inputs: those given, else picked as core/run/inputs.ts says;
 //                       one the user is to pick: { ok: true, ask } and no run. --ask: the user picks each.
+//                       Started: { ok: true, run, picked? }, picked = the labels of its inputs' picks.
 //   symbiosis run again ID                               the same run again (stops it first if it runs)
 //   symbiosis run stop  ID... | --folder D --all
 //   symbiosis run ps    --folder D [--adopt]              the runs; --adopt: ttt is back, forget "keep"
@@ -28,7 +29,7 @@ import { parseJsonc, RunConfigError, toRunJson } from '../core/run/config.ts';
 import { InputMemory, pickedLabels, pickInputs } from '../core/run/inputs.ts';
 import { listConfigs, listed, resolveConfig, RUN_JSON, workspaceFolder } from '../core/run/list.ts';
 import { readSmall } from '../core/run/providers/provider.ts';
-import { alive, groupAlive, HEARTBEAT_MS, isLive, type RunState, Runs, Tail, writeAtomic } from '../core/run/runs.ts';
+import { alive, groupAlive, HEARTBEAT_MS, isLive, killGroup, type RunState, Runs, Tail, writeAtomic } from '../core/run/runs.ts';
 
 export function runsDir(env: NodeJS.ProcessEnv = process.env): string {
 	return env.SYMBIOSIS_RUNS || join(pluginDir(env), 'runs');
@@ -89,16 +90,6 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/** Signals a run's process group; the program leads it (spawned detached). */
-function killGroup(pid: number | undefined, signal: NodeJS.Signals): void {
-	if (!pid) return;
-	try {
-		process.kill(-pid, signal);
-	} catch {
-		// gone
-	}
-}
 
 /**
  * Stops a run: the stop marker (a supervisor still starting reads it), SIGTERM
@@ -307,10 +298,16 @@ export async function runCommand(args: RunArgs, runs = new Runs(args.runs ?? run
 			mkdirSync(runs.dir, { recursive: true });
 			const state = runs.create(launch, undefined, session());
 			launchSupervisor(runs, state.id);
-			memory.set(folder, inputs.picks);
+			// The run is going: a pick it cannot keep is no reason to say it failed.
+			try {
+				memory.set(folder, inputs.picks);
+			} catch {
+				// next time it decides or asks again
+			}
 			runs.prune(folder);
 			runs.pruneOld();
-			return ok({ run: state });
+			const picked = pickedLabels(config, folder, memory);
+			return ok({ run: state, ...(picked ? { picked } : {}) });
 		}
 		case 'again': {
 			const id = args.ids[0] ?? '';

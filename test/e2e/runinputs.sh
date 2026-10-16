@@ -22,11 +22,14 @@ cat > "$ws/.symbiosis/run.json" <<'JSON'
 	"inputs": [
 		{ "id": "device", "type": "pick", "description": "device",
 		  "command": "echo '[{\"value\": \"dev-1\", \"label\": \"First phone\", \"detail\": \"USB\"}, {\"value\": \"dev-2\", \"label\": \"Second phone\", \"ready\": true}, {\"value\": \"dev-3\", \"label\": \"Third phone\", \"ready\": true}]'" },
-		{ "id": "only", "type": "pick", "options": ["the-only-one"] }
+		{ "id": "only", "type": "pick", "options": ["the-only-one"] },
+		{ "id": "host", "type": "pick", "command": "echo x >> host-listed; echo '[\"h1\"]'" },
+		{ "id": "mode", "type": "pick", "options": ["Debug", "Release"] }
 	],
 	"configurations": [
 		{ "name": "deploy", "command": "echo \"deploying to ${input:device}\"" },
-		{ "name": "solo", "command": "echo \"solo on ${input:only}\"" }
+		{ "name": "solo", "command": "echo \"solo on ${input:only}\"" },
+		{ "name": "pair", "command": "echo \"pair on ${input:host} ${input:mode}\"" }
 	]
 }
 JSON
@@ -42,7 +45,9 @@ steps="$steps; key f5; wait 1500; $s/again.txt"
 # The picker shows the pick; i on deploy asks again, the one picked last marked.
 steps="$steps; key ctrl+k f5; wait 900; type deploy; wait 300; $s/pick.txt; key tab; wait 200; key down; wait 200; key i; wait 1200; $s/reask.txt; key escape; wait 300"
 # solo: one option, no drawer.
-steps="$steps; key ctrl+k f5; wait 900; type solo; wait 300; key enter; wait 1500; $s/solo.txt; quit"
+steps="$steps; key ctrl+k f5; wait 900; type solo; wait 300; key enter; wait 1500; $s/solo.txt"
+# pair: host decided (one option), then mode asked; picking mode does not list the host again.
+steps="$steps; key ctrl+k f5; wait 900; type pair; wait 300; key enter; wait 1200; $s/pair-ask.txt; type release; wait 300; key enter; wait 1500; $s/pair.txt; quit"
 cd "$ws"
 TTT_CONFIG_DIR="$OUT/cfg" ttt --size 110x32 app.js --exec "$steps" > /dev/null 2>&1 || true
 
@@ -58,4 +63,7 @@ grep -q 'Pick the device' "$OUT/reask.txt" || fail "i in the picker did not ask 
 grep -q '▶ Second phone' "$OUT/reask.txt" || fail "the drawer does not mark the one picked last"
 grep -q 'solo on the-only-one' "$OUT/solo.txt" || fail "solo did not run with its only option"
 grep -q '"device"' "$OUT/cfg/plugins/symbiosis/run-inputs.json" || fail "the pick was not remembered"
+grep -q 'Pick the mode' "$OUT/pair-ask.txt" || fail "pair did not ask for its mode"
+grep -q 'pair on h1 Release' "$OUT/pair.txt" || fail "pair did not run with the host decided and the mode picked"
+[ "$(wc -l < "$ws/host-listed")" -eq 1 ] || fail "the host was listed again after the mode was picked ($(wc -l < "$ws/host-listed") times)"
 echo "all passed ($OUT)"

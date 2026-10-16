@@ -83,7 +83,10 @@ const PICK_TYPES = new Set(['pick', 'pickString']);
 const INPUT_REF = /\$\{input:([^}]*)\}/g;
 
 function option(raw: unknown, at: string): InputOption {
-	if (typeof raw === 'string') return { value: raw, label: raw };
+	if (typeof raw === 'string') {
+		if (raw === '') throw new RunConfigError(`${at} needs a "value"`);
+		return { value: raw, label: raw };
+	}
 	const o = raw as Record<string, unknown>;
 	if (typeof o !== 'object' || o === null || typeof o.value !== 'string' || o.value === '') throw new RunConfigError(`${at} needs a "value"`);
 	for (const key of ['label', 'detail'] as const) {
@@ -120,16 +123,20 @@ export function parseInputs(raw: unknown, where: string): Map<string, InputDef> 
 		if (typeof d !== 'object' || d === null) throw new RunConfigError(`${at} must be an object`);
 		if (typeof d.id !== 'string' || !/^[\w.-]+$/.test(d.id)) throw new RunConfigError(`${at} needs an "id" (letters, digits, _ . -)`);
 		if (defs.has(d.id)) throw new RunConfigError(`${at}: the id "${d.id}" is used twice`);
-		if (!PICK_TYPES.has(d.type as string)) throw new RunConfigError(`${at} ("${d.id}"): "type" must be "pick"`);
+		if (!PICK_TYPES.has(d.type as string)) throw new RunConfigError(`${at} ("${d.id}"): "type" must be "pick" or "pickString"`);
 		if (d.description !== undefined && typeof d.description !== 'string') throw new RunConfigError(`${at}.description must be a string`);
 		const hasCommand = typeof d.command === 'string' && d.command.trim() !== '';
 		if (hasCommand === (d.options !== undefined)) throw new RunConfigError(`${at} ("${d.id}") needs "options" or a "command", one of them`);
 		if (d.args !== undefined && !hasCommand) throw new RunConfigError(`${at} ("${d.id}"): "args" go with a "command"`);
+		const args = d.args !== undefined ? strings(d.args, `${at}.args`) : undefined;
+		if (inputRefs([d.command as string | undefined, ...(args ?? [])]).length > 0) {
+			throw new RunConfigError(`${at} ("${d.id}"): its command names an input; an input's command takes no \${input:...}`);
+		}
 		defs.set(d.id, {
 			id: d.id,
 			description: (d.description as string | undefined) || d.id,
 			...(hasCommand ? { command: d.command as string } : { options: parseOptions(d.options, `${at}.options`) }),
-			...(d.args !== undefined ? { args: strings(d.args, `${at}.args`) } : {}),
+			...(args ? { args } : {}),
 		});
 	});
 	return defs;

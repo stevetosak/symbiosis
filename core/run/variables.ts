@@ -35,14 +35,25 @@ export function expand(text: string, ctx: VariableContext): string {
 }
 
 /**
+ * Where a shell line is at: bare, in '...', in "...", or in a command
+ * substitution, $(...) or `...`, which starts bare again even inside "...".
+ * `depth`: the open ( of a $(...), so its own ) closes it.
+ */
+type ShellPlace = { readonly kind: "'" | '"' | '`' } | { readonly kind: '$('; depth: number };
+
+/**
  * A shell line's variables: each value quoted for the place it is in (bare,
- * in '...' or in "..."); the ${...} symbiosis does not know stay for the shell.
+ * in '...', in "...", in $(...) or `...`); the ${...} symbiosis does not
+ * know stay for the shell.
  */
 export function expandShell(text: string, ctx: VariableContext): string {
 	let out = '';
-	let quote: '' | "'" | '"' = '';
+	const places: ShellPlace[] = [];
+	const top = () => places.at(-1);
 	for (let i = 0; i < text.length; i++) {
 		const ch = text[i];
+		const place = top();
+		const quote = place?.kind === "'" || place?.kind === '"' ? place.kind : '';
 		if (ch === '\\' && quote !== "'") {
 			out += ch + (text[i + 1] ?? '');
 			i++;
@@ -52,15 +63,37 @@ export function expandShell(text: string, ctx: VariableContext): string {
 			const end = text.indexOf('}', i + 2);
 			const value = end < 0 ? UNKNOWN : valueOf(text.slice(i + 2, end), ctx);
 			if (value !== UNKNOWN) {
-				out += quoteFor(value, quote);
+				out += inBackticks(quoteFor(value, quote), places.filter((p) => p.kind === '`').length);
 				i = end;
 				continue;
 			}
 		}
-		if (ch === "'" && quote !== '"') quote = quote === "'" ? '' : "'";
-		else if (ch === '"' && quote !== "'") quote = quote === '"' ? '' : '"';
 		out += ch;
+		if (quote === "'") {
+			if (ch === "'") places.pop();
+		} else if (ch === '$' && text[i + 1] === '(') {
+			places.push({ kind: '$(', depth: 1 });
+			out += '(';
+			i++;
+		} else if (ch === '`') {
+			if (place?.kind === '`') places.pop();
+			else places.push({ kind: '`' });
+		} else if (quote === '"') {
+			if (ch === '"') places.pop();
+		} else if (ch === "'" || ch === '"') {
+			places.push({ kind: ch });
+		} else if (place?.kind === '$(') {
+			if (ch === '(') place.depth++;
+			else if (ch === ')' && --place.depth === 0) places.pop();
+		}
 	}
+	return out;
+}
+
+/** In `...` a \ before \, ` or $ is the substitution's own, ' or no ': once per `...` around it. */
+function inBackticks(quoted: string, levels: number): string {
+	let out = quoted;
+	for (let i = 0; i < levels; i++) out = out.replace(/[\\`$]/g, '\\$&');
 	return out;
 }
 
@@ -74,7 +107,7 @@ function valueOf(name: string, ctx: VariableContext): string | typeof UNKNOWN {
 	if (name.startsWith('env:')) return ctx.env[name.slice(4)] ?? '';
 	if (name.startsWith('input:')) {
 		const value = ctx.inputs?.[name.slice(6)];
-		if (value === undefined) throw new RunConfigError(`\${${name}}: no value for this input`);
+		if (value === undefined) throw new RunConfigError(`\${${name}}: no value for this input (inputs come from .symbiosis/run.json)`);
 		return value;
 	}
 	switch (name) {

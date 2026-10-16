@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { test } from 'node:test';
@@ -895,6 +895,28 @@ test('shell lines: values quoted for where they land; unknown ${...} stay for th
 	assert.equal(expandShell('puma -p ${PORT:-5000} -C ${workspaceFolder}/c', ctx), "puma -p ${PORT:-5000} -C '/w s'/c");
 	assert.equal(expandShell('echo ${filename}', { folder: '/w', env: {} }), 'echo ${filename}');
 	assert.throws(() => expandShell('cat ${file}', { folder: '/w', env: {} }), /no file is open/);
+	// $(...) and `...` start bare again, inside "..." too.
+	const sub = { folder: '/w', env: { V: 'x; touch PWNED' } };
+	assert.equal(expandShell('echo "$(echo ${env:V})"', sub), `echo "$(echo 'x; touch PWNED')"`);
+	assert.equal(expandShell('echo "`echo ${env:V}`"', sub), `echo "\`echo 'x; touch PWNED'\`"`);
+	assert.equal(expandShell('echo $(f "${env:V}") $(( (1) )) ${env:V}', sub), `echo $(f "x; touch PWNED") $(( (1) )) 'x; touch PWNED'`);
+	assert.equal(expandShell(`echo '$(' \${env:V}`, sub), `echo '$(' 'x; touch PWNED'`, "'$(' is no substitution");
+	// What sh makes of it: the value as it is, in every place, and nothing run.
+	const dir = temp();
+	const hostile = { folder: dir, env: { V: 'x; touch PWNED $(touch P2) `touch P3` "q \\ b\'' } };
+	const V = hostile.env.V;
+	const words = `${V.split(' ').join('|')}|`;
+	// An unquoted $(...) is split into words: sh's, not an injection.
+	const places: [string, string][] = [
+		['${env:V}', `${V}|`], ['"${env:V}"', `${V}|`], ["'${env:V}'", `${V}|`],
+		['"$(echo ${env:V})"', `${V}|`], ['"`echo ${env:V}`"', `${V}|`],
+		['`echo "${env:V}"`', words], ["$(echo '${env:V}')", words],
+	];
+	for (const [place, out] of places) {
+		const r = spawnSync('/bin/sh', ['-c', `printf '%s|' ${expandShell(place, hostile)}`], { cwd: dir, encoding: 'utf8' });
+		assert.equal(r.stdout, out, place);
+	}
+	assert.deepEqual(readdirSync(dir), [], 'nothing ran');
 	// Not a shell line: an unknown variable is still an error.
 	assert.throws(() => expand('${PORT:-1}', ctx), /not a variable/);
 });
@@ -1047,13 +1069,16 @@ test('inputs: run.json "inputs", ${input:id} anywhere in a config; bad ones thro
 	bad({}, /"inputs" must be a list/);
 	bad([{ type: 'pick', options: [] }], /inputs\[0\] needs an "id"/);
 	bad([{ id: 'a b', type: 'pick', options: [] }], /needs an "id"/);
-	bad([{ id: 'a', type: 'promptString', options: [] }], /\("a"\): "type" must be "pick"/);
+	bad([{ id: 'a', type: 'promptString', options: [] }], /\("a"\): "type" must be "pick" or "pickString"/);
 	bad([{ id: 'a', type: 'pick' }], /needs "options" or a "command", one of them/);
 	bad([{ id: 'a', type: 'pick', options: [], command: 'x' }], /one of them/);
 	bad([{ id: 'a', type: 'pick', options: [], args: ['x'] }], /"args" go with a "command"/);
 	bad([{ id: 'a', type: 'pick', command: 'x', args: [1] }], /inputs\[0\]\.args must be a list of strings/);
 	bad([{ id: 'a', type: 'pick', options: [{ label: 'no value' }] }], /options\[0\] needs a "value"/);
 	bad([{ id: 'a', type: 'pick', options: ['x', 'x'] }], /the value "x" is there twice/);
+	bad([{ id: 'a', type: 'pick', options: ['', 'x'] }], /options\[0\] needs a "value"/);
+	bad([{ id: 'a', type: 'pick', command: 'list \${input:b}' }], /\("a"\): its command names an input/);
+	bad([{ id: 'a', type: 'pick', command: 'list', args: ['\${input:b}'] }], /\("a"\): its command names an input/);
 	bad([{ id: 'a', type: 'pick', options: [] }, { id: 'a', type: 'pick', options: [] }], /the id "a" is used twice/);
 	bad([], /configurations\[0\] \("c"\): no input "nope" in "inputs"/, [{ name: 'c', command: 'x', cwd: '\${input:nope}' }]);
 });
@@ -1063,7 +1088,7 @@ test('inputs: ${input:id} expands to its value, quoted in a shell line; one with
 	assert.equal(expand('-p:Device=\${input:d}', ctx), "-p:Device=Todor's iPhone");
 	assert.equal(expandShell('run \${input:d}', ctx), "run 'Todor'\\''s iPhone'");
 	assert.throws(() => expand('\${input:x}', ctx), /\$\{input:x\}: no value for this input/);
-	assert.throws(() => expandShell('\${input:d}', { folder: '/w', env: {} }), /no value for this input/);
+	assert.throws(() => expandShell('\${input:d}', { folder: '/w', env: {} }), /no value for this input \(inputs come from \.symbiosis\/run\.json\)/);
 });
 
 test('inputs: decide takes the remembered one, else the only one, else the only ready one; again asks', () => {
@@ -1099,8 +1124,21 @@ test('inputs: a command\'s options, in the workspace folder; its failures are Ru
 		await assert.rejects(listOptions(def('echo nope'), ctx), /input "d": its command printed no JSON list: nope/);
 		await assert.rejects(listOptions(def(`echo '{"value": 1}'`), ctx), /input "d" must be a list/);
 		await assert.rejects(listOptions(def('/no/such/program', []), ctx), /\/no\/such\/program: command not found/);
-		await assert.rejects(listOptions(def('sleep 5'), ctx, 200), /no answer in 0 s/);
-		await assert.rejects(listOptions(def('echo \${input:other}'), { ...ctx, inputs: { other: 'x' } }), /no value for this input/);
+		await assert.rejects(listOptions(def('sleep 5'), ctx, 200), /no answer in 200 ms/);
+		await assert.rejects(listOptions(def('kill -9 $$'), ctx), /input "d": killed by SIGKILL/);
+		await assert.rejects(listOptions(def('head -c 2000000 /dev/zero | tr "\\0" a'), ctx), /printed more than 1 MB/);
+		// No stdin: a command that reads it ends at once.
+		const t0 = Date.now();
+		await assert.rejects(listOptions(def('cat'), ctx, 5000), /printed no JSON list: \(nothing\)/);
+		// What it leaves behind holds its output open: it is done all the same, and that is killed.
+		assert.deepEqual(await listOptions(def(`(sleep 7.31 &); echo '["a"]'`), ctx, 5000), [{ value: 'a', label: 'a' }]);
+		assert.ok(Date.now() - t0 < 2000, 'neither waited for its timeout');
+		// A timeout kills the whole pipeline, not only sh.
+		await assert.rejects(listOptions(def('sleep 7.32 | cat'), ctx, 300), /no answer/);
+		await delay(100);
+		for (const marker of ['sleep 7.31', 'sleep 7.32']) {
+			assert.equal(spawnSync('pgrep', ['-f', marker]).status, 1, `${marker} was left running`);
+		}
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -1119,7 +1157,10 @@ test('inputs: pickInputs gives, remembers, decides or asks, one input after the 
 		}));
 		const ctx = { folder: dir, env: {} };
 		assert.deepEqual(await pickInputs(config, ctx, memory), {
-			ask: { config: 'saved:app', name: 'app', input: { id: 'device', description: 'device' }, options: [{ value: 'p1', label: 'Pixel' }, { value: 'p2', label: 'Pixel 2' }] },
+			ask: {
+				config: 'saved:app', name: 'app', input: { id: 'device', description: 'device' },
+				options: [{ value: 'p1', label: 'Pixel' }, { value: 'p2', label: 'Pixel 2' }], given: {}, labels: {},
+			},
 		});
 		const given = await pickInputs(config, ctx, memory, { device: 'p2' }, { device: 'Pixel 2' });
 		assert.deepEqual(given, { values: { device: 'p2', mode: 'Debug' }, picks: { device: { value: 'p2', label: 'Pixel 2' }, mode: { value: 'Debug', label: 'Debug' } } });
@@ -1140,6 +1181,28 @@ test('inputs: pickInputs gives, remembers, decides or asks, one input after the 
 		const second = await pickInputs(config, ctx, memory, { device: 'p1' }, {}, true);
 		assert.ok('ask' in second);
 		assert.equal(second.ask.input.id, 'mode');
+		assert.deepEqual([second.ask.given, second.ask.labels], [{ device: 'p1' }, { device: 'p1' }], 'what to give next time');
+		// set keeps the other inputs and folders.
+		memory.set(join(dir, 'other'), { device: { value: 'o', label: 'O' } });
+		memory.set(dir, { mode: { value: 'Release', label: 'Release' } });
+		assert.deepEqual([memory.get(dir, 'device')?.value, memory.get(dir, 'mode')?.value, memory.get(join(dir, 'other'), 'device')?.value], ['p2', 'Release', 'o']);
+		// An input decided before the one that asks comes with the ask: given back, its command does not run again.
+		const count = join(dir, 'count');
+		const [two] = parseRunJson(JSON.stringify({
+			inputs: [
+				{ id: 'a', type: 'pick', command: `echo x >> '${count}'; echo '["only"]'` },
+				{ id: 'b', type: 'pick', options: ['b1', 'b2'] },
+			],
+			configurations: [{ name: 'two', command: 'run \${input:a} \${input:b}' }],
+		}));
+		const asked = await pickInputs(two, ctx, memory);
+		assert.ok('ask' in asked);
+		assert.deepEqual([asked.ask.input.id, asked.ask.given, asked.ask.labels], ['b', { a: 'only' }, { a: 'only' }]);
+		const done = await pickInputs(two, ctx, memory, { ...asked.ask.given, b: 'b2' }, { ...asked.ask.labels, b: 'b2' });
+		assert.deepEqual('values' in done && done.values, { a: 'only', b: 'b2' });
+		assert.equal(readFileSync(count, 'utf8'), 'x\n', "a's command ran once");
+		// A value given for no input of the configuration is no matter.
+		assert.ok('values' in await pickInputs(two, ctx, memory, { a: 'only', b: 'b1', nope: 'z' }));
 		// A memory file that is not JSON is no memory.
 		writeFileSync(memory.path, 'nope');
 		assert.equal(memory.get(dir, 'device'), undefined);
@@ -1163,24 +1226,33 @@ test('symbiosis run: start asks for an input, starts with --input, lists what wa
 		files(ws, {
 			'.symbiosis/run.json': JSON.stringify({
 				inputs: [{ id: 'device', type: 'pick', description: 'device', command: `echo '[{"value":"d1","label":"One"},{"value":"d2","label":"Two"}]'` }],
-				configurations: [{ name: 'on', command: 'echo "on ${input:device}"' }],
+				configurations: [{ name: 'on', command: 'echo "on ${input:device}"; exec sleep 30' }],
 			}),
 		});
 		const ask = cli('start', '--folder', ws, '--config', 'saved:on');
 		assert.deepEqual(ask, {
 			ok: true,
-			ask: { config: 'saved:on', name: 'on', input: { id: 'device', description: 'device' }, options: [{ value: 'd1', label: 'One' }, { value: 'd2', label: 'Two' }] },
+			ask: {
+				config: 'saved:on', name: 'on', input: { id: 'device', description: 'device' },
+				options: [{ value: 'd1', label: 'One' }, { value: 'd2', label: 'Two' }], given: {}, labels: {},
+			},
 		});
 		assert.deepEqual(cli('ps', '--folder', ws).runs, []);
 		const started = cli('start', '--folder', ws, '--config', 'saved:on', '--input', 'device=d2', '--input-label', 'device=Two');
 		const run = started.run as RunState;
-		assert.equal(run.line, 'echo "on d2"');
+		assert.equal(run.line, 'echo "on d2"; exec sleep 30');
+		assert.equal(started.picked, 'Two', 'what it picked, for the picker');
 		const listed = (cli('list', '--folder', ws).configs as { id: string; picked?: string }[]).find((c) => c.id === 'saved:on');
 		assert.equal(listed?.picked, 'Two');
 		assert.deepEqual(JSON.parse(readFileSync(join(dir, 'run-inputs.json'), 'utf8')), { [ws]: { device: { value: 'd2', label: 'Two' } } });
 		// Remembered: F5 starts it at once; --ask asks, with the one picked last.
-		assert.equal((cli('start', '--folder', ws, '--config', 'saved:on').run as RunState).line, 'echo "on d2"');
+		const again = cli('start', '--folder', ws, '--config', 'saved:on').run as RunState;
+		assert.equal(again.line, 'echo "on d2"; exec sleep 30');
 		assert.equal((cli('start', '--folder', ws, '--config', 'saved:on', '--ask').ask as { current?: string }).current, 'd2');
+		// Asking starts nothing and stops nothing: the run of the configuration goes on.
+		const runs = cli('ps', '--folder', ws).runs as RunState[];
+		assert.ok(isLive(runs.find((r) => r.id === again.id)!.status), 'the run asking left alone');
+		assert.equal(runs.filter((r) => isLive(r.status)).length, 1);
 		assert.equal(inputMemory(new Runs(runsDir)).path, join(dir, 'run-inputs.json'));
 	} finally {
 		spawnSync(join(root, 'bin/symbiosis'), ['run', 'stop', '--folder', ws, '--all'], { env: { ...process.env, SYMBIOSIS_RUNS: runsDir } });

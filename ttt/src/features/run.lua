@@ -412,9 +412,10 @@ function M.setup(app)
 		if ok and type(data) == "table" then chosen_ids = data end
 	end
 
-	local function choose(config)
-		if not folder then return end
-		chosen_ids[folder] = config.id
+	local function choose(config, at)
+		at = at or folder
+		if not at then return end
+		chosen_ids[at] = config.id
 		pcall(fs.write, chosen_file, json.encode(chosen_ids))
 	end
 
@@ -462,14 +463,16 @@ function M.setup(app)
 	local ask_input -- the drawer for an input `run start` cannot pick itself
 
 	-- opts: again = the user picks every input again; given, labels = the
-	-- inputs picked so far (id -> value, id -> label).
+	-- inputs decided so far (id -> value, id -> label); folder = the one the
+	-- run was asked in (a drawer stays open while another project's file opens).
 	local function start(config, opts)
 		if busy then return end
 		opts = opts or {}
+		local at = opts.folder or folder
 		busy = true
-		choose(config)
+		choose(config, at)
 		local pos = select(2, pcall(editor.cursor))
-		local args = { "start", "--folder", folder, "--config", config.id, "--file", file_now() or "" }
+		local args = { "start", "--folder", at, "--config", config.id, "--file", file_now() or "" }
 		if type(pos) == "table" and pos.line then
 			table.insert(args, "--line")
 			table.insert(args, tostring(pos.line))
@@ -479,11 +482,11 @@ function M.setup(app)
 		cli(args, function(out)
 			busy = false
 			if not out then return end
-			if out.ask then return ask_input(config, out.ask, opts) end
+			if out.ask then return ask_input(config, out.ask, { again = opts.again, folder = at }) end
 			selected, scroll = out.run.id, 0
-			list_runs()
 			-- What its inputs picked, for the picker.
-			if (config.line or ""):find("${input:", 1, true) then refresh_list() end
+			if out.picked then config.picked = out.picked end
+			list_runs()
 			reveal()
 		end)
 	end
@@ -567,11 +570,12 @@ function M.setup(app)
 		local function take(option)
 			if not option then return end
 			close_picker()
+			-- The inputs decided before this one come back with the ask: given, they are not listed again.
 			local given, labels = {}, {}
-			for k, v in pairs(a.opts.given or {}) do given[k] = v end
-			for k, v in pairs(a.opts.labels or {}) do labels[k] = v end
+			for k, v in pairs(a.ask.given or {}) do given[k] = v end
+			for k, v in pairs(a.ask.labels or {}) do labels[k] = v end
 			given[a.ask.input.id], labels[a.ask.input.id] = option.value, option.label
-			start(a.config, { again = a.opts.again, given = given, labels = labels })
+			start(a.config, { again = a.opts.again, given = given, labels = labels, folder = a.opts.folder })
 		end
 		local function by_value(value)
 			for _, o in ipairs(a.ask.options) do if o.value == value then return o end end

@@ -10,45 +10,72 @@
 // Which value a run takes (decide): the one given, else the one picked last
 // time while it is still an option, else the only option, else the only one
 // ready; else the user picks. Asked to pick again, the user always picks.
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { type InputDef, type InputOption, parseOptions, type RunConfig, RunConfigError } from './config.ts';
-import { writeAtomic } from './runs.ts';
+import { killGroup, writeAtomic } from './runs.ts';
 import { expand, expandShell, type VariableContext } from './variables.ts';
 
 export const OPTIONS_TIMEOUT_MS = 20_000;
+const OPTIONS_MAX_BYTES = 1 << 20;
+/** After its command exits: how long what it started may still hold its output. */
+const OPTIONS_CLOSE_MS = 200;
 
-/** The options of an input: its list, or what its command prints (run in the workspace folder). */
+/** A time for an error: "800 ms", "1.5 s", "20 s". */
+function took(ms: number): string {
+	return ms < 1000 ? `${ms} ms` : `${Number((ms / 1000).toFixed(1))} s`;
+}
+
+/**
+ * The options of an input: its list, or what its command prints. The command
+ * runs in the workspace folder with no stdin, in a process group of its own:
+ * on a timeout, too much output, or once it has exited, what it started is
+ * killed with it.
+ */
 export async function listOptions(def: InputDef, ctx: VariableContext, timeoutMs = OPTIONS_TIMEOUT_MS): Promise<InputOption[]> {
 	if (def.options) return [...def.options];
 	const at = `input "${def.id}"`;
-	// An input's command names no other input.
-	const plain = { ...ctx, inputs: undefined };
 	const hasArgs = def.args !== undefined;
-	const program = hasArgs ? expand(def.command!, plain) : '/bin/sh';
-	const argv = hasArgs ? def.args!.map((a) => expand(a, plain)) : ['-c', expandShell(def.command!, plain)];
-	return new Promise((done, fail) => {
-		execFile(program, argv, { cwd: ctx.folder, env: { ...ctx.env }, timeout: timeoutMs, maxBuffer: 1 << 20, encoding: 'utf8' }, (error, stdout, stderr) => {
-			if (error) {
-				const e = error as NodeJS.ErrnoException & { killed?: boolean; code?: number | string };
-				const why = e.code === 'ENOENT' ? `${program}: command not found`
-					: e.killed ? `no answer in ${Math.round(timeoutMs / 1000)} s`
-					: stderr.trim().split('\n').slice(-3).join(' · ') || `exited ${e.code}`;
-				return fail(new RunConfigError(`${at}: ${why}`));
-			}
-			let raw: unknown;
-			try {
-				raw = JSON.parse(stdout);
-			} catch {
-				return fail(new RunConfigError(`${at}: its command printed no JSON list: ${stdout.trim().slice(0, 120) || '(nothing)'}`));
-			}
-			try {
-				done(parseOptions(raw, at));
-			} catch (err) {
-				fail(err);
-			}
+	const program = hasArgs ? expand(def.command!, ctx) : '/bin/sh';
+	const argv = hasArgs ? def.args!.map((a) => expand(a, ctx)) : ['-c', expandShell(def.command!, ctx)];
+	const stdout = await new Promise<string>((done, fail) => {
+		const child = spawn(program, argv, { cwd: ctx.folder, env: { ...ctx.env }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+		const out: Buffer[] = [];
+		const err: Buffer[] = [];
+		let bytes = 0;
+		let settled = false;
+		const settle = (error: string | undefined) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			killGroup(child.pid, 'SIGKILL');
+			if (error) fail(new RunConfigError(`${at}: ${error}`));
+			else done(Buffer.concat(out).toString('utf8'));
+		};
+		const timer = setTimeout(() => settle(`no answer in ${took(timeoutMs)}`), timeoutMs);
+		child.stdout.on('data', (chunk: Buffer) => {
+			bytes += chunk.length;
+			if (bytes > OPTIONS_MAX_BYTES) settle(`its command printed more than ${OPTIONS_MAX_BYTES >> 20} MB`);
+			else out.push(chunk);
+		});
+		child.stderr.on('data', (chunk: Buffer) => err.push(chunk));
+		child.on('error', (error: NodeJS.ErrnoException) => settle(error.code === 'ENOENT' ? `${program}: command not found` : error.message));
+		child.on('exit', (code, signal) => {
+			const why = () => Buffer.concat(err).toString('utf8').trim().split('\n').slice(-3).join(' · ')
+				|| (signal ? `killed by ${signal}` : `exited ${code}`);
+			// Its output is all there on close; a child it left may hold it open.
+			const finish = () => settle(code === 0 ? undefined : why());
+			child.once('close', finish);
+			setTimeout(finish, OPTIONS_CLOSE_MS);
 		});
 	});
+	let raw: unknown;
+	try {
+		raw = JSON.parse(stdout);
+	} catch {
+		throw new RunConfigError(`${at}: its command printed no JSON list: ${stdout.trim().slice(0, 120) || '(nothing)'}`);
+	}
+	return parseOptions(raw, at);
 }
 
 /**
@@ -107,6 +134,9 @@ export interface InputAsk {
 	readonly options: readonly InputOption[];
 	/** The value picked last time, when it is still an option. */
 	readonly current?: string;
+	/** The inputs before it, decided or given (id → value, id → label): what to give next time. */
+	readonly given: Readonly<Record<string, string>>;
+	readonly labels: Readonly<Record<string, string>>;
 }
 
 export type Inputs =
@@ -142,6 +172,8 @@ export async function pickInputs(
 				ask: {
 					config: config.id, name: config.name, input: { id: def.id, description: def.description }, options,
 					...(current ? { current } : {}),
+					given: values,
+					labels: Object.fromEntries(Object.entries(picks).map(([id, p]) => [id, p.label])),
 				},
 			};
 		}
