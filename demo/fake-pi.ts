@@ -2,18 +2,37 @@
 // real extension (pi/index.ts) and plays the events pi sends it: tool call
 // arguments arrive in small JSON chunks, parsed by pi's own partial parser,
 // then the tool runs (the file changes on disk) and its result comes back.
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+// The tools are the ones the extension registers: pi's own edit and write,
+// with symbiosis' `why` (pi/tools.ts), and propose.
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
 import symbiosis from '../pi/index.ts';
 import { pluginDir } from '../core/channel/file.ts';
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
-type Tool = { name: string; execute: (id: string, params: unknown) => Promise<unknown> };
+type Tool = {
+	name: string;
+	prepareArguments?: (args: unknown) => unknown;
+	execute: (id: string, params: unknown, signal?: AbortSignal, onUpdate?: unknown, ctx?: unknown) => Promise<{ content?: { text?: string }[]; details?: unknown }>;
+};
 export type StepState = 'done' | 'now' | 'next';
 export interface Edit {
 	oldText: string;
 	newText: string;
+}
+
+/** How a write or edit call went: blocked before it ran (the guard's reason), failed, or done. */
+export interface CallResult {
+	blocked?: string;
+	error?: string;
+}
+
+export interface Proposal {
+	kind: string;
+	target: string;
+	what: string;
+	why: string;
 }
 
 /** The part of a side call's context the fake model reads. */
@@ -109,8 +128,13 @@ export class FakePi {
 		await this.fire('ui_prompt_end', { type: 'ui_prompt_end', reason: 'ui_prompt', kind: 'confirm' });
 	}
 
-	async fire(name: string, event: unknown = {}): Promise<void> {
-		for (const h of this.handlers.get(name) ?? []) await h(event, this.ctx);
+	/** Runs the handlers in order; returns the first `{ block }` one gives, as pi stops there. */
+	async fire(name: string, event: unknown = {}): Promise<{ block?: boolean; reason?: string } | undefined> {
+		for (const h of this.handlers.get(name) ?? []) {
+			const result = (await h(event, this.ctx)) as { block?: boolean; reason?: string } | undefined;
+			if (result?.block) return result;
+		}
+		return undefined;
 	}
 
 	async start(): Promise<void> {
@@ -187,31 +211,44 @@ export class FakePi {
 	}
 
 	/** The model writes a whole file. */
-	async write(path: string, content: string): Promise<void> {
-		await this.call('write', { path, content }, (file) => {
-			writeFileSync(file, content);
-			return undefined;
-		});
+	async write(path: string, content: string, why?: string): Promise<CallResult> {
+		return this.call('write', { path, content, ...(why ? { why } : {}) });
 	}
 
-	/** The model edits a file: each oldText must be in it once, like pi's edit tool asks. */
-	async edit(path: string, edits: Edit[]): Promise<void> {
-		await this.call('edit', { path, edits }, (file) => {
-			let text = readFileSync(file, 'utf-8');
-			let first = Infinity;
-			for (const e of edits) {
-				const at = text.indexOf(e.oldText);
-				if (at < 0) throw new Error(`edit: ${path}: text not found: ${e.oldText.slice(0, 40)}`);
-				first = Math.min(first, text.slice(0, at).split('\n').length);
-				text = text.slice(0, at) + e.newText + text.slice(at + e.oldText.length);
-			}
-			writeFileSync(file, text);
-			return { firstChangedLine: first === Infinity ? 1 : first };
-		});
+	/** The model edits a file with pi's edit tool. */
+	async edit(path: string, edits: Edit[], why?: string): Promise<CallResult> {
+		return this.call('edit', { path, edits, ...(why ? { why } : {}) });
+	}
+
+	/** The model calls propose; resolves with the tool's answer once the developer answered. */
+	async propose(proposal: Proposal, signal?: AbortSignal): Promise<string> {
+		const result = await this.tools.get('propose')?.execute(`propose-${++this.calls}`, proposal, signal, undefined, this.ctx);
+		const text = result?.content?.[0]?.text ?? '';
+		this.log(`propose ${proposal.kind} ${proposal.target}: ${text}`);
+		return text;
+	}
+
+	/**
+	 * The model runs a tool the extension does not register (bash): `run` is
+	 * its work. Resolves with the text the model gets back.
+	 */
+	async other(name: string, run: () => void): Promise<string> {
+		const id = `call-${++this.calls}`;
+		const blocked = await this.fire('tool_call', { toolCallId: id, toolName: name, input: {} });
+		if (blocked) return blocked.reason ?? '';
+		run();
+		let content: { type: string; text?: string }[] = [{ type: 'text', text: 'ran' }];
+		for (const h of this.handlers.get('tool_result') ?? []) {
+			const changed = (await h({ toolCallId: id, toolName: name, input: {}, content, isError: false }, this.ctx)) as { content?: typeof content } | undefined;
+			if (changed?.content) content = changed.content;
+		}
+		const text = content.map((c) => c.text ?? '').join('\n');
+		this.log(`${name}: ${text}`);
+		return text;
 	}
 
 	/** Streams one tool call, then runs it, like pi does. */
-	private async call(name: 'write' | 'edit', args: { path: string }, run: (file: string) => unknown): Promise<void> {
+	private async call(name: 'write' | 'edit', args: { path: string } & Record<string, unknown>): Promise<CallResult> {
 		const id = `call-${++this.calls}`;
 		const json = JSON.stringify(args);
 		for (let i = this.chunk; i < json.length + this.chunk; i += this.chunk) {
@@ -223,17 +260,26 @@ export class FakePi {
 		await this.fire('message_update', { assistantMessageEvent: { type: 'toolcall_end', contentIndex: 0, toolCall } });
 		const t = Date.now();
 		// The plugin types the preview at its own speed; pi waits here until it is all on screen.
-		await this.fire('tool_call', { toolCallId: id, toolName: name, input: args });
+		const tool = this.tools.get(name);
+		if (!tool) throw new Error(`fake pi: the extension registers no ${name} tool`);
+		const input = tool.prepareArguments ? tool.prepareArguments(args) : args;
+		const blocked = await this.fire('tool_call', { toolCallId: id, toolName: name, input });
 		const file = args.path.startsWith('/') ? args.path : join(this.cwd, args.path);
+		if (blocked) {
+			// pi fires no tool_result for a blocked call.
+			this.log(`${name} ${relative(this.cwd, file)}: blocked`);
+			return { blocked: blocked.reason ?? '' };
+		}
 		this.log(`${name} ${relative(this.cwd, file)}: pi waited ${((Date.now() - t) / 1000).toFixed(1)} s for the editor`);
 		let details: unknown;
-		let isError = false;
+		let error: string | undefined;
 		try {
-			details = run(file);
+			details = (await tool.execute(id, input, undefined, undefined, this.ctx)).details;
 		} catch (e) {
-			isError = true;
-			this.log(String(e));
+			error = e instanceof Error ? e.message : String(e);
+			this.log(error);
 		}
-		await this.fire('tool_result', { toolCallId: id, toolName: name, input: args, isError, details });
+		await this.fire('tool_result', { toolCallId: id, toolName: name, input, isError: error !== undefined, details });
+		return error === undefined ? {} : { error };
 	}
 }

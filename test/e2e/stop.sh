@@ -14,12 +14,13 @@ perms=$(python3 -c "import json; print(json.dumps(json.load(open('$repo/ttt/symb
 echo "[{\"name\":\"symbiosis\",\"displayName\":\"symbiosis\",\"version\":\"0.1.0\",\"enabled\":true,\"permissions\":$perms}]" > "$OUT/cfg/plugins.ttt.json"
 echo 'export const x = 1;' > "$OUT/ws/a.ts"
 
-# pi shows its dialog at about 2.5 s and ends it at about 8.5 s. The notice
-# shows for 5 s, then the bar shows it.
-steps="wait 3500; screenshot $OUT/notice.txt; wait 4500; screenshot $OUT/waits.txt; wait 2000; screenshot $OUT/working.txt; key ctrl+k q; wait 1500; quit"
+# pi shows its dialog between about 1.2 s and 3.2 s (how fast pi's package
+# loads) and ends it 9 s later. The notice shows for 5 s, then the bar shows it.
+steps="wait 3500; screenshot $OUT/notice.txt; wait 5000; screenshot $OUT/waits.txt; wait 4500; screenshot $OUT/working.txt; key ctrl+k q; wait 1500; quit"
 (cd "$OUT/ws" && ttt --size 140x24 a.ts --exec "$steps" > /dev/null 2>&1) &
 ttt=$!
-sleep 1.2
+# The fake pi loads pi's package first (about 0.8 s): it starts earlier.
+sleep 0.4
 "$repo/bin/run-node" "$repo/test/e2e/stop.ts" "$OUT/ws" > "$OUT/pi.log" 2>&1 &
 pi=$!
 wait $ttt || true

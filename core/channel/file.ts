@@ -6,21 +6,24 @@
 //   head.json     {gen, size}: the plugin reads this small file on every tick
 //                 and reads events.jsonl only when it grew. A new `gen` means
 //                 pi started the log again from empty.
-//   ttt.json      {t, pinned, owner, lag}: the plugin's heartbeat, every
-//                 second. `owner` is the id of the session the editor
+//   ttt.json      {t, pinned, owner, lag, scope}: the plugin's heartbeat,
+//                 every second. `owner` is the id of the session the editor
 //                 follows; only that session writes events. `lag` is how many
 //                 changes pi may make before the editor has shown them.
+//                 `scope` is how far the guard lets a fill reach.
 //   ack.json      [call ids]: the changes the editor has shown (replayed).
 //   help.json     HelpRequest: the plugin asks session `to` a helpi!
 //                 question (core/help.ts), or to stop it (`cancel`).
 //   stop.json     {id, to}: the plugin asks session `to` to stop its turn
 //                 (ctrl+k q); `id` is new for each press.
+//   fill.json     FillRequest: fill the stub at a line, or end the fill.
+//   answer.json   ProposalAnswer: the developer accepts or rejects a proposal.
 //   sessions/<id>.json  one Session per running pi, written every second.
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseRequest } from '../help.ts';
-import { type ChannelEvent, DEFAULT_LAG, type HelpRequest, type PluginState, type Session, type StopRequest } from '../protocol.ts';
+import { type ChannelEvent, DEFAULT_LAG, type FillRequest, type HelpRequest, type PluginState, type ProposalAnswer, SCOPES, type Scope, type Session, type StopRequest } from '../protocol.ts';
 import type { Channel } from './channel.ts';
 
 /** The log starts again from empty at the start of a turn once it is this big. */
@@ -73,11 +76,14 @@ export class FileChannel implements Channel {
 	}
 
 	plugin(): PluginState {
-		const state = readJson<{ t?: unknown; pinned?: unknown; owner?: unknown; lag?: unknown }>(join(this.dir, 'ttt.json'));
+		const state = readJson<{ t?: unknown; pinned?: unknown; owner?: unknown; lag?: unknown; scope?: unknown }>(join(this.dir, 'ttt.json'));
 		const t = typeof state?.t === 'number' ? state.t : 0;
 		const owner = typeof state?.owner === 'string' ? state.owner : undefined;
 		const lag = typeof state?.lag === 'number' && Number.isInteger(state.lag) && state.lag >= -1 ? state.lag : DEFAULT_LAG;
-		return { alive: this.now() / 1000 - t < 3, pinned: state?.pinned === true, lag, ...(owner ? { owner } : {}) };
+		const alive = this.now() / 1000 - t < 3;
+		// A scope from an editor that is gone does not hold: the strict default does.
+		const scope: Scope = alive && SCOPES.includes(state?.scope as Scope) ? (state?.scope as Scope) : 'stub';
+		return { alive, pinned: state?.pinned === true, lag, scope, ...(owner ? { owner } : {}) };
 	}
 
 	/** Writes this session's record: the heartbeat the plugin reads. */
@@ -123,6 +129,22 @@ export class FileChannel implements Channel {
 	/** The plugin's last helpi! request, if any. */
 	help(): HelpRequest | undefined {
 		return parseRequest(readJson(join(this.dir, 'help.json')));
+	}
+
+	/** The plugin's last fill! request, if any. */
+	fill(): FillRequest | undefined {
+		const raw = readJson<Record<string, unknown>>(join(this.dir, 'fill.json'));
+		if (typeof raw?.id !== 'string' || typeof raw.to !== 'string') return undefined;
+		if (raw.release === true) return { id: raw.id, to: raw.to, release: true };
+		if (typeof raw.path !== 'string' || typeof raw.line !== 'number') return undefined;
+		return { id: raw.id, to: raw.to, release: false, path: raw.path, line: raw.line };
+	}
+
+	/** The plugin's last answer to a proposal, if any. */
+	answer(): ProposalAnswer | undefined {
+		const raw = readJson<Record<string, unknown>>(join(this.dir, 'answer.json'));
+		if (typeof raw?.id !== 'string' || typeof raw.accept !== 'boolean') return undefined;
+		return { id: raw.id, accept: raw.accept, note: typeof raw.note === 'string' ? raw.note.trim() : '' };
 	}
 
 	/**

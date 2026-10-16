@@ -151,7 +151,26 @@ argument, else the git root, else this folder.
   with several steps. `ctrl+k v` (or a click) shows the whole plan in a
   drawer; Esc closes it.
 - `ctrl+k w`: what pi changed in its last turn, as a diff: the open file, or
-  the last file pi changed if pi did not touch the open one.
+  the last file pi changed if pi did not touch the open one. A notice lists
+  the reasons pi gave for those changes (`why`).
+- Stubs: write the signature, a one-line comment above it, and a body that is
+  only `// TODO(pi)` (and the language's placeholder, for example
+  `throw new Error('not written')`). Type `fill!` at the end of the
+  `TODO(pi)` line, or put the cursor in the stub and press `ctrl+k f`. The
+  file is saved, and the session the editor follows fills the body. The
+  status bar shows `· filling <name>`. While it fills, a guard blocks every
+  write or edit that reaches past the body: another place in the file, the
+  signature, a new declaration, a new dependency, a new file. A change
+  another tool (bash) makes to the stub's file is undone. pi can ask for
+  such a change with its `propose` tool: a drawer shows what and why, Enter
+  in the note accepts, the Reject button rejects, and the note goes to pi.
+  Esc only closes the drawer: `ctrl+k p` (or the `? pi proposes` item in the
+  status bar) shows it again. An accepted proposal lets that one change in,
+  once. The fill ends when the body is filled at the end of pi's run, or with
+  "symbiosis: Release the Stub". "Stub scope" in the panel: the stub's body
+  (default), the stub's file (private helpers allowed), or anywhere (no
+  guard). With a reason for a choice that is not obvious, pi gives its edit a
+  `why`; the editor shows it as a notice when the change is shown.
 - The file tree follows pi: when the editor follows pi into a file, ttt's
   tree opens to it, if the file is in a folder open in ttt (start ttt on a
   folder, or on several: `ttt ~/a ~/b`). The "pi files" tab in the sidebar
@@ -252,6 +271,7 @@ bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel
 bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, no multiplexer, already open
 bash test/e2e/marks.sh     # the gutter: ▌ on the change's lines and π on the line typed now, none after
 bash test/e2e/stop.sh      # "? waits for you" while pi shows a dialog; ctrl+k q stops pi's turn
+bash test/e2e/stubs.sh     # fill!: an edit outside the stub is blocked, the body goes in, a proposal is accepted in the drawer
 bash test/e2e/runconf.sh   # run configurations: the picker, F5, shift+F5, a failing run, ctrl+q keeps a run, back in ttt it shows
 sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi): without herdr, with it, twice, key taken, own command file
 ```

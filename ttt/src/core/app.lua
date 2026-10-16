@@ -258,6 +258,22 @@ function App:section(def)
 	sorted(self.sections)
 end
 
+-- The drawer: one at a time in ttt. `id` names who opened it last, so a
+-- feature closes only its own. ttt does not tell a plugin that Esc closed
+-- it: after that, close_drawer(id) closes nothing, or whatever ttt shows
+-- (a no-op when no drawer is open). close_drawer() with no id closes the
+-- drawer that is open, whoever opened it.
+function App:open_drawer(id, opts)
+	self.drawer = id
+	ttt.open_drawer(opts)
+end
+
+function App:close_drawer(id)
+	if id ~= nil and self.drawer ~= id then return end
+	self.drawer = nil
+	pcall(ttt.close_drawer)
+end
+
 function App:note(text, order)
 	table.insert(self.notes, entry(self, { text = text, order = order or 50 }))
 	sorted(self.notes)

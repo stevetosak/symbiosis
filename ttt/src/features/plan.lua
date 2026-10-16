@@ -90,7 +90,7 @@ return {
 		-- drawer takes the keys while it is open, so Esc closes it (as every ttt
 		-- drawer); a plugin key cannot reach it, and the editor cannot keep the focus.
 		open = function()
-			ttt.open_drawer({ width = 48, min_width = 30, side = "right", render = render })
+			app:open_drawer("plan", { width = 48, min_width = 30, side = "right", render = render })
 		end
 
 		app:on("sessions", show)

@@ -14,7 +14,8 @@
 -- preview and no jumps, but the end of the turn (a stop) moves the editor
 -- anyway. See docs/design.md.
 --
--- Hooks it emits: "follow" (path) when the editor followed pi into a file.
+-- Hooks it emits: "follow" (path) when the editor followed pi into a file;
+-- "done" (event) when the replay showed a change pi made (its `why` too).
 -- replay.typing() is the change typed now, for the gutter (features/marks.lua).
 -- Other features may hold the replay (replay.hold) or lock a file against
 -- your typing (replay.lock).
@@ -285,6 +286,8 @@ return {
 		local function done(ev)
 			calls[ev.call] = nil
 			here = { path = ev.path, line = ev.line, mark = "✎" }
+			-- The change is shown now: the features that want it (fill: its why).
+			app:emit("done", ev)
 			if not ev.ok then return show() end
 			-- In a run, the buffer is the replay: the jump waits for its end.
 			if busy(ev.path) then run.line = ev.line return show() end
