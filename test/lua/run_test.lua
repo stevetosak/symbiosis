@@ -89,4 +89,16 @@ return {
 		t.eq(run.guess_folder("/r/web/b.ts", exists), "/r", "else the git root")
 		t.eq(run.guess_folder("/tmp/x/c.py", exists), "/tmp/x", "else the file's folder")
 	end },
+	{ "run: where the bottom panel's cells start on the screen", function()
+		local state = { widget_tree = { type = "Root", children = {
+			{ type = "SplitPanel", children = { { type = "Sidebar" }, { type = "ContentSplit", children = {
+				{ type = "EditorGroup", rect = { x = 32, y = 1, w = 67, h = 12 } },
+				{ type = "BottomPanel", rect = { x = 32, y = 13, w = 67, h = 15 } },
+			} } } },
+		} } }
+		local x, y = run.panel_origin(state)
+		t.eq({ x, y }, { 32, 15 }, "below the tab row and the divider")
+		t.eq(run.panel_origin({ widget_tree = { type = "Root" } }), nil)
+		t.eq(run.panel_origin(nil), nil)
+	end },
 }

@@ -171,7 +171,8 @@ Run a project from ttt, as in Rider or VS Code (debugging comes later).
 - Status bar: `▶ api` (chosen), `● api 0:42` (runs), `✓ api`, `✗ api 1`
   (its exit code), `+2` (others that run).
 - The Run tab of the bottom panel: the runs, newest at the top, and the
-  output of one. Up/Down choose a run, PgUp/PgDn/Home/End scroll (End
+  output of one. A click in it, or `ctrl+k shift+F5`, gives it the keys (Esc
+  gives them back to the editor). Up/Down or a click choose a run, PgUp/PgDn/Home/End scroll (End
   follows the output again), `s` stops, `r` runs it again, `x` removes an
   ended run, `o` opens its whole log, Enter or a click opens a `file:line` from
   the output.

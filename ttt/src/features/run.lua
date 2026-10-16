@@ -133,6 +133,23 @@ function M.guess_folder(file, exists)
 end
 
 -- tail.txt's text → its lines.
+-- The screen cell of a bottom panel's top left, from ttt.debug's state: the
+-- BottomPanel widget, below its tab row and the divider. Nil when not found.
+function M.panel_origin(state)
+	local function walk(node)
+		if type(node) ~= "table" then return nil end
+		if node.type == "BottomPanel" and type(node.rect) == "table" then return node.rect end
+		for _, child in ipairs(node.children or {}) do
+			local r = walk(child)
+			if r then return r end
+		end
+		return nil
+	end
+	local r = type(state) == "table" and walk(state.widget_tree) or nil
+	if not r then return nil end
+	return r.x or 0, (r.y or 0) + 2
+end
+
 function M.split_lines(text)
 	local out = {}
 	for line in util.lines(text or "") do table.insert(out, (line:gsub("\n$", ""))) end
@@ -322,16 +339,26 @@ function M.setup(app)
 		end)
 	end
 
+	-- ttt's state, as ttt.debug writes it: the bottom panel's tabs, the widgets' places.
+	local function debug_state()
+		local path = app.dir .. "/run-debug.json"
+		if not pcall(ttt.debug, path) then return nil end
+		local ok, d = pcall(json.decode, fs.read(path) or "")
+		return ok and type(d) == "table" and d or nil
+	end
+
 	-- The Run panel tab: brings it up. ttt has no call for it: the panel's
 	-- tabs are cycled with tab.next while the panel has the focus, then the
 	-- focus goes back to the editor.
-	local function reveal()
-		local path = app.dir .. "/run-debug.json"
-		local ok = pcall(ttt.debug, path)
-		local d = ok and select(2, pcall(json.decode, fs.read(path) or "")) or nil
+	-- With focus, the panel keeps the focus (for its keys).
+	local function reveal(focus)
+		local d = debug_state()
 		local bp = type(d) == "table" and d.bottom_panel or nil
 		if type(bp) ~= "table" then return end
-		if bp.visible and bp.active == PANEL_ID then return end
+		if bp.visible and bp.active == PANEL_ID then
+			if focus then ttt.exec_command("panel.focus") end
+			return
+		end
 		local from, to, n = nil, nil, #(bp.panels or {})
 		for i, id in ipairs(bp.panels or {}) do
 			if id == bp.active then from = i end
@@ -340,7 +367,7 @@ function M.setup(app)
 		if not to then return end
 		ttt.exec_command("panel.focus")
 		for _ = 1, ((to - (from or to)) % n) do ttt.exec_command("tab.next") end
-		ttt.exec_command("editor.focus")
+		if not focus then ttt.exec_command("editor.focus") end
 	end
 
 	local function start(config)
@@ -488,12 +515,18 @@ function M.setup(app)
 
 	-- The Run panel ------------------------------------------------------------------
 
-	local layout = { left = 0, rows = {}, out_top = 1, out_rows = 0, first = 1 }
+	local layout = { left = 0, rows = {}, out_top = 1, out_rows = 0, first = 1, w = 0, h = 0 }
+	-- Where the panel is on the screen: ttt gives a panel's mouse events in
+	-- screen cells, and the panel its own size only. From ttt.debug, again
+	-- when the panel's size changes.
+	local origin = nil
 
 	local function render_panel(panel)
 		panel_ref = panel
 		local w, h = panel:size()
 		if w <= 0 or h <= 0 then return end
+		if w ~= layout.w or h ~= layout.h then origin = nil end
+		layout.w, layout.h = w, h
 		local now = os.time()
 		if #runs == 0 then
 			local c = chosen()
@@ -546,7 +579,7 @@ function M.setup(app)
 			M.put(panel, x, 1 + i - first, util.cut(line, ow), st)
 		end
 		local hint = M.live(run) and "s stop · r restart" or "r run again · x remove"
-		hint = hint .. " · ↑↓ runs · PgUp/PgDn scroll · o full log · click a file:line"
+		hint = hint .. " · ↑↓ runs · PgUp/PgDn scroll · o full log · click a file:line · Esc editor"
 		if scroll > 0 then hint = "↓ " .. scroll .. " more · End follows · " .. hint end
 		M.put(panel, x, h - 1, util.cut(hint, ow), "muted")
 	end
@@ -555,8 +588,8 @@ function M.setup(app)
 		if #runs == 0 then return end
 		local at = #runs
 		for i, r in ipairs(runs) do if r.id == selected then at = i end end
-		-- The list shows the newest first: Down is older.
-		at = math.max(1, math.min(#runs, at - delta))
+		-- The list shows the newest first: Up (1) is newer, Down (-1) older.
+		at = math.max(1, math.min(#runs, at + delta))
 		selected, scroll = runs[at].id, 0
 		read_tail()
 		redraw()
@@ -590,6 +623,7 @@ function M.setup(app)
 			elseif k == "PgDn" then scroll_by(-math.max(1, layout.out_rows - 1))
 			elseif k == "Home" then scroll_by(#tail.lines)
 			elseif k == "End" then scroll = 0 redraw()
+			elseif k == "Esc" or k == "Escape" then ttt.exec_command("editor.focus")
 			elseif rune == "s" then stop(run)
 			elseif rune == "r" then again(run)
 			elseif rune == "x" and run and not M.live(run) then
@@ -609,13 +643,19 @@ function M.setup(app)
 			if ev.button == "wheel_up" then scroll_by(3) return true end
 			if ev.button == "wheel_down" then scroll_by(-3) return true end
 			if ev.button ~= "left" then return false end
-			if ev.x < layout.left then
-				local id = layout.rows[ev.y]
+			-- A click focuses the panel: ttt does that only for a panel that
+			-- tells it it took the click, which a plugin's cannot.
+			ttt.exec_command("panel.focus")
+			if not origin then origin = { M.panel_origin(debug_state()) } end
+			if not origin[1] then return true end
+			local x, y = ev.x - origin[1], ev.y - origin[2]
+			if x < layout.left then
+				local id = layout.rows[y]
 				if id then selected, scroll = id, 0 read_tail() redraw() end
 				return true
 			end
-			local i = layout.first + ev.y - layout.out_top
-			if ev.y >= layout.out_top and ev.y < layout.out_top + layout.out_rows then open_ref(tail.lines[i]) end
+			local i = layout.first + y - layout.out_top
+			if y >= layout.out_top and y < layout.out_top + layout.out_rows then open_ref(tail.lines[i]) end
 			return true
 		end
 		return false
@@ -722,7 +762,7 @@ function M.setup(app)
 	app:command({ id = "symbiosis.run", title = "symbiosis: Run", key = "f5", run = run_chosen })
 	app:command({ id = "symbiosis.runStop", title = "symbiosis: Stop the Run", key = "shift+f5", run = stop_current })
 	app:command({ id = "symbiosis.runPick", title = "symbiosis: Run Configuration…", key = "ctrl+k f5", run = pick })
-	app:command({ id = "symbiosis.runPanel", title = "symbiosis: Show the Run Panel", run = function() list_runs() reveal() end })
+	app:command({ id = "symbiosis.runPanel", title = "symbiosis: Focus the Run Panel", key = "ctrl+k shift+f5", run = function() list_runs() reveal(true) end })
 	app:command({ id = "symbiosis.runEdit", title = "symbiosis: Edit Run Configurations", run = function() refresh_list(edit_run_json) end })
 	app:hint({ key = "F5 · shift+F5", text = "run · stop", order = 95 })
 	app:hint({ key = "ctrl+k F5", text = "pick a run configuration", order = 96 })
