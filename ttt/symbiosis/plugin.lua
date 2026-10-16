@@ -14,9 +14,9 @@
 --    1467  ttt/src/features/plan.lua
 --    1570  ttt/src/features/replay.lua
 --    2077  ttt/src/features/run.lua
---    2887  ttt/src/features/sessions.lua
---    3133  ttt/src/features/tree.lua
---    3270  ttt/src/main.lua
+--    2957  ttt/src/features/sessions.lua
+--    3203  ttt/src/features/tree.lua
+--    3340  ttt/src/main.lua
 local modules, loaded, loading = {}, {}, {}
 local host_require = require
 -- The bundle's require: a module in the bundle, else one of ttt's.
@@ -2209,6 +2209,43 @@ function M.guess_folder(file, exists)
 end
 
 -- tail.txt's text → its lines.
+-- The rows the output takes in a pane `width` wide: a line each, or with
+-- wrap, as many as its text needs. Each row: { text, line = its line's index }.
+function M.output_rows(lines, width, wrap)
+	local rows = {}
+	width = math.max(1, width)
+	for i, line in ipairs(lines) do
+		if not wrap or util.runes(line) <= width then
+			table.insert(rows, { text = line, line = i })
+		else
+			local rest = line
+			while rest ~= "" do
+				local n = util.rune_bytes(rest, width)
+				table.insert(rows, { text = rest:sub(1, n), line = i })
+				rest = rest:sub(n + 1)
+			end
+		end
+	end
+	return rows
+end
+
+-- ttt 1.7 hands a focused plugin panel each event twice, a millisecond apart
+-- (ui.WidgetAdapter asks its focus manager, then the panel itself, when the
+-- panel says it ignored it, and a plugin panel cannot say otherwise). The
+-- function this returns says whether an event is that second copy: the same
+-- event within `window` seconds (os.clock: seconds since ttt started).
+function M.twice_filter(window)
+	window = window or 0.008
+	local last, at = nil, -1
+	return function(ev, now)
+		local sig = table.concat({ tostring(ev.type), tostring(ev.key), tostring(ev.rune), tostring(ev.mod),
+			tostring(ev.x), tostring(ev.y), tostring(ev.button) }, "\1")
+		local again = sig == last and now - at < window
+		last, at = sig, now
+		return again
+	end
+end
+
 -- The runs list's width in a Run panel w wide: the one dragged (wanted),
 -- else 28% of it; never so wide or narrow that a pane disappears.
 function M.split_width(w, wanted)
@@ -2608,10 +2645,23 @@ function M.setup(app)
 	-- The runs list's width: dragged at the │ between the panes, kept in run-layout.json.
 	local layout_file = app.dir .. "/run-layout.json"
 	local split = nil
+	local wrap = false -- long output lines: cut at the pane's edge, or wrapped (w)
 	local dragging = false
-	do
+	-- At "ready": ttt's fs answers a plugin only once it has loaded.
+	local function load_layout()
 		local ok, d = pcall(json.decode, fs.exists(layout_file) and fs.read(layout_file) or "")
-		if ok and type(d) == "table" and tonumber(d.left) then split = tonumber(d.left) end
+		if ok and type(d) == "table" then
+			if tonumber(d.left) then split = tonumber(d.left) end
+			wrap = d.wrap == true
+		end
+	end
+	local function save_layout() pcall(fs.write, layout_file, json.encode({ left = split, wrap = wrap })) end
+	-- The output's rows, made again when the output, the width or wrap change.
+	local view = { key = nil, rows = {} }
+	local function output_rows(width)
+		local key = tostring(tail.id) .. ":" .. tostring(tail.seq) .. ":" .. width .. ":" .. tostring(wrap)
+		if view.key ~= key then view = { key = key, rows = M.output_rows(tail.lines, width, wrap) } end
+		return view.rows
 	end
 
 	local function render_panel(panel)
@@ -2660,19 +2710,26 @@ function M.setup(app)
 		local hw = util.runes(head)
 		if ow - hw > 10 then M.put(panel, x + hw + 3, 0, util.cut(run.line or "", ow - hw - 3), "muted") end
 		local rows = h - 2
-		local lines = tail.lines
-		local last = #lines - scroll
+		local view_rows = output_rows(ow)
+		scroll = math.min(scroll, math.max(0, #view_rows - rows))
+		local last = #view_rows - scroll
 		local first = math.max(1, last - rows + 1)
 		layout.out_top, layout.out_rows, layout.first = 1, rows, first
+		local styles = {}
 		for i = first, last do
-			local line = lines[i]
-			local st = "default"
-			if line:find("[Ee]rror") or line:find("FAIL") or line:find("[Ee]xception") then st = "danger"
-			elseif line:find("[Ww]arn") then st = "warning" end
-			M.put(panel, x, 1 + i - first, util.cut(line, ow), st)
+			local row = view_rows[i]
+			local st = styles[row.line]
+			if not st then
+				local line = tail.lines[row.line]
+				st = "default"
+				if line:find("[Ee]rror") or line:find("FAIL") or line:find("[Ee]xception") then st = "danger"
+				elseif line:find("[Ww]arn") then st = "warning" end
+				styles[row.line] = st
+			end
+			M.put(panel, x, 1 + i - first, util.cut(row.text, ow), st)
 		end
 		local hint = M.live(run) and "s stop · r restart" or "r run again · x remove"
-		hint = hint .. " · ↑↓ runs · PgUp/PgDn scroll · o full log · click a file:line · drag │ to resize · Esc editor"
+		hint = hint .. " · ↑↓ runs · PgUp/PgDn scroll · w " .. (wrap and "no wrap" or "wrap") .. " · o full log · click a file:line · drag │ to resize · Esc editor"
 		if scroll > 0 then hint = "↓ " .. scroll .. " more · End follows · " .. hint end
 		M.put(panel, x, h - 1, util.cut(hint, ow), "muted")
 	end
@@ -2688,8 +2745,15 @@ function M.setup(app)
 		redraw()
 	end
 
+	local function toggle_wrap()
+		wrap = not wrap
+		scroll = 0
+		save_layout()
+		redraw()
+	end
+
 	local function scroll_by(n)
-		local max = math.max(0, #tail.lines - layout.out_rows)
+		local max = math.max(0, #view.rows - layout.out_rows)
 		scroll = math.max(0, math.min(max, scroll + n))
 		redraw()
 	end
@@ -2706,7 +2770,10 @@ function M.setup(app)
 		return true
 	end
 
+	local seen_twice = M.twice_filter()
+
 	local function on_event(ev)
+		if seen_twice(ev, os.clock()) then return true end
 		if ev.type == "key" then
 			local k, rune = ev.key, ev.rune
 			local run = find_run(selected)
@@ -2714,7 +2781,8 @@ function M.setup(app)
 			elseif k == "Down" or rune == "j" then select_run(-1)
 			elseif k == "PgUp" then scroll_by(math.max(1, layout.out_rows - 1))
 			elseif k == "PgDn" then scroll_by(-math.max(1, layout.out_rows - 1))
-			elseif k == "Home" then scroll_by(#tail.lines)
+			elseif k == "Home" then scroll_by(#view.rows)
+			elseif rune == "w" then toggle_wrap()
 			elseif k == "End" then scroll = 0 redraw()
 			elseif k == "Esc" or k == "Escape" then ttt.exec_command("editor.focus")
 			elseif rune == "s" then stop(run)
@@ -2724,9 +2792,9 @@ function M.setup(app)
 				cli({ "remove", run.id }, function() list_runs() end)
 			elseif rune == "o" and run then ttt.open_file(dir .. "/" .. run.id .. "/output.log", 0, true)
 			elseif k == "Enter" then
-				local lines = tail.lines
-				for i = #lines - scroll, math.max(1, #lines - scroll - layout.out_rows + 1), -1 do
-					if open_ref(lines[i]) then break end
+				local rows = view.rows
+				for i = #rows - scroll, math.max(1, #rows - scroll - layout.out_rows + 1), -1 do
+					if open_ref(tail.lines[rows[i].line]) then break end
 				end
 			else
 				return false
@@ -2738,7 +2806,7 @@ function M.setup(app)
 			if ev.button ~= "left" then
 				if dragging then
 					dragging = false
-					pcall(fs.write, layout_file, json.encode({ left = split }))
+					save_layout()
 					return true
 				end
 				return false
@@ -2764,8 +2832,8 @@ function M.setup(app)
 				if id then selected, scroll = id, 0 read_tail() redraw() end
 				return true
 			end
-			local i = layout.first + y - layout.out_top
-			if y >= layout.out_top and y < layout.out_top + layout.out_rows then open_ref(tail.lines[i]) end
+			local row = view.rows[layout.first + y - layout.out_top]
+			if row and y >= layout.out_top and y < layout.out_top + layout.out_rows then open_ref(tail.lines[row.line]) end
 			return true
 		end
 		return false
@@ -2821,6 +2889,7 @@ function M.setup(app)
 	-- The clock --------------------------------------------------------------------------
 
 	app:on("ready", function()
+		load_layout()
 		load_chosen()
 		refresh_list(function()
 			if welcomed then return end
@@ -2873,6 +2942,7 @@ function M.setup(app)
 	app:command({ id = "symbiosis.runStop", title = "symbiosis: Stop the Run", key = "shift+f5", run = stop_current })
 	app:command({ id = "symbiosis.runPick", title = "symbiosis: Run Configuration…", key = "ctrl+k f5", run = pick })
 	app:command({ id = "symbiosis.runPanel", title = "symbiosis: Focus the Run Panel", key = "ctrl+k shift+f5", run = function() list_runs() reveal(true) end })
+	app:command({ id = "symbiosis.runWrap", title = "symbiosis: Toggle Wrap in the Run Output", run = toggle_wrap })
 	app:command({ id = "symbiosis.runEdit", title = "symbiosis: Edit Run Configurations", run = function() refresh_list(edit_run_json) end })
 	app:hint({ key = "F5 · shift+F5", text = "run · stop", order = 95 })
 	app:hint({ key = "ctrl+k F5", text = "pick a run configuration", order = 96 })

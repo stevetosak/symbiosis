@@ -108,4 +108,25 @@ return {
 		t.eq(run.split_width(100, 95), 84, "the output keeps 16")
 		t.eq(run.split_width(100, 2), 8, "the list keeps 8")
 	end },
+	{ "run: output rows, cut or wrapped", function()
+		local lines = { "short", "abcdefghij", "", "äöüäöü" }
+		local rows = run.output_rows(lines, 4, false)
+		t.eq(#rows, 4, "a row per line")
+		t.eq(rows[2], { text = "abcdefghij", line = 2 })
+		rows = run.output_rows(lines, 4, true)
+		local texts, of = {}, {}
+		for _, r in ipairs(rows) do table.insert(texts, r.text) table.insert(of, r.line) end
+		t.eq(texts, { "shor", "t", "abcd", "efgh", "ij", "", "äöüä", "öü" })
+		t.eq(of, { 1, 1, 2, 2, 2, 3, 4, 4 }, "each row knows its line")
+	end },
+	{ "run: an event ttt hands over twice counts once", function()
+		local twice = run.twice_filter(0.008)
+		local down = { type = "key", key = "Down" }
+		t.eq(twice(down, 1.000), false)
+		t.eq(twice({ type = "key", key = "Down" }, 1.001), true, "the copy")
+		t.eq(twice(down, 1.040), false, "a second press, 40 ms on")
+		t.eq(twice({ type = "key", key = "Up" }, 1.041), false, "another key")
+		t.eq(twice({ type = "mouse", x = 3, y = 4, button = "left" }, 2), false)
+		t.eq(twice({ type = "mouse", x = 3, y = 5, button = "left" }, 2.001), false, "the mouse moved")
+	end },
 }
