@@ -23,6 +23,7 @@
 --   app:command(def)                a command, with an optional key
 --   app:hint(def)                   a line in the panel's key list
 --   app:sidebar(def)                the sidebar panel (one for the plugin)
+--   app:bottom(def)                 the bottom panel tab (one for the plugin)
 --   app:section(def)                a section of the panel (ctrl+k h)
 --   app:note(text, order)           a muted line at the end of the panel
 --   app.settings                    core/settings.lua
@@ -141,6 +142,7 @@ function App:drop(name)
 	self.commands, self.hints = keep(self.commands), keep(self.hints)
 	self.sections, self.notes = keep(self.sections), keep(self.notes)
 	if self.side and self.side.owner == name then self.side = nil end
+	if self.low and self.low.owner == name then self.low = nil end
 	self.settings:drop(name)
 	self.channel:drop(name)
 	-- The other features drop what they keep for it (see replay.hold).
@@ -243,6 +245,13 @@ function App:sidebar(def)
 	self.side = entry(self, { title = def.title, render = def.render })
 end
 
+-- def: { title, render(panel), on_event(event) }. ttt has one bottom panel tab
+-- for each plugin, next to Terminal and Output.
+function App:bottom(def)
+	if self.low then error("the bottom panel is taken by " .. tostring(self.low.owner), 2) end
+	self.low = entry(self, { title = def.title, render = def.render, on_event = def.on_event })
+end
+
 -- def: { render(panel), order }. The panel (ctrl+k h) draws the sections in order.
 function App:section(def)
 	table.insert(self.sections, entry(self, { render = def.render, order = def.order or 50 }))
@@ -260,6 +269,22 @@ end
 function App:registration()
 	local reg = { commands = {}, keybindings = {} }
 	if self.side then reg.sidebar = { title = self.side.title, render = self.side.render } end
+	if self.low then
+		local low = self.low
+		reg.bottom = {
+			title = low.title,
+			render = function(panel)
+				local ok, err = pcall(low.render, panel)
+				if not ok then failed(self, low, "bottom panel", err) end
+			end,
+			on_event = function(event)
+				if not low.on_event then return false end
+				local ok, taken = pcall(low.on_event, event)
+				if not ok then failed(self, low, "bottom panel", taken) return false end
+				return taken
+			end,
+		}
+	end
 	for _, c in ipairs(self.commands) do
 		local cmd = c
 		table.insert(reg.commands, {
