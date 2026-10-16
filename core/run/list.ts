@@ -99,11 +99,16 @@ export function listConfigs(folder: string, opts: ListOptions = {}): Listing {
 	return { folder, configs, problems };
 }
 
-export function listed(folder: string, c: RunConfig, file?: string): ListedConfig {
+/** `picked`: the labels picked last for its inputs. */
+export function listed(folder: string, c: RunConfig, file?: string, picked?: string): ListedConfig {
 	const cfg = c.id === CURRENT_FILE_ID ? currentFileConfig(file) : c;
 	let cwd = cfg.cwd ?? '';
 	if (cwd && !cwd.includes('${') && isAbsolute(cwd)) cwd = relative(folder, cwd) || '.';
-	return { id: c.id, name: c.name, group: c.group, line: commandLine(cfg), cwd: cwd || '.', ...(c.source ? { source: c.source } : {}) };
+	return {
+		id: c.id, name: c.name, group: c.group, line: commandLine(cfg), cwd: cwd || '.',
+		...(c.source ? { source: c.source } : {}),
+		...(picked ? { picked } : {}),
+	};
 }
 
 /** What a run starts. */

@@ -5,6 +5,9 @@
 //
 //   symbiosis run list  [--file F] [--folder D]          the configs and the runs of the workspace
 //   symbiosis run start --folder D --config ID [--file F] [--line N]
+//                       [--input ID=VALUE [--input-label ID=LABEL]]... [--ask]
+//                       the config's inputs: those given, else picked as core/run/inputs.ts says;
+//                       one the user is to pick: { ok: true, ask } and no run. --ask: the user picks each.
 //   symbiosis run again ID                               the same run again (stops it first if it runs)
 //   symbiosis run stop  ID... | --folder D --all
 //   symbiosis run ps    --folder D [--adopt]              the runs; --adopt: ttt is back, forget "keep"
@@ -22,12 +25,18 @@ import { createInterface } from 'node:readline/promises';
 import { StringDecoder } from 'node:string_decoder';
 import { pluginDir } from '../core/channel/file.ts';
 import { parseJsonc, RunConfigError, toRunJson } from '../core/run/config.ts';
+import { InputMemory, pickedLabels, pickInputs } from '../core/run/inputs.ts';
 import { listConfigs, listed, resolveConfig, RUN_JSON, workspaceFolder } from '../core/run/list.ts';
 import { readSmall } from '../core/run/providers/provider.ts';
 import { alive, groupAlive, HEARTBEAT_MS, isLive, type RunState, Runs, Tail, writeAtomic } from '../core/run/runs.ts';
 
 export function runsDir(env: NodeJS.ProcessEnv = process.env): string {
 	return env.SYMBIOSIS_RUNS || join(pluginDir(env), 'runs');
+}
+
+/** The inputs picked last: next to the runs folder (the plugin folder's run-inputs.json). */
+export function inputMemory(runs: Runs): InputMemory {
+	return new InputMemory(join(dirname(runs.dir), 'run-inputs.json'));
 }
 
 export interface RunArgs {
@@ -40,6 +49,12 @@ export interface RunArgs {
 	readonly runs?: string;
 	readonly all: boolean;
 	readonly adopt: boolean;
+	/** --input ID=VALUE: the values of inputs, by id. */
+	readonly inputs?: Readonly<Record<string, string>>;
+	/** --input-label ID=LABEL: their labels, for the picker. */
+	readonly labels?: Readonly<Record<string, string>>;
+	/** --ask: the user picks every input not given. */
+	readonly ask?: boolean;
 }
 
 export function parseRunArgs(argv: readonly string[]): RunArgs {
@@ -59,6 +74,14 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
 		else if (a === '--runs') out.runs = resolve(value());
 		else if (a === '--all') out.all = true;
 		else if (a === '--adopt') out.adopt = true;
+		else if (a === '--ask') out.ask = true;
+		else if (a === '--input' || a === '--input-label') {
+			const v = value();
+			const eq = v.indexOf('=');
+			if (eq <= 0) throw new RunConfigError(`${a} needs ID=VALUE, not "${v}"`);
+			const key = a === '--input' ? 'inputs' : 'labels';
+			out[key] = { ...out[key], [v.slice(0, eq)]: v.slice(eq + 1) };
+		}
 		else if (a.startsWith('--')) throw new RunConfigError(`unknown option ${a}`);
 		else out.ids.push(a);
 	}
@@ -259,9 +282,10 @@ export async function runCommand(args: RunArgs, runs = new Runs(args.runs ?? run
 		case 'list': {
 			const { folder, file } = contextOf(args);
 			const listing = listConfigs(folder, { file });
+			const memory = inputMemory(runs);
 			return ok({
 				folder,
-				configs: listing.configs.map((c) => listed(folder, c, file)),
+				configs: listing.configs.map((c) => listed(folder, c, file, pickedLabels(c, folder, memory))),
 				problems: listing.problems,
 				runs: runs.list(folder),
 			});
@@ -271,7 +295,11 @@ export async function runCommand(args: RunArgs, runs = new Runs(args.runs ?? run
 			if (!args.config) throw new RunConfigError('start needs --config');
 			const config = listConfigs(folder, { file }).configs.find((c) => c.id === args.config);
 			if (!config) throw new RunConfigError(`no configuration "${args.config}" in ${folder}`);
-			const launch = resolveConfig(config, { folder, file, line: args.line, env: process.env });
+			const ctx = { folder, file, line: args.line, env: process.env };
+			const memory = inputMemory(runs);
+			const inputs = await pickInputs(config, ctx, memory, args.inputs, args.labels, args.ask);
+			if ('ask' in inputs) return ok({ ask: inputs.ask });
+			const launch = resolveConfig(config, { ...ctx, inputs: inputs.values });
 			// One run per configuration, as in Rider: starting it again restarts it.
 			for (const r of runs.list(folder)) {
 				if (r.configId === config.id && isLive(r.status)) await stopRun(runs, r.id);
@@ -279,6 +307,7 @@ export async function runCommand(args: RunArgs, runs = new Runs(args.runs ?? run
 			mkdirSync(runs.dir, { recursive: true });
 			const state = runs.create(launch, undefined, session());
 			launchSupervisor(runs, state.id);
+			memory.set(folder, inputs.picks);
 			runs.prune(folder);
 			runs.pruneOld();
 			return ok({ run: state });

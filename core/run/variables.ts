@@ -2,7 +2,7 @@
 //   ${workspaceFolder} ${workspaceFolderBasename} ${cwd} ${pathSeparator}
 //   ${file} ${fileBasename} ${fileBasenameNoExtension} ${fileExtname}
 //   ${fileDirname} ${relativeFile} ${relativeFileDirname} ${lineNumber}
-//   ${env:NAME}
+//   ${env:NAME} ${input:id}
 // An unknown variable is an error, and so is a ${file...} with no file open:
 // a run with a half-made command line is worse than no run. In a shell line
 // (expandShell) an unknown ${...} is the shell's (${PORT:-5000}), and the
@@ -17,6 +17,8 @@ export interface VariableContext {
 	readonly file?: string;
 	readonly line?: number;
 	readonly env: Readonly<Record<string, string | undefined>>;
+	/** The values of the run's inputs (core/run/inputs.ts), by id. */
+	readonly inputs?: Readonly<Record<string, string>>;
 }
 
 const UNKNOWN = Symbol('unknown');
@@ -70,6 +72,11 @@ function quoteFor(value: string, quote: '' | "'" | '"'): string {
 
 function valueOf(name: string, ctx: VariableContext): string | typeof UNKNOWN {
 	if (name.startsWith('env:')) return ctx.env[name.slice(4)] ?? '';
+	if (name.startsWith('input:')) {
+		const value = ctx.inputs?.[name.slice(6)];
+		if (value === undefined) throw new RunConfigError(`\${${name}}: no value for this input`);
+		return value;
+	}
 	switch (name) {
 		case 'workspaceFolder':
 		case 'workspaceRoot':
