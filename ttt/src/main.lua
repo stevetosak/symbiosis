@@ -12,7 +12,9 @@
 --   marks     the gutter: ▌ on the change typed now, π on its line
 --   autosave  saves your file a while after you type
 --   helpi     a comment that ends in `helpi!` asks pi
+--   fill      `TODO(pi) fill!` or ctrl+k f: pi fills a stub; its proposals
 --   changes   ctrl+k w: what pi changed in its last turn
+--   run       F5: run configurations, the Run panel (bottom)
 --   panel     ctrl+k h: settings, sessions, keys
 -- See docs/design.md.
 local app = require("core.app").new()
@@ -26,6 +28,7 @@ app:use("features.autosave")
 app:use("features.helpi")
 app:use("features.fill")
 app:use("features.changes")
+app:use("features.run")
 app:use("features.panel")
 
 app:start()
