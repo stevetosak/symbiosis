@@ -42,6 +42,8 @@ Opens ttt in the folder and a pi beside it, in herdr or tmux.
 
 Outside herdr and tmux, symbiosis opens ttt only: start pi in another terminal.
 
+Run configurations (for the ttt plugin, F5): symbiosis run list|start|again|stop|ps|keep|save
+
 Config: ~/.config/symbiosis/config.json
   {"open": "here" | "tab", "layout": "tabs" | "split", "piArgs": [...]}`;
 

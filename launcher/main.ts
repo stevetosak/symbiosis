@@ -17,6 +17,7 @@ import { projectFolder } from './folder.ts';
 import { type Argv, goTo, herdrPlace, label, newTab, noHost, type PaneStart, paneFromOutput, piCommand, piStart } from './layout.ts';
 import { alreadyOpen, findOpen, type Host, hostOf, removeRecord, stateDir, writeRecord } from './record.ts';
 import { pluginDir } from '../core/channel/file.ts';
+import { askStopRuns, runMain } from './run.ts';
 
 function fail(message: string, code = 1): never {
 	process.stderr.write(`${message}\n`);
@@ -63,6 +64,8 @@ function why(error: unknown): string {
 }
 
 async function main(): Promise<number> {
+	// `symbiosis run ...`: the run configurations, for the ttt plugin (launcher/run.ts).
+	if (process.argv[2] === 'run') return runMain(process.argv.slice(3));
 	let args;
 	try {
 		args = parseArgs(process.argv.slice(2));
@@ -148,7 +151,10 @@ async function main(): Promise<number> {
 
 	writeRecord(states, { pid: process.pid, folder, started: Date.now(), host });
 	const tttCommand = process.env.SYMBIOSIS_TTT || 'ttt';
-	const ttt = spawn(tttCommand, [folder], { cwd: folder, stdio: 'inherit' });
+	// The runs ttt starts (`symbiosis run start`) carry this session: at the
+	// end, the ones still going are this ttt's to stop.
+	const session = `${process.pid}-${Date.now().toString(36)}`;
+	const ttt = spawn(tttCommand, [folder], { cwd: folder, stdio: 'inherit', env: { ...process.env, SYMBIOSIS_SESSION: session } });
 	// ttt reads the keys in raw mode: ctrl+c is its key, not a signal for us.
 	const ignore = () => {};
 	process.on('SIGINT', ignore);
@@ -168,6 +174,9 @@ async function main(): Promise<number> {
 
 	process.off('SIGINT', ignore);
 	removeRecord(states, folder, process.pid);
+	// ttt is gone, maybe without asking (it quit from its terminal): ask here
+	// about the programs it started and nobody chose to keep.
+	await askStopRuns(folder, session);
 	return exitCode(exit.code, exit.signal);
 }
 

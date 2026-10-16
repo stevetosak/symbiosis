@@ -159,6 +159,63 @@ argument, else the git root, else this folder.
   any path: `▶` is the session the editor follows, `✎` the file pi changes
   now, Enter opens a file. While that tab is on screen, the tree stays on it.
 
+## Run configurations
+
+Run a project from ttt, as in Rider or VS Code (debugging comes later).
+
+- `F5` runs the chosen configuration; with none chosen yet, it opens the
+  picker. `shift+F5` stops it. `ctrl+k F5` (or a click on the status item)
+  opens the picker: type to filter (Enter runs the first match), Tab to the
+  list, Enter runs one and chooses it for `F5`, `s` saves a detected one to
+  `.symbiosis/run.json`, `e` opens that file.
+- Status bar: `▶ api` (chosen), `● api 0:42` (runs), `✓ api`, `✗ api 1`
+  (its exit code), `+2` (others that run).
+- The Run tab of the bottom panel: the runs, newest at the top, and the
+  output of one. Up/Down choose a run, PgUp/PgDn/Home/End scroll (End
+  follows the output again), `s` stops, `r` runs it again, `x` removes an
+  ended run, `o` opens its whole log, Enter or a click opens a `file:line` from
+  the output.
+- `ctrl+q` while programs run asks: `s` stops them and quits, `k` keeps them
+  running, Esc stays. Kept programs show in the Run panel the next time ttt
+  opens the folder. When ttt quits without asking (ctrl+q from its terminal),
+  the `symbiosis` command asks in the terminal instead.
+
+Where the configurations come from, in the picker's order:
+
+- `.symbiosis/run.json` (yours, "Saved"):
+
+  ```jsonc
+  {
+    "configurations": [
+      // "command" with "args": the program, no shell. "command" alone: a shell line.
+      { "name": "api", "command": "npm", "args": ["run", "dev"], "cwd": "${workspaceFolder}/api",
+        "env": { "PORT": "3001" }, "envFile": ".env" },
+      { "name": "this test", "command": "node --test ${file}" }
+    ]
+  }
+  ```
+
+  Variables, as in VS Code: `${workspaceFolder}`, `${workspaceFolderBasename}`,
+  `${file}`, `${relativeFile}`, `${fileBasename}`,
+  `${fileBasenameNoExtension}`, `${fileDirname}`, `${fileExtname}`,
+  `${lineNumber}`, `${env:NAME}`, `${pathSeparator}`.
+- `.vscode/launch.json` (the `node`, `python`, `go`, ... programs it can run
+  without a debugger) and `.vscode/tasks.json`.
+- The file open: `node`, `python3`, `go run`, `bash`, `ruby`, ... by its
+  extension (`.venv` python when there is one).
+- The project's files, up to 3 folders deep (not `node_modules`, `target`,
+  `dist`, ...): `package.json` scripts (npm, pnpm, yarn or bun, by the
+  lockfile), `deno.json` tasks, `Cargo.toml`, `go.mod` (each `main`
+  package), `*.csproj`/`*.fsproj` and their `launchSettings.json` profiles,
+  Django's `manage.py`, `pyproject.toml` scripts, Gradle, Maven, `Makefile`,
+  `justfile`, `Taskfile.yml`, `Procfile`, `compose.yaml`.
+
+The workspace folder is the nearest folder above the open file with a
+`.symbiosis/run.json`, else its git root. Each run gets a small supervisor
+(`symbiosis run supervise`), so a program outlives ttt when you keep it; its
+state and output are in `runs/` in the plugin's folder. From a terminal:
+`symbiosis run ps --folder .`, `symbiosis run stop --folder . --all`.
+
 ## Demo
 
 `npm run demo` opens a copy of a small to-do app with the `symbiosis`
@@ -193,5 +250,6 @@ bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel
 bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, no multiplexer, already open
 bash test/e2e/marks.sh     # the gutter: ▌ on the change's lines and π on the line typed now, none after
 bash test/e2e/stop.sh      # "? waits for you" while pi shows a dialog; ctrl+k q stops pi's turn
+bash test/e2e/runconf.sh   # run configurations: the picker, F5, shift+F5, a failing run, ctrl+q keeps a run, back in ttt it shows
 sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi): without herdr, with it, twice, key taken, own command file
 ```
