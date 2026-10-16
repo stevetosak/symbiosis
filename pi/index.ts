@@ -6,7 +6,7 @@
 // answers helpi! questions (core/help.ts). Without the plugin folder (ttt or the plugin not
 // installed) this extension writes nothing.
 //
-// While a stub is filled (fill! in ttt), every write and edit is checked by
+// While a stub or a described function is filled (helpi! in ttt), every write and edit is checked by
 // the guard first (pi/fill.ts); pi's own edit and write are registered again
 // with a `why` argument and one call at a time (pi/tools.ts).
 //
@@ -75,7 +75,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		plan: [],
 		files: [],
 		title: null,
-		stub: null,
+		fill: null,
 	};
 
 	/** pi writes `path`: the editor follows this session for it. Beats at once,
@@ -91,8 +91,8 @@ export default function symbiosis(pi: ExtensionAPI) {
 		id,
 		owner: () => owner(),
 		scope: () => plugin().scope,
-		publish(stub) {
-			record.stub = stub;
+		publish(fill) {
+			record.fill = fill;
 			beat();
 		},
 		send(text) {
@@ -107,7 +107,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		name: 'propose',
 		label: 'Propose',
 		description: PROPOSE_DESCRIPTION,
-		promptSnippet: 'Ask the developer for a change the symbiosis guard blocked while you fill a stub',
+		promptSnippet: 'Ask the developer for a change the symbiosis guard blocked while you fill a stub or write a described function',
 		// A JSON schema: pi takes it as it takes TypeBox's (which builds the same).
 		parameters: PROPOSE_PARAMETERS as never,
 		executionMode: 'sequential',

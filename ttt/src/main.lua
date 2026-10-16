@@ -11,8 +11,9 @@
 --   replay    pi's writes and edits typed in the buffer, at your speed
 --   marks     the gutter: ▌ on the change typed now, π on its line
 --   autosave  saves your file a while after you type
---   helpi     a comment that ends in `helpi!` asks pi
---   fill      `TODO(pi) fill!` or ctrl+k f: pi fills a stub; its proposals
+--   helpi     a comment that ends in `helpi!` asks pi; on a stub, pi fills it
+--   fill      a fill: a stub's body, or a new function under its description;
+--             ctrl+k f; pi's proposals
 --   changes   ctrl+k w: what pi changed in its last turn
 --   run       F5: run configurations, the Run panel (bottom)
 --   panel     ctrl+k h: settings, sessions, keys

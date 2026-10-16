@@ -3,7 +3,7 @@
 // and any channel implementation can share it. See docs/design.md.
 
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 11;
+export const PROTOCOL = 12;
 
 /** The tools whose calls stream into the editor. */
 export type Tool = 'write' | 'edit';
@@ -95,8 +95,8 @@ export interface Session {
 	files: string[];
 	/** pi's session name (`/name`), to tell sessions in one folder apart. */
 	title: string | null;
-	/** The stub this session fills, if any: the guard holds its edits to it. */
-	stub: { path: string; name: string; line: number } | null;
+	/** What this session fills, if any: the guard holds its edits to it. `name`: the function's, or the description's start. */
+	fill: { kind: 'stub' | 'place'; path: string; name: string; line: number } | null;
 }
 
 /** ctrl+k q in ttt: stop the turn of session `to`. */
@@ -105,7 +105,8 @@ export interface StopRequest {
 	to: string;
 }
 
-export type HelpKind = 'note' | 'code' | 'ask';
+/** `function`: write a new function under the comment, in the session (a fill, core/place.ts). */
+export type HelpKind = 'note' | 'code' | 'ask' | 'function';
 
 /** helpi!: the question and the code around it, as in the buffer (it may not be saved). */
 export interface HelpRequest {
@@ -134,8 +135,12 @@ export const SCOPES: readonly Scope[] = ['stub', 'file', 'off'];
 export type ProposeKind = 'new_file' | 'new_decl' | 'signature' | 'dependency' | 'outside_edit';
 export const PROPOSE_KINDS: readonly ProposeKind[] = ['new_file', 'new_decl', 'signature', 'dependency', 'outside_edit'];
 
-/** fill! or the palette: fill the stub at `line` of `path` (saved first), or end the fill. */
-export type FillRequest = { id: string; to: string } & ({ release: false; path: string; line: number } | { release: true });
+/** What a fill works on: the stub that holds a line, or a new function under the description that ends at it. */
+export type FillMode = 'stub' | 'function';
+export const FILL_MODES: readonly FillMode[] = ['stub', 'function'];
+
+/** helpi! or the palette: fill at `line` of `path` (saved first), or end the fill. */
+export type FillRequest = { id: string; to: string } & ({ release: false; mode: FillMode; path: string; line: number } | { release: true });
 
 /** A change the agent asks for while it fills a stub. */
 export interface Proposal {

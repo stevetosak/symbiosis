@@ -1,5 +1,5 @@
 -- A marker: a word at the end of a comment that asks pi for something
--- (helpi!, fill!). Comments in any language: the openers below; a closer
+-- (helpi!). Comments in any language: the openers below; a closer
 -- (*/, -->) after the word is allowed.
 local util = require("core.util")
 

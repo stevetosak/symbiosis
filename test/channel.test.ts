@@ -63,12 +63,14 @@ test('the heartbeat carries the scope; a bad value, or an editor that is gone, i
 	assert.equal(c.plugin().scope, 'stub', 'an old ttt.json');
 });
 
-test('fill! requests and proposal answers are read; a bad one is none', () => {
+test('fill requests and proposal answers are read; a bad one is none', () => {
 	const dir = temp();
 	const c = new FileChannel(dir, () => 10_000);
 	assert.equal(c.fill(), undefined);
 	writeFileSync(join(dir, 'fill.json'), JSON.stringify({ id: 'f1', to: 's1', path: '/w/a.ts', line: 3 }));
-	assert.deepEqual(c.fill(), { id: 'f1', to: 's1', path: '/w/a.ts', line: 3, release: false });
+	assert.deepEqual(c.fill(), { id: 'f1', to: 's1', mode: 'stub', path: '/w/a.ts', line: 3, release: false }, 'no mode is a stub');
+	writeFileSync(join(dir, 'fill.json'), JSON.stringify({ id: 'f4', to: 's1', mode: 'function', path: '/w/a.ts', line: 5 }));
+	assert.deepEqual(c.fill(), { id: 'f4', to: 's1', mode: 'function', path: '/w/a.ts', line: 5, release: false });
 	writeFileSync(join(dir, 'fill.json'), JSON.stringify({ id: 'f2', to: 's1', release: true }));
 	assert.deepEqual(c.fill(), { id: 'f2', to: 's1', release: true });
 	writeFileSync(join(dir, 'fill.json'), JSON.stringify({ id: 'f3', to: 's1', path: '/w/a.ts' }));

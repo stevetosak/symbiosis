@@ -35,10 +35,12 @@ export function parseRequest(value: unknown): HelpRequest | undefined {
 
 export const HELP_SYSTEM = `You help a developer who writes code in an editor. They ended a comment with \`helpi!\`: that comment is their question, or what they want at that place. Answer at once, with no preamble.
 
-The first line of your reply is the kind of answer, alone: note, code or ask.
+The first line of your reply is the kind of answer, alone: note, code, function or ask.
 
 code: the comment asks for code at that place ("how do I make a directory here", "loop over the items and sum the prices"). After the kind, write only the code that takes the place of the comment, in the file's language and style. Indent it from column 0: the editor adds the indent of the comment's line. No explanation, no Markdown fences. When the code needs an import that the file does not have, put each import first, on its own line, as \`+import \` and then the whole import line, for example:
 +import import { mkdirSync } from 'node:fs';
+
+function: the comment describes a whole new function to write there, outside any function body ("a function that parses the header and returns its fields"). Write nothing after the kind: the agent writes the function under the comment, with its tools.
 
 note: the comment asks something to understand ("why does this need a cast?"). After the kind, write the answer as plain lines of at most 80 characters. No Markdown fences and no comment markers: the editor makes each line a comment.
 
@@ -81,7 +83,7 @@ export function askMessage(req: HelpRequest, cwd: string): string {
 	].join('\n');
 }
 
-const KINDS: HelpKind[] = ['note', 'code', 'ask'];
+const KINDS: HelpKind[] = ['note', 'code', 'function', 'ask'];
 const IMPORT = '+import ';
 const FENCE = /^\s*```/;
 
@@ -135,7 +137,7 @@ export function parseAnswer(raw: string, final: boolean): HelpAnswer {
 	if (kind === 'note') body = body.replace(/^\s*pi:\s*/, '');
 	body = body.replace(/^(\s*\n)+/, '');
 	if (final) body = body.replace(/\s+$/, '');
-	return { kind, imports, body: kind === 'ask' ? '' : body, settled: true };
+	return { kind, imports, body: kind === 'ask' || kind === 'function' ? '' : body, settled: true };
 }
 
 /** The text of the last assistant message on the session branch, at most `max` characters. */

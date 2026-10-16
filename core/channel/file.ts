@@ -23,7 +23,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renam
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseRequest } from '../help.ts';
-import { type ChannelEvent, DEFAULT_LAG, type FillRequest, type HelpRequest, type PluginState, type ProposalAnswer, SCOPES, type Scope, type Session, type StopRequest } from '../protocol.ts';
+import { type ChannelEvent, DEFAULT_LAG, FILL_MODES, type FillRequest, type HelpRequest, type PluginState, type ProposalAnswer, SCOPES, type Scope, type Session, type StopRequest } from '../protocol.ts';
 import type { Channel } from './channel.ts';
 
 /** The log starts again from empty at the start of a turn once it is this big. */
@@ -137,7 +137,8 @@ export class FileChannel implements Channel {
 		if (typeof raw?.id !== 'string' || typeof raw.to !== 'string') return undefined;
 		if (raw.release === true) return { id: raw.id, to: raw.to, release: true };
 		if (typeof raw.path !== 'string' || typeof raw.line !== 'number') return undefined;
-		return { id: raw.id, to: raw.to, release: false, path: raw.path, line: raw.line };
+		const mode = FILL_MODES.find((m) => m === raw.mode) ?? 'stub';
+		return { id: raw.id, to: raw.to, release: false, mode, path: raw.path, line: raw.line };
 	}
 
 	/** The plugin's last answer to a proposal, if any. */

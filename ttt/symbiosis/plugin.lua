@@ -10,15 +10,15 @@
 --     872  ttt/src/features/autosave.lua
 --     920  ttt/src/features/changes.lua
 --     970  ttt/src/features/fill.lua
---    1195  ttt/src/features/helpi.lua
---    1600  ttt/src/features/marks.lua
---    1675  ttt/src/features/panel.lua
---    1743  ttt/src/features/plan.lua
---    1846  ttt/src/features/replay.lua
---    2356  ttt/src/features/run.lua
---    3236  ttt/src/features/sessions.lua
---    3483  ttt/src/features/tree.lua
---    3620  ttt/src/main.lua
+--    1179  ttt/src/features/helpi.lua
+--    1604  ttt/src/features/marks.lua
+--    1679  ttt/src/features/panel.lua
+--    1747  ttt/src/features/plan.lua
+--    1850  ttt/src/features/replay.lua
+--    2360  ttt/src/features/run.lua
+--    3240  ttt/src/features/sessions.lua
+--    3490  ttt/src/features/tree.lua
+--    3627  ttt/src/main.lua
 local modules, loaded, loading = {}, {}, {}
 local host_require = require
 -- The bundle's require: a module in the bundle, else one of ttt's.
@@ -463,7 +463,7 @@ local json = require("ttt.json")
 local util = require("core.util")
 
 local M = {
-	PROTOCOL = 11, -- the channel protocol of core/protocol.ts
+	PROTOCOL = 12, -- the channel protocol of core/protocol.ts
 }
 
 local Channel = {}
@@ -560,7 +560,7 @@ return M
 end
 modules["core.marker"] = function(...)
 -- A marker: a word at the end of a comment that asks pi for something
--- (helpi!, fill!). Comments in any language: the openers below; a closer
+-- (helpi!). Comments in any language: the openers below; a closer
 -- (*/, -->) after the word is allowed.
 local util = require("core.util")
 
@@ -967,12 +967,17 @@ return {
 }
 end
 modules["features.fill"] = function(...)
--- Stub filling, the editor side (pi/fill.ts is the pi side).
+-- Filling, the editor side (pi/fill.ts is the pi side). Two kinds of fill:
 --
---   fill! at the end of a stub's marker line (// TODO(pi) fill!), or ctrl+k f
---   with the cursor in a stub: the file is saved, and the session the editor
---   follows fills the stub. Its guard holds its edits to the body.
---   "symbiosis: Release the Stub" ends the fill.
+--   stub      helpi! at the end of a stub's marker line (// TODO(pi) helpi!),
+--             or ctrl+k f with the cursor in a stub: pi fills its body.
+--   function  helpi! at the end of a description outside any function, when
+--             the side call answers `function` (features/helpi.lua): pi
+--             writes the new function directly under the description.
+--
+--   The file is saved first, and the session the editor follows does the
+--   work; its guard holds its edits to the body or the new function.
+--   "symbiosis: Release the Fill" ends the fill.
 --
 --   A proposal (pi's `propose` tool: a change the guard blocks) opens a
 --   drawer with an optional note: Enter accepts, the Reject button rejects,
@@ -985,12 +990,8 @@ modules["features.fill"] = function(...)
 local ttt = require("ttt")
 local editor = require("ttt.editor")
 local fs = require("ttt.fs")
-local buffer = require("core.buffer")
-local marker = require("core.marker")
 local util = require("core.util")
 
-local WORD = "fill!"
-local FILL_MS = 600   -- after the last key press on a fill! line
 local SAVE_TICKS = 30 -- how long a fill waits for the save (poll ticks)
 local SCOPES = { "stub", "file", "off" }
 local SCOPE_TEXT = {
@@ -1003,15 +1004,18 @@ local KIND_TEXT = {
 	new_decl = "a new declaration",
 	signature = "a signature change",
 	dependency = "a new dependency",
-	outside_edit = "an edit outside the stub",
+	outside_edit = "an edit outside what pi fills",
+}
+local WHAT = {
+	stub = function(line) return "the stub at line " .. line end,
+	["function"] = function(line) return "the function described at line " .. line end,
 }
 
 local function setup(app)
 	local channel, settings = app.channel, app.settings
 	local sessions = app:need("sessions")
 	local seq = 0
-	local timer = nil
-	local saving = nil   -- {path, line, ticks}: a fill that waits for the save
+	local saving = nil   -- {path, line, mode, ticks, text}: a fill that waits for the save
 	local proposal = nil -- the proposal pi waits on
 	local note = ""
 	local show_proposal
@@ -1040,13 +1044,15 @@ local function setup(app)
 		return true
 	end
 
-	-- Fill the stub at `line` of the open file, once the file on disk is the buffer.
-	local function fill_at(line)
+	-- A fill at `line` of the open file, once the file on disk is the buffer.
+	-- mode: "stub" (the stub that holds the line) or "function" (a new
+	-- function under the description that ends at the line).
+	local function fill_at(line, mode)
 		local path = editor.file_path()
 		if not path or path == "" then return ttt.notify("symbiosis: save the file first", "warning") end
 		if not sessions.owner() then return owner() end
 		ttt.exec_command("file.save")
-		saving = { path = path, line = line, ticks = 0, text = editor.buffer_text() }
+		saving = { path = path, line = line, mode = mode or "stub", ticks = 0, text = editor.buffer_text() }
 	end
 
 	-- The text as a save may write it: no CR, no final newlines.
@@ -1058,42 +1064,20 @@ local function setup(app)
 	local function send_saved()
 		if not saving then return end
 		saving.ticks = saving.ticks + 1
-		-- The text when fill! came: what the developer typed after it is not waited on.
+		-- The text when the fill came: what the developer typed after it is not waited on.
 		local on_disk = saved_form(fs.read(saving.path)) == saved_form(saving.text)
 		if not on_disk and saving.ticks < SAVE_TICKS then return end
 		local s = saving
 		saving = nil
-		if not on_disk then ttt.notify("symbiosis: the file did not save; pi fills the stub as it is on disk", "warning") end
-		if request({ path = s.path, line = s.line, release = false }) then
-			ttt.notify("symbiosis: pi fills the stub at line " .. s.line .. " of " .. util.name(s.path), "info")
+		local what = WHAT[s.mode](s.line) .. " of " .. util.name(s.path)
+		if not on_disk then ttt.notify("symbiosis: the file did not save; pi works on " .. what .. " as it is on disk", "warning") end
+		if request({ mode = s.mode, path = s.path, line = s.line, release = false }) then
+			ttt.notify("symbiosis: pi " .. (s.mode == "stub" and "fills " or "writes ") .. what, "info")
 		end
 	end
 
-	-- fill!: the marker goes from the line, and the stub is filled.
-	local function fill_marked()
-		if not app.loaded or buffer.editing then return end
-		local cursor = editor.cursor()
-		local line = editor.get_line(cursor.line) or ""
-		if not marker.find(line, WORD) then return end
-		buffer.editing = true
-		editor.set_line(cursor.line, marker.strip(line, WORD))
-		buffer.editing = false
-		fill_at(cursor.line)
-	end
-
-	local function fill_soon()
-		if not app.loaded or buffer.editing then return end
-		if not marker.find(editor.current_line() or "", WORD) then return end
-		if timer then ttt.clear_timeout(timer) end
-		timer = ttt.set_timeout(FILL_MS, function()
-			timer = nil
-			local fine, err = pcall(fill_marked)
-			if not fine then app.log("error", "symbiosis fill!: " .. tostring(err)) end
-		end)
-	end
-
 	local function release()
-		if request({ release = true }) then ttt.notify("symbiosis: the stub is released", "info") end
+		if request({ release = true }) then ttt.notify("symbiosis: the fill is released", "info") end
 	end
 
 	-- Proposals ------------------------------------------------------------------
@@ -1158,7 +1142,7 @@ local function setup(app)
 		ttt.notify("symbiosis: pi does not wait for that answer any more", "info")
 	end)
 
-	-- What pi says about a fill (no stub at that line, the stub is released).
+	-- What pi says about a fill (no stub at that line, the fill is released).
 	local LEVELS = { info = "info", warn = "warning", error = "error" }
 	channel:on("notice", function(ev)
 		if type(ev.text) == "string" then ttt.notify(ev.text, LEVELS[ev.level] or "info") end
@@ -1172,15 +1156,15 @@ local function setup(app)
 		end
 	end)
 
-	app:on("change", fill_soon)
 	app:on("tick", send_saved)
-	app:command({ id = "symbiosis.fillStub", title = "symbiosis: Fill This Stub", key = "ctrl+k f", run = function() fill_at(editor.cursor().line) end })
+	app:command({ id = "symbiosis.fillStub", title = "symbiosis: Fill This Stub", key = "ctrl+k f", run = function() fill_at(editor.cursor().line, "stub") end })
 	app:command({ id = "symbiosis.showProposal", title = "symbiosis: Answer pi's Proposal", key = "ctrl+k p", run = function() show_proposal() end })
-	app:command({ id = "symbiosis.releaseStub", title = "symbiosis: Release the Stub", run = release })
-	app:hint({ key = "// TODO(pi) fill!", text = "pi fills this stub (or ctrl+k f)", order = 92 })
+	app:command({ id = "symbiosis.releaseStub", title = "symbiosis: Release the Fill", run = release })
+	app:hint({ key = "// TODO(pi) helpi!", text = "pi fills this stub (or ctrl+k f)", order = 92 })
 	app:hint({ key = "ctrl+k p", text = "answer pi's proposal", order = 93 })
 
 	return {
+		fill_at = fill_at,
 		proposal = function() return proposal end,
 	}
 end
@@ -1198,12 +1182,16 @@ modules["features.helpi"] = function(...)
 -- the buffer. pi asks its model in a side call (core/help.ts) and sends events
 -- back:
 --   help        pi has the question; it is thinking
---   help_start  the kind: note, code or ask; for code, the imports it needs
+--   help_start  the kind: note, code, function or ask; for code, the imports it needs
 --   help_text   the answer so far (all of it)
 --   help_done   the answer is complete, stopped, or failed
 -- note: comment lines under the question, the first one starts "pi:". code:
 -- takes the place of the comment, and missing imports go in at the top. ask:
--- the question went to pi's agent. All in one undo group: one ctrl+z takes
+-- the question went to pi's agent. function: the comment describes a new
+-- function; pi's agent writes it under the comment, as a fill (features/fill.lua).
+--
+-- helpi! on a stub's marker line (// TODO(pi) helpi!) asks no model: the
+-- editor knows it is a stub, and pi fills it at once. All in one undo group: one ctrl+z takes
 -- it back. While the answer is written, your typing in that file waits, and
 -- the replay too. Esc stops it; what is written stays. Until the answer
 -- starts, a line under the question shows that pi thinks (a spinner); it is
@@ -1229,6 +1217,9 @@ local function helpi(line) return marker.find(line, "helpi!") end
 
 -- The line without its last `helpi!` (and the space before it).
 local function unmark(line) return marker.strip(line, "helpi!") end
+
+-- True when the line is a stub's marker (core/syntax/outline.ts STUB_MARKER).
+local function stub_marker(line) return line:find("TODO(pi)", 1, true) ~= nil end
 
 -- The text the answer region holds for `body`. h: {kind, indent, opener}.
 local function render(h, body, final)
@@ -1269,6 +1260,7 @@ end
 local function setup(app)
 	local replay = app:need("replay")
 	local sessions = app:need("sessions")
+	local fill = app:need("fill")
 	local channel = app.channel
 	local help = nil       -- the question under way
 	local seq = 0
@@ -1397,6 +1389,12 @@ local function setup(app)
 		if owner.version ~= sessions.PROTOCOL then
 			return ttt.notify("symbiosis: pi " .. owner.name .. " runs an old symbiosis: /reload it", "warning")
 		end
+		if stub_marker(text) then
+			buffer.editing = true
+			editor.set_line(pos.line, unmark(text))
+			buffer.editing = false
+			return fill.fill_at(pos.line, "stub")
+		end
 		local all = editor.buffer_lines()
 		local first, last, head = 1, #all, ""
 		if #all > MAX_LINES then
@@ -1520,6 +1518,11 @@ local function setup(app)
 			buffer.set_region(help.region, render(help, "asked " .. help.name .. "; its answer comes in pi", true), help.below)
 			return help_end()
 		end
+		if ev.kind == "function" then
+			-- Nothing goes under the description: the function goes there.
+			help_end()
+			return fill.fill_at(line, "function")
+		end
 		show("helpi! · " .. help.name .. " writes · Esc stops")
 	end
 
@@ -1587,10 +1590,11 @@ end
 
 return {
 	name = "helpi",
-	needs = { "replay", "sessions" },
+	needs = { "replay", "sessions", "fill" },
 	setup = setup,
 	-- For the tests.
 	helpi = helpi,
+	stub_marker = stub_marker,
 	unmark = unmark,
 	render = render,
 	import_at = import_at,
@@ -3360,7 +3364,10 @@ return {
 					ttt.notify("")
 				end
 				text = "π " .. owner.name .. (waiting and " ? waits for you" or owner.working and " ● working" or " ○ idle")
-				if type(owner.stub) == "table" and owner.stub.name then text = text .. " · filling " .. owner.stub.name end
+				local fill = owner.fill
+				if type(fill) == "table" and fill.name then
+					text = text .. (fill.kind == "place" and " · writing " or " · filling ") .. fill.name
+				end
 				if owner.version ~= PROTOCOL then text = "π " .. owner.name .. " · old, /reload" end
 				if chosen then text = text .. " (chosen)"
 				elseif outside then text = text .. " (outside its folder)" end
@@ -3630,8 +3637,9 @@ modules["main"] = function(...)
 --   replay    pi's writes and edits typed in the buffer, at your speed
 --   marks     the gutter: ▌ on the change typed now, π on its line
 --   autosave  saves your file a while after you type
---   helpi     a comment that ends in `helpi!` asks pi
---   fill      `TODO(pi) fill!` or ctrl+k f: pi fills a stub; its proposals
+--   helpi     a comment that ends in `helpi!` asks pi; on a stub, pi fills it
+--   fill      a fill: a stub's body, or a new function under its description;
+--             ctrl+k f; pi's proposals
 --   changes   ctrl+k w: what pi changed in its last turn
 --   run       F5: run configurations, the Run panel (bottom)
 --   panel     ctrl+k h: settings, sessions, keys

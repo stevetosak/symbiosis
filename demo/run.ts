@@ -4,13 +4,15 @@
 //   npm run demo                the scripted pi: no model, no tokens, the same every time
 //   npm run demo -- --real      a real pi, given demo/PROMPT.md at once (costs tokens)
 //   npm run demo -- --reset     only make a fresh copy
+//   npm run demo -- --stubs     stubs and functions from descriptions, with a
+//                               real pi that waits for you (demo/STUBS.md)
 //
 // Other arguments go to the symbiosis command (--split, --tab, -- <pi args>).
 // The scripted pi is this file with --scripted (demo/scripted-pi): it waits
 // until ttt follows it, does the task (plan, a new file, edits, a test), then
 // answers your helpi! comments with set answers. See demo/README.md.
 //
-// DEMO_DIR (default /tmp/symbiosis-demo) is the workspace copy; the scripted
+// DEMO_DIR (default /tmp/symbiosis-demo, /tmp/symbiosis-stubs with --stubs) is the workspace copy; the scripted
 // pi uses its working folder when that is a demo copy. PAUSE_MS is the time
 // between steps; SUGGEST_MS stops the wait for helpi! (0: until ctrl+c).
 import { spawn } from 'node:child_process';
@@ -21,10 +23,11 @@ import { findOpen, stateDir } from '../launcher/record.ts';
 import { FakePi, sleep } from './fake-pi.ts';
 
 const TAG = '.symbiosis-demo';
-const OURS = ['--scripted', '--real', '--reset'];
+const OURS = ['--scripted', '--real', '--reset', '--stubs'];
 const argv = process.argv.slice(2);
 const scripted = argv.includes('--scripted');
-const DIR = scripted && existsSync(join(process.cwd(), TAG)) ? process.cwd() : (process.env.DEMO_DIR ?? '/tmp/symbiosis-demo');
+const stubs = argv.includes('--stubs');
+const DIR = scripted && existsSync(join(process.cwd(), TAG)) ? process.cwd() : (process.env.DEMO_DIR ?? (stubs ? '/tmp/symbiosis-stubs' : '/tmp/symbiosis-demo'));
 const PAUSE_MS = Number(process.env.PAUSE_MS ?? 1500);
 const SUGGEST_MS = Number(process.env.SUGGEST_MS ?? 0);
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
@@ -38,16 +41,20 @@ function reset(): void {
 		if (!existsSync(join(DIR, TAG))) throw new Error(`${DIR} exists and is not a demo workspace: not deleting it`);
 		rmSync(DIR, { recursive: true, force: true });
 	}
-	cpSync(here('./workspace'), DIR, { recursive: true });
+	cpSync(here(stubs ? './stubs-workspace' : './workspace'), DIR, { recursive: true });
 	writeFileSync(join(DIR, TAG), 'Made by symbiosis demo/run.ts. The demo deletes and copies this folder again.\n');
 }
 
-/** The symbiosis command on the workspace, with the scripted pi or a real one given PROMPT.md. */
+/**
+ * The symbiosis command on the workspace, with the scripted pi or a real one
+ * given PROMPT.md. The stubs demo's real pi gets no prompt: you start each fill.
+ */
 function launch(real: boolean, rest: string[]): Promise<number> {
 	const cut = rest.indexOf('--');
 	const flags = cut < 0 ? rest : rest.slice(0, cut);
 	const piArgs = cut < 0 ? [] : rest.slice(cut + 1);
-	if (real) piArgs.push('--name', 'demo', `@${here('./PROMPT.md')}`);
+	if (stubs) piArgs.push('--name', 'stubs');
+	else if (real) piArgs.push('--name', 'demo', `@${here('./PROMPT.md')}`);
 	const env = real ? process.env : { ...process.env, SYMBIOSIS_PI: here('./scripted-pi') };
 	const args = [...process.execArgv, here('../launcher/main.ts'), DIR, ...flags, ...(piArgs.length ? ['--', ...piArgs] : [])];
 	const child = spawn(process.execPath, args, { stdio: 'inherit', env });
@@ -73,11 +80,12 @@ if (!scripted) {
 	reset();
 	say(`workspace: ${DIR}`);
 	if (argv.includes('--reset')) {
-		say('reset only. A real pi: npm run demo -- --real, or give it demo/PROMPT.md.');
+		say(stubs ? 'reset only. Then: npm run demo -- --stubs, and follow demo/STUBS.md.' : 'reset only. A real pi: npm run demo -- --real, or give it demo/PROMPT.md.');
 		process.exit(0);
 	}
-	const real = argv.includes('--real');
-	say(real ? 'a real pi, given demo/PROMPT.md: it starts at once and costs tokens.' : 'the scripted pi: no model, no tokens.');
+	const real = stubs || argv.includes('--real');
+	if (stubs) say('a real pi that waits for you: follow demo/STUBS.md. Each fill costs tokens.');
+	else say(real ? 'a real pi, given demo/PROMPT.md: it starts at once and costs tokens.' : 'the scripted pi: no model, no tokens.');
 	process.exit(await launch(real, argv.filter((a) => !OURS.includes(a))));
 }
 
