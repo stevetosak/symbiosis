@@ -201,6 +201,26 @@ Where the configurations come from, in the picker's order:
   `${file}`, `${relativeFile}`, `${fileBasename}`,
   `${fileBasenameNoExtension}`, `${fileDirname}`, `${fileExtname}`,
   `${lineNumber}`, `${env:NAME}`, `${pathSeparator}`.
+
+  Inputs, as VS Code's `inputs`: `${input:id}` asks for a value when the run
+  starts. Its options are a list, or what a command prints as JSON
+  (`[{ "value", "label"?, "detail"?, "ready"? }]` or `["a", "b"]`):
+
+  ```jsonc
+  {
+    "inputs": [
+      { "id": "device", "type": "pick", "description": "Android device",
+        "command": "node .symbiosis/devices.mjs list android" },
+      { "id": "mode", "type": "pick", "options": ["Debug", "Release"] }
+    ],
+    "configurations": [{ "name": "app", "command": "run-on ${input:device} ${input:mode}" }]
+  }
+  ```
+
+  A run takes the value picked last time while it is still an option, else
+  the only option, else the only one `ready` (a booted simulator); else a
+  drawer asks. The picker shows the pick (`app → Pixel 7`); `i` on a
+  configuration there asks again.
 - `.vscode/launch.json` (the `node`, `python`, `go`, ... programs it can run
   without a debugger) and `.vscode/tasks.json`.
 - The file open: `node`, `python3`, `go run`, `bash`, `ruby`, ... by its
@@ -253,5 +273,6 @@ bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run
 bash test/e2e/marks.sh     # the gutter: ▌ on the change's lines and π on the line typed now, none after
 bash test/e2e/stop.sh      # "? waits for you" while pi shows a dialog; ctrl+k q stops pi's turn
 bash test/e2e/runconf.sh   # run configurations: the picker, F5, shift+F5, a failing run, ctrl+q keeps a run, back in ttt it shows
+bash test/e2e/runinputs.sh # inputs: the drawer asks, F5 runs the pick again, the picker shows it, i asks again, one option asks nothing
 sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi): without herdr, with it, twice, key taken, own command file
 ```
