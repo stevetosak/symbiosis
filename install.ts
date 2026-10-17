@@ -13,7 +13,7 @@ import { lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSy
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PLUGIN_SOURCE, planTttPlugin, type Step } from './pi/setup.ts';
+import { builtPluginSource, planTttPlugin, type Step } from './pi/setup.ts';
 import { pluginDir } from './core/channel/file.ts';
 
 export { planTttPlugin, type Step };
@@ -93,7 +93,7 @@ if (import.meta.main) {
 	const steps = [
 		planOldLink(join(piDir, 'extensions'), repo),
 		planPiPackage(piDir, repo),
-		planTttPlugin(pluginDir(), PLUGIN_SOURCE),
+		planTttPlugin(pluginDir(), builtPluginSource()),
 		planCommandLink(binDir, join(repo, 'bin', 'symbiosis')),
 	];
 	const check = process.argv.includes('--check');

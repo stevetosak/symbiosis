@@ -7,9 +7,10 @@
 // bundle goes to ttt's require.
 //
 //   bin/run-node ttt/build.ts           writes ttt/symbiosis/plugin.lua
-//   bin/run-node ttt/build.ts --check   exit 1 when it is not up to date
 //
-// The bundle is committed: setup copies ttt/symbiosis as it is.
+// The bundle is NOT committed (git ignores it): a generated file in git
+// conflicts at every merge and goes stale. Whatever uses it builds it first
+// with ensureBundle(): pi when it starts, bin/setup.sh, install.ts, the tests.
 import { readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -104,6 +105,16 @@ export function build(): string {
 	return bundle(collect());
 }
 
+/** Writes the bundle when the file is missing or differs. True when it wrote. */
+export function ensureBundle(out: string = OUT): boolean {
+	const text = build();
+	try {
+		if (readFileSync(out, 'utf8') === text) return false;
+	} catch {}
+	writeFileSync(out, text);
+	return true;
+}
+
 const main = (): boolean => {
 	try {
 		return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1] ?? '');
@@ -113,18 +124,6 @@ const main = (): boolean => {
 };
 
 if (main()) {
-	const text = build();
-	if (process.argv.includes('--check')) {
-		let now = '';
-		try {
-			now = readFileSync(OUT, 'utf8');
-		} catch {}
-		if (now !== text) {
-			console.error('ttt/symbiosis/plugin.lua is not built from ttt/src: run `npm run build`');
-			process.exit(1);
-		}
-	} else {
-		writeFileSync(OUT, text);
-		console.log(`wrote ${relative(process.cwd(), OUT) || OUT}`);
-	}
+	writeFileSync(OUT, build());
+	console.log(`wrote ${relative(process.cwd(), OUT) || OUT}`);
 }

@@ -65,8 +65,8 @@ terminal, and herdr runs the plugin's build without one).
 
 **By hand:** install ttt and pi, run
 `pi install git:github.com/stevetosak/symbiosis`, then
-`sh ~/.pi/agent/git/github.com/stevetosak/symbiosis/bin/setup.sh` (it copies
-the ttt plugin and links the command).
+`sh ~/.pi/agent/git/github.com/stevetosak/symbiosis/bin/setup.sh` (it builds
+and copies the ttt plugin and links the command; it needs Node 24).
 
 **From a checkout** (to work on symbiosis): `npm run install:local`
 (`--check` shows what it would do). It runs `pi install <checkout>`, so pi
@@ -265,15 +265,16 @@ each kind of proposal and the guard's limits.
 The plugin's sources are in `ttt/src`: a small host (`ttt/src/core`) and one
 file per feature (`ttt/src/features`: the replay, helpi!, the sessions, the
 plan, ...). ttt runs one Lua file per plugin, so `npm run build` bundles them
-into `ttt/symbiosis/plugin.lua`, which is committed. Edit `ttt/src`, never
-the bundle; `npm test` fails when the bundle is not up to date. How to add a
-feature: `ttt/README.md`.
+into `ttt/symbiosis/plugin.lua`. Git ignores the bundle, so it never causes a
+merge conflict and never goes stale: pi builds it when it starts and copies it
+to ttt, and `bin/setup.sh`, `install.ts` and the tests build it too. Edit
+`ttt/src` only. How to add a feature: `ttt/README.md`.
 
 ## Test
 
 ```bash
 npm test          # unit tests; also the plugin's Lua tests (test/lua) when luajit is installed
-npm run build     # bundles ttt/src into ttt/symbiosis/plugin.lua
+npm run build     # bundles ttt/src into ttt/symbiosis/plugin.lua (ignored by git; the tests and e2e scripts build it themselves)
 npm run test:lua  # only the Lua tests: luajit test/lua/run.lua .
 npm run e2e       # a fake pi against a headless ttt; prints the output folder
 PLAN_AT=26 PLAN_CLOSE_AT=34 HOLD_MS=4000 npm run e2e   # also opens the plan drawer

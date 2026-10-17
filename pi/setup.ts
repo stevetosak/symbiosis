@@ -6,11 +6,18 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pluginDir } from '../core/channel/file.ts';
+import { ensureBundle } from '../ttt/build.ts';
 
 export type Step = { what: string; state: 'create' | 'update' | 'remove' | 'ok' | 'skip'; why?: string; run?: () => void };
 
 /** The plugin as it is in this package: `<package>/ttt/symbiosis`. */
 export const PLUGIN_SOURCE = join(dirname(fileURLToPath(import.meta.url)), '..', 'ttt', 'symbiosis');
+
+/** The plugin folder of this package, with plugin.lua built from ttt/src first (git does not hold it). */
+export function builtPluginSource(): string {
+	ensureBundle();
+	return PLUGIN_SOURCE;
+}
 
 /** The plugin files copied into ttt's plugin folder. Only changed files are copied. */
 export function planTttPlugin(dest: string, source: string): Step {
@@ -35,11 +42,12 @@ export function planTttPlugin(dest: string, source: string): Step {
  * nothing when ttt has no config folder (ttt is not installed or never ran).
  * Returns the step that ran, or undefined when nothing changed.
  */
-export function syncTttPlugin(env: NodeJS.ProcessEnv = process.env, home = homedir(), source = PLUGIN_SOURCE): Step | undefined {
+export function syncTttPlugin(env: NodeJS.ProcessEnv = process.env, home = homedir(), source?: string): Step | undefined {
 	const dest = pluginDir(env, home);
 	if (!existsSync(dirname(dirname(dest)))) return undefined;
-	if (!existsSync(source)) return undefined;
-	const step = planTttPlugin(dest, source);
+	const from = source ?? builtPluginSource();
+	if (!existsSync(from)) return undefined;
+	const step = planTttPlugin(dest, from);
 	if (!step.run) return undefined;
 	step.run();
 	return step;

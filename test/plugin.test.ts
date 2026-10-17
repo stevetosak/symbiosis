@@ -5,13 +5,24 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { build, bundle, collect, OUT } from '../ttt/build.ts';
+import { build, bundle, collect, ensureBundle, OUT } from '../ttt/build.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const luajit = spawnSync('luajit', ['-v']).status === 0;
 
-test('ttt/symbiosis/plugin.lua is built from ttt/src (npm run build)', () => {
-	assert.equal(readFileSync(OUT, 'utf8'), build());
+test('ensureBundle writes the bundle when it is missing or old, and only then', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'symbiosis-bundle-'));
+	try {
+		const out = join(dir, 'plugin.lua');
+		assert.equal(ensureBundle(out), true);
+		assert.equal(readFileSync(out, 'utf8'), build());
+		assert.equal(ensureBundle(out), false);
+		writeFileSync(out, 'old');
+		assert.equal(ensureBundle(out), true);
+		assert.equal(readFileSync(out, 'utf8'), build());
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test('the bundle: modules by path, the line map points at each source', () => {
@@ -41,11 +52,13 @@ test('the bundle needs main.lua', () => {
 });
 
 test('the Lua unit tests (test/lua, under luajit)', { skip: !luajit && 'luajit is not installed' }, () => {
+	ensureBundle();
 	const run = spawnSync('luajit', ['test/lua/run.lua', '.'], { cwd: root, encoding: 'utf8' });
 	assert.equal(run.status, 0, run.stdout + run.stderr);
 });
 
 test('the bundle is valid Lua 5.1', { skip: !luajit && 'luajit is not installed' }, () => {
+	ensureBundle();
 	const run = spawnSync('luajit', ['-b', OUT, '/dev/null'], { encoding: 'utf8' });
 	assert.equal(run.status, 0, run.stderr);
 });

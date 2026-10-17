@@ -9,6 +9,7 @@ OUT=${1:-$(mktemp -d /tmp/symbiosis-e2e.XXXXXX)}
 # The real path: ttt's fs sees no symlinks (macOS: /tmp, /var -> /private/...).
 mkdir -p "$OUT" && OUT=$(cd "$OUT" && pwd -P)
 mkdir -p "$OUT/cfg/plugins/symbiosis" "$OUT/ws"
+"$repo/bin/run-node" "$repo/ttt/build.ts" >/dev/null
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"
 # SPEED: the preview's typing speed in characters per second (0 = max); default the plugin's.
 # LAG: how many changes pi may make before the editor shows them (-1 = no limit); default the plugin's.

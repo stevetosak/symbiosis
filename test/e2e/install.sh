@@ -32,6 +32,7 @@ list) echo "User packages:"; cat "\$HOME/pi-packages" 2>/dev/null || true ;;
 install) printf '  %s\n    %s\n' "\$2" "\$2" >>"\$HOME/pi-packages" ;;
 esac
 STUB
+ln -s "$(command -v node)" "$stubs/node" # setup.sh builds the plugin with it
 chmod +x "$stubs"/*
 
 run() {

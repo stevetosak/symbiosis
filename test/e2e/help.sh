@@ -11,6 +11,7 @@ OUT=${1:-$(mktemp -d /tmp/symbiosis-e2e.XXXXXX)}
 mkdir -p "$OUT" && OUT=$(cd "$OUT" && pwd -P)
 export TTT_CONFIG_DIR="$OUT/cfg"
 mkdir -p "$OUT/cfg/plugins/symbiosis" "$OUT/ws" "$OUT/other"
+"$repo/bin/run-node" "$repo/ttt/build.ts" >/dev/null
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"
 echo '{"autosave":0}' > "$OUT/cfg/plugins/symbiosis/settings.json"
 perms=$(python3 -c "import json; print(json.dumps(json.load(open('$repo/ttt/symbiosis/plugin.ttt.json'))['permissions']))")
