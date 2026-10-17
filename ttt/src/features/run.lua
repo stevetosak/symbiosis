@@ -3,6 +3,8 @@
 -- come from .symbiosis/run.json, .vscode/launch.json and tasks.json, the file
 -- open, and what the project's files say (package.json scripts, Cargo,
 -- go.mod, .csproj, Makefile, ...): core/run/ in TypeScript.
+-- A configuration's inputs (${input:id}: a device, a mode) are picked when
+-- it starts, in a drawer, when `symbiosis run start` cannot pick them itself.
 --
 -- ttt lets a plugin start a program but not keep it, read it as it goes, or
 -- kill it; so `symbiosis run` (launcher/run.ts) does: each run gets a
@@ -90,21 +92,63 @@ function M.status_line(chosen, runs, now)
 	return text
 end
 
--- The configs that match a query: every word in the name, the group or the
--- command, in any case. Keeps their order.
-function M.filter(configs, query)
+-- The items whose text (hay(item)) has every word of the query, in any
+-- case. Keeps their order.
+local function filter_by(items, query, hay)
 	local words = {}
 	for w in tostring(query or ""):lower():gmatch("%S+") do table.insert(words, w) end
 	local out = {}
-	for _, c in ipairs(configs) do
-		local hay = (c.name .. " " .. c.group .. " " .. (c.line or "")):lower()
+	for _, item in ipairs(items) do
+		local text = hay(item):lower()
 		local ok = true
 		for _, w in ipairs(words) do
-			if not hay:find(w, 1, true) then ok = false break end
+			if not text:find(w, 1, true) then ok = false break end
 		end
-		if ok then table.insert(out, c) end
+		if ok then table.insert(out, item) end
 	end
 	return out
+end
+
+-- The configs that match a query: every word in the name, the group, the
+-- command or what its inputs picked last.
+function M.filter(configs, query)
+	return filter_by(configs, query, function(c) return c.name .. " " .. c.group .. " " .. (c.line or "") .. " " .. (c.picked or "") end)
+end
+
+-- An input's options that match a query: every word in the label, the detail or the value.
+function M.filter_options(options, query)
+	return filter_by(options, query, function(o) return o.label .. " " .. (o.detail or "") .. " " .. o.value end)
+end
+
+-- An input's options as the drawer's list: ▶ the one picked last, ● one up already.
+function M.input_items(options, current)
+	local items = {}
+	for _, o in ipairs(options) do
+		table.insert(items, {
+			id = o.value,
+			label = o.label .. (o.detail and o.detail ~= "" and ("  " .. o.detail) or ""),
+			icon = o.value == current and "▶" or (o.ready and "●" or " "),
+		})
+	end
+	return items
+end
+
+-- `run start`'s arguments for the inputs picked so far: --input and
+-- --input-label, by id (in order, the same every time).
+function M.input_args(given, labels)
+	local ids = {}
+	for id in pairs(given or {}) do table.insert(ids, id) end
+	table.sort(ids)
+	local args = {}
+	for _, id in ipairs(ids) do
+		table.insert(args, "--input")
+		table.insert(args, id .. "=" .. given[id])
+		if labels and labels[id] then
+			table.insert(args, "--input-label")
+			table.insert(args, id .. "=" .. labels[id])
+		end
+	end
+	return args
 end
 
 -- A file reference in a line of output: "src/app.ts:12:5", "at f (/x/y.js:3:1)",
@@ -212,7 +256,7 @@ function M.picker_items(list, chosen_id)
 		end
 		table.insert(g.children, {
 			id = c.id,
-			label = c.name .. (c.line and c.line ~= "" and ("  " .. c.line) or ""),
+			label = c.name .. (c.picked and c.picked ~= "" and (" → " .. c.picked) or "") .. (c.line and c.line ~= "" and ("  " .. c.line) or ""),
 			icon = c.id == chosen_id and "▶" or " ",
 		})
 	end
@@ -251,6 +295,7 @@ function M.setup(app)
 	local tail = { id = nil, seq = -1, lines = {} }
 	local panel_ref = nil
 	local picker = nil        -- { items } while the picker is open
+	local asking = nil        -- { config, ask, opts, items } while an input's drawer is open
 	local busy = false
 	local ticks = 0
 	local welcomed = false
@@ -367,9 +412,10 @@ function M.setup(app)
 		if ok and type(data) == "table" then chosen_ids = data end
 	end
 
-	local function choose(config)
-		if not folder then return end
-		chosen_ids[folder] = config.id
+	local function choose(config, at)
+		at = at or folder
+		if not at then return end
+		chosen_ids[at] = config.id
 		pcall(fs.write, chosen_file, json.encode(chosen_ids))
 	end
 
@@ -414,23 +460,42 @@ function M.setup(app)
 		if not focus then ttt.exec_command("editor.focus") end
 	end
 
-	local function start(config)
+	local ask_input -- the drawer for an input `run start` cannot pick itself
+
+	-- opts: again = the user picks every input again; given, labels = the
+	-- inputs decided so far (id -> value, id -> label); folder = the one the
+	-- run was asked in (a drawer stays open while another project's file opens).
+	local function start(config, opts)
 		if busy then return end
+		opts = opts or {}
+		local at = opts.folder or folder
 		busy = true
-		choose(config)
+		choose(config, at)
 		local pos = select(2, pcall(editor.cursor))
-		local args = { "start", "--folder", folder, "--config", config.id, "--file", file_now() or "" }
+		local args = { "start", "--folder", at, "--config", config.id, "--file", file_now() or "" }
 		if type(pos) == "table" and pos.line then
 			table.insert(args, "--line")
 			table.insert(args, tostring(pos.line))
 		end
+		for _, a in ipairs(M.input_args(opts.given, opts.labels)) do table.insert(args, a) end
+		if opts.again then table.insert(args, "--ask") end
 		cli(args, function(out)
 			busy = false
 			if not out then return end
+			if out.ask then return ask_input(config, out.ask, { again = opts.again, folder = at }) end
 			selected, scroll = out.run.id, 0
+			-- What its inputs picked, for the picker.
+			if out.picked then config.picked = out.picked end
 			list_runs()
 			reveal()
 		end)
+	end
+
+	-- F5 that asks again for every input of the chosen configuration.
+	local function run_chosen_again()
+		local c = chosen()
+		if c then return start(c, { again = true }) end
+		M.api.pick()
 	end
 
 	local function run_chosen()
@@ -493,7 +558,53 @@ function M.setup(app)
 
 	local function close_picker()
 		picker = nil
+		asking = nil
 		app:close_drawer("run")
+	end
+
+	-- The drawer for an input: a filter and the options; Enter or a click
+	-- picks one, and the run starts again with it (it may ask for the next).
+	local function render_input(panel)
+		if not asking then return end
+		local a = asking
+		local function take(option)
+			if not option then return end
+			close_picker()
+			-- The inputs decided before this one come back with the ask: given, they are not listed again.
+			local given, labels = {}, {}
+			for k, v in pairs(a.ask.given or {}) do given[k] = v end
+			for k, v in pairs(a.ask.labels or {}) do labels[k] = v end
+			given[a.ask.input.id], labels[a.ask.input.id] = option.value, option.label
+			start(a.config, { again = a.opts.again, given = given, labels = labels, folder = a.opts.folder })
+		end
+		local function by_value(value)
+			for _, o in ipairs(a.ask.options) do if o.value == value then return o end end
+			return nil
+		end
+		panel:title("Run " .. util.cut(a.ask.name, 40))
+		panel:label({ text = "Pick the " .. a.ask.input.description, style = "bold" })
+		panel:input({
+			placeholder = "filter",
+			on_change = function(text)
+				if asking ~= a then return end
+				a.items = M.filter_options(a.ask.options, text)
+				panel:redraw()
+			end,
+			on_submit = function() take(a.items[1]) end,
+		})
+		if #a.items == 0 then panel:label({ text = "None matches.", style = "muted" }) end
+		panel:tree({
+			items = M.input_items(a.items, a.ask.current),
+			on_command = function(command, node)
+				if command == "activate" then take(by_value(node and node.id)) end
+			end,
+		})
+		panel:label({ text = "Enter picks the first · ↓ to the list: Enter or a click picks · ▶ picked last · ● up already · Esc", style = "muted", margin_top = 1 })
+	end
+
+	ask_input = function(config, ask, opts)
+		asking = { config = config, ask = ask, opts = opts, items = ask.options }
+		ttt.open_drawer({ width = 64, min_width = 40, side = "right", render = render_input })
 	end
 
 	local function by_id(id)
@@ -525,7 +636,7 @@ function M.setup(app)
 		end
 		panel:tree({
 			items = M.picker_items(picker.items, now and now.id),
-			key_commands = { s = "save", e = "edit" },
+			key_commands = { s = "save", e = "edit", i = "inputs" },
 			-- on_select comes with every move of the selection (the arrows);
 			-- Enter and a click are "activate".
 			on_command = function(command, node)
@@ -544,10 +655,16 @@ function M.setup(app)
 					close_picker()
 					save(c)
 				end
+				if command == "inputs" then
+					local c = by_id(node and node.id)
+					if not c then return end
+					close_picker()
+					start(c, { again = true })
+				end
 			end,
 		})
 		for _, p in ipairs(problems) do panel:label({ text = "⚠ " .. p, style = "warning" }) end
-		panel:label({ text = "Enter runs the first · ↓ to the list: Enter or a click runs one, s saves it to run.json, e edits run.json · Esc", style = "muted", margin_top = 1 })
+		panel:label({ text = "Enter runs the first · ↓ to the list: Enter or a click runs one, i picks its inputs again, s saves it to run.json, e edits run.json · Esc", style = "muted", margin_top = 1 })
 	end
 
 	local function show_picker()
@@ -770,7 +887,7 @@ function M.setup(app)
 	-- ctrl+q while programs run: stop them, keep them, or stay.
 	local function ask_quit(live)
 		app:close_drawer()
-		picker = nil
+		picker, asking = nil, nil
 		local names = {}
 		for _, r in ipairs(live) do table.insert(names, r.name) end
 		local what = #live == 1 and ("\"" .. live[1].name .. "\" runs") or (#live .. " programs run (" .. table.concat(names, ", ") .. ")")
@@ -865,6 +982,7 @@ function M.setup(app)
 	app:command({ id = "symbiosis.run", title = "symbiosis: Run", key = "f5", run = run_chosen })
 	app:command({ id = "symbiosis.runStop", title = "symbiosis: Stop the Run", key = "shift+f5", run = stop_current })
 	app:command({ id = "symbiosis.runPick", title = "symbiosis: Run Configuration…", key = "ctrl+k f5", run = pick })
+	app:command({ id = "symbiosis.runAsk", title = "symbiosis: Run, Choosing Inputs Again…", run = run_chosen_again })
 	app:command({ id = "symbiosis.runPanel", title = "symbiosis: Focus the Run Panel", key = "ctrl+k shift+f5", run = function() list_runs() reveal(true) end })
 	app:command({ id = "symbiosis.runWrap", title = "symbiosis: Toggle Wrap in the Run Output", run = toggle_wrap })
 	app:command({ id = "symbiosis.runEdit", title = "symbiosis: Edit Run Configurations", run = function() refresh_list(edit_run_json) end })

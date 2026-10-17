@@ -12,6 +12,17 @@
 //
 // `command` with `args` runs the program directly; `command` alone is a
 // shell line (sh -c). Strings take VSCode's variables (core/run/variables.ts).
+//
+// Inputs, as VSCode's: values a run asks for when it starts. A configuration
+// names one with ${input:id} in any of its strings; the options are a list,
+// or what a command prints (core/run/inputs.ts runs it and picks):
+//
+//   { "inputs": [
+//       { "id": "device", "type": "pick", "description": "Android device",
+//         "command": "node .symbiosis/devices.mjs list android" },
+//       { "id": "mode", "type": "pick", "options": ["Debug", { "value": "Release", "detail": "slow" }] }
+//     ],
+//     "configurations": [{ "name": "app", "command": "run-on ${input:device} ${input:mode}" }] }
 
 /** A configuration, ready to resolve and start. */
 export interface RunConfig {
@@ -30,6 +41,8 @@ export interface RunConfig {
 	readonly envFile?: string;
 	/** The file it was read from, relative to the workspace folder. */
 	readonly source?: string;
+	/** The inputs its strings name (${input:id}), in the order they come. */
+	readonly inputs?: readonly InputDef[];
 }
 
 /** What the plugin shows: a config with its command as one line. */
@@ -40,9 +53,103 @@ export interface ListedConfig {
 	readonly line: string;
 	readonly cwd: string;
 	readonly source?: string;
+	/** The labels picked last for its inputs, ", " between them. */
+	readonly picked?: string;
 }
 
 export class RunConfigError extends Error {}
+
+// Inputs ----------------------------------------------------------------------------
+
+export interface InputOption {
+	readonly value: string;
+	readonly label: string;
+	readonly detail?: string;
+	readonly ready?: boolean;
+}
+
+export interface InputDef {
+	readonly id: string;
+	/** What it asks for, in the picker's title. Default: the id. */
+	readonly description: string;
+	/** The options as they are, or a program that prints them. */
+	readonly options?: readonly InputOption[];
+	readonly command?: string;
+	readonly args?: readonly string[];
+}
+
+/** VSCode calls a fixed list "pickString"; here a command may make the list. */
+const PICK_TYPES = new Set(['pick', 'pickString']);
+const INPUT_REF = /\$\{input:([^}]*)\}/g;
+
+function option(raw: unknown, at: string): InputOption {
+	if (typeof raw === 'string') {
+		if (raw === '') throw new RunConfigError(`${at} needs a "value"`);
+		return { value: raw, label: raw };
+	}
+	const o = raw as Record<string, unknown>;
+	if (typeof o !== 'object' || o === null || typeof o.value !== 'string' || o.value === '') throw new RunConfigError(`${at} needs a "value"`);
+	for (const key of ['label', 'detail'] as const) {
+		if (o[key] !== undefined && typeof o[key] !== 'string') throw new RunConfigError(`${at}.${key} must be a string`);
+	}
+	return {
+		value: o.value,
+		label: (o.label as string | undefined) || o.value,
+		...(o.detail ? { detail: o.detail as string } : {}),
+		...(o.ready === true ? { ready: true } : {}),
+	};
+}
+
+/** A list of options: run.json's "options", or what a command printed. */
+export function parseOptions(raw: unknown, at: string): InputOption[] {
+	if (!Array.isArray(raw)) throw new RunConfigError(`${at} must be a list`);
+	const seen = new Set<string>();
+	return raw.map((r, i) => {
+		const o = option(r, `${at}[${i}]`);
+		if (seen.has(o.value)) throw new RunConfigError(`${at}: the value "${o.value}" is there twice`);
+		seen.add(o.value);
+		return o;
+	});
+}
+
+/** run.json's "inputs" → their definitions, by id. */
+export function parseInputs(raw: unknown, where: string): Map<string, InputDef> {
+	const defs = new Map<string, InputDef>();
+	if (raw === undefined) return defs;
+	if (!Array.isArray(raw)) throw new RunConfigError(`${where}: "inputs" must be a list`);
+	raw.forEach((r: unknown, i: number) => {
+		const d = r as Record<string, unknown>;
+		const at = `${where}: inputs[${i}]`;
+		if (typeof d !== 'object' || d === null) throw new RunConfigError(`${at} must be an object`);
+		if (typeof d.id !== 'string' || !/^[\w.-]+$/.test(d.id)) throw new RunConfigError(`${at} needs an "id" (letters, digits, _ . -)`);
+		if (defs.has(d.id)) throw new RunConfigError(`${at}: the id "${d.id}" is used twice`);
+		if (!PICK_TYPES.has(d.type as string)) throw new RunConfigError(`${at} ("${d.id}"): "type" must be "pick" or "pickString"`);
+		if (d.description !== undefined && typeof d.description !== 'string') throw new RunConfigError(`${at}.description must be a string`);
+		const hasCommand = typeof d.command === 'string' && d.command.trim() !== '';
+		if (hasCommand === (d.options !== undefined)) throw new RunConfigError(`${at} ("${d.id}") needs "options" or a "command", one of them`);
+		if (d.args !== undefined && !hasCommand) throw new RunConfigError(`${at} ("${d.id}"): "args" go with a "command"`);
+		const args = d.args !== undefined ? strings(d.args, `${at}.args`) : undefined;
+		if (inputRefs([d.command as string | undefined, ...(args ?? [])]).length > 0) {
+			throw new RunConfigError(`${at} ("${d.id}"): its command names an input; an input's command takes no \${input:...}`);
+		}
+		defs.set(d.id, {
+			id: d.id,
+			description: (d.description as string | undefined) || d.id,
+			...(hasCommand ? { command: d.command as string } : { options: parseOptions(d.options, `${at}.options`) }),
+			...(args ? { args } : {}),
+		});
+	});
+	return defs;
+}
+
+/** The ids of the inputs some strings name, in the order they first come. */
+export function inputRefs(strings: readonly (string | undefined)[]): string[] {
+	const out: string[] = [];
+	for (const s of strings) {
+		for (const m of (s ?? '').matchAll(INPUT_REF)) if (!out.includes(m[1])) out.push(m[1]);
+	}
+	return out;
+}
 
 /**
  * JSON with comments and trailing commas (VSCode's files, run.json). Strings
@@ -99,10 +206,11 @@ function stringMap(value: unknown, what: string): Record<string, string> {
 
 /** .symbiosis/run.json's text → its configurations. `where`: the file, for errors. */
 export function parseRunJson(text: string, where = '.symbiosis/run.json'): RunConfig[] {
-	const data = parseJsonc(text, where) as { configurations?: unknown };
+	const data = parseJsonc(text, where) as { configurations?: unknown; inputs?: unknown };
 	if (typeof data !== 'object' || data === null || !Array.isArray(data.configurations)) {
 		throw new RunConfigError(`${where}: needs "configurations": [ ... ]`);
 	}
+	const defs = parseInputs(data.inputs, where);
 	const seen = new Set<string>();
 	return data.configurations.map((raw: unknown, i: number) => {
 		const c = raw as Record<string, unknown>;
@@ -115,7 +223,7 @@ export function parseRunJson(text: string, where = '.symbiosis/run.json'): RunCo
 		for (const key of ['cwd', 'envFile'] as const) {
 			if (c[key] !== undefined && typeof c[key] !== 'string') throw new RunConfigError(`${at}.${key} must be a string`);
 		}
-		return {
+		const config: RunConfig = {
 			id: `saved:${c.name}`,
 			name: c.name,
 			group: 'Saved',
@@ -126,6 +234,11 @@ export function parseRunJson(text: string, where = '.symbiosis/run.json'): RunCo
 			...(c.envFile !== undefined ? { envFile: c.envFile as string } : {}),
 			source: where,
 		};
+		const refs = inputRefs([config.command, ...(config.args ?? []), config.cwd, config.envFile, ...Object.values(config.env ?? {})]);
+		if (refs.length === 0) return config;
+		const unknown = refs.filter((id) => !defs.has(id));
+		if (unknown.length > 0) throw new RunConfigError(`${at} ("${c.name}"): no input "${unknown[0]}" in "inputs"`);
+		return { ...config, inputs: refs.map((id) => defs.get(id)!) };
 	});
 }
 

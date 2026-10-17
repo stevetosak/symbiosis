@@ -88,6 +88,16 @@ export function groupAlive(pgid: number | undefined): boolean {
 	}
 }
 
+/** Signals a process group; its leader was spawned detached. */
+export function killGroup(pid: number | undefined, signal: NodeJS.Signals): void {
+	if (!pid) return;
+	try {
+		process.kill(-pid, signal);
+	} catch {
+		// gone
+	}
+}
+
 export function newRunId(now = Date.now()): string {
 	return `${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }

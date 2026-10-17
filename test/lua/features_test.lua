@@ -85,10 +85,10 @@ return {
 		local ids, keys = {}, {}
 		for _, c in ipairs(reg.commands) do ids[c.id] = true end
 		for _, k in ipairs(reg.keybindings) do keys[k.key] = k.command end
-		for _, id in ipairs({ "togglePin", "goToAgent", "nextSession", "goToSession", "showPlan", "showChanges", "slower", "faster", "pause", "rush", "help", "stop", "fillStub", "releaseStub", "showProposal", "run", "runStop", "runPick", "runPanel", "runWrap", "runEdit" }) do
+		for _, id in ipairs({ "togglePin", "goToAgent", "nextSession", "goToSession", "showPlan", "showChanges", "slower", "faster", "pause", "rush", "help", "stop", "fillStub", "releaseStub", "showProposal", "run", "runStop", "runPick", "runPanel", "runWrap", "runEdit", "runAsk" }) do
 			t.ok(ids["symbiosis." .. id], id)
 		end
-		t.eq(#reg.commands, 21)
+		t.eq(#reg.commands, 22)
 		t.eq(keys, {
 			["ctrl+k a"] = "symbiosis.togglePin", ["ctrl+k n"] = "symbiosis.nextSession", ["ctrl+k g"] = "symbiosis.goToSession",
 			["ctrl+k v"] = "symbiosis.showPlan", ["ctrl+k w"] = "symbiosis.showChanges", ["ctrl+k -"] = "symbiosis.slower",
