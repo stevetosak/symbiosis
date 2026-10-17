@@ -37,6 +37,7 @@ ttt/
       review.lua        ctrl+k x: the bodies pi filled, until acked; ● in the gutter
       fill.lua          a fill (a stub, or a function under its description), ctrl+k f; proposals, ctrl+k p
       changes.lua       ctrl+k w: what pi changed
+      close.lua         ctrl+k z: close symbiosis (pi and ttt)
       panel.lua         ctrl+k h: settings, sessions, keys
   symbiosis/
     plugin.lua          GENERATED, not in git

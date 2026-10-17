@@ -4,7 +4,7 @@
 // folder (./file.ts), because a ttt plugin cannot open a socket. A socket or
 // pipe implementation goes behind this same interface.
 import type { ReviewRequest } from '../review.ts';
-import type { AskRequest, ChannelEvent, FillRequest, HelpRequest, PluginState, ProposalAnswer, Session, StopRequest } from '../protocol.ts';
+import type { AskRequest, ChannelEvent, CloseRequest, FillRequest, HelpRequest, PluginState, ProposalAnswer, Session, StopRequest } from '../protocol.ts';
 
 export interface Channel {
 	/** False when the editor side is not installed: then the agent side sends nothing. */
@@ -38,6 +38,9 @@ export interface Channel {
 
 	/** The editor's last stop request, if any. */
 	stop(): StopRequest | undefined;
+
+	/** The last request to quit a session (`symbiosis close`), if any. */
+	close(): CloseRequest | undefined;
 
 	/** The editor's last helpi! request, if any. */
 	help(): HelpRequest | undefined;

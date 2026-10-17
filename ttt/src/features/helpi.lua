@@ -206,7 +206,7 @@ local function setup(app)
 		asked[key] = true
 		sessions.refresh()
 		local owner = sessions.owner()
-		if not owner then return ttt.notify("symbiosis: helpi! needs a pi session; none runs", "warning") end
+		if not owner then return ttt.notify("symbiosis: " .. sessions.missing("helpi! needs a pi session; none runs"), "warning") end
 		if owner.version ~= sessions.PROTOCOL then
 			return ttt.notify("symbiosis: pi " .. owner.name .. " runs an old symbiosis: /reload it", "warning")
 		end

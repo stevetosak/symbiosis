@@ -20,6 +20,8 @@
 //                 question (core/help.ts), or to stop it (`cancel`).
 //   stop.json     {id, to}: the plugin asks session `to` to stop its turn
 //                 (ctrl+k q); `id` is new for each press.
+//   close.json    {id, to}: `symbiosis close` asks session `to` to quit.
+//   quit.json     {id}: `symbiosis close` asks the editor to quit (as ctrl+q).
 //   fill.json     FillRequest: fill the stub at a line, or end the fill.
 //   answer.json   ProposalAnswer: the developer accepts or rejects a proposal.
 //   sessions/<id>.json  one Session per running pi, written every second.
@@ -29,7 +31,7 @@ import { join } from 'node:path';
 import { parseAskRequest } from '../ask.ts';
 import { parseRequest } from '../help.ts';
 import { parseReviewRequest, type ReviewRequest } from '../review.ts';
-import { type AskRequest, type ChannelEvent, DEFAULT_LAG, FILL_MODES, type FillRequest, type HelpRequest, type PluginState, type ProposalAnswer, SCOPES, type Scope, type Session, type StopRequest } from '../protocol.ts';
+import { type AskRequest, type ChannelEvent, type CloseRequest, DEFAULT_LAG, FILL_MODES, type FillRequest, type HelpRequest, type PluginState, type ProposalAnswer, SCOPES, type Scope, type Session, type StopRequest } from '../protocol.ts';
 import type { Channel } from './channel.ts';
 
 /** The log starts again from empty at the start of a turn once it is this big. */
@@ -130,6 +132,35 @@ export class FileChannel implements Channel {
 	stop(): StopRequest | undefined {
 		const raw = readJson<{ id?: unknown; to?: unknown }>(join(this.dir, 'stop.json'));
 		return typeof raw?.id === 'string' && typeof raw.to === 'string' ? { id: raw.id, to: raw.to } : undefined;
+	}
+
+	/** The last request to quit a session, if any. */
+	close(): CloseRequest | undefined {
+		const raw = readJson<{ id?: unknown; to?: unknown }>(join(this.dir, 'close.json'));
+		return typeof raw?.id === 'string' && typeof raw.to === 'string' ? { id: raw.id, to: raw.to } : undefined;
+	}
+
+	/** `symbiosis close`: asks session `to` to quit. */
+	requestClose(to: string): void {
+		atomicWrite(join(this.dir, 'close.json'), JSON.stringify({ id: `${process.pid}-${this.now()}`, to } satisfies CloseRequest));
+	}
+
+	/** `symbiosis close`: asks the editor to quit, as ctrl+q does (it asks about unsaved files and running programs). */
+	requestQuit(): void {
+		atomicWrite(join(this.dir, 'quit.json'), JSON.stringify({ id: `${process.pid}-${this.now()}` }));
+	}
+
+	/** The session records now on disk, as the plugin reads them (no age check: the caller decides). */
+	sessions(): Session[] {
+		const dir = join(this.dir, 'sessions');
+		if (!existsSync(dir)) return [];
+		const list: Session[] = [];
+		for (const file of readdirSync(dir)) {
+			if (!file.endsWith('.json')) continue;
+			const s = readJson<Session>(join(dir, file));
+			if (typeof s?.id === 'string') list.push(s);
+		}
+		return list;
 	}
 
 	/** The plugin's last helpi! request, if any. */

@@ -19,6 +19,7 @@
 --   ask       ctrl+k d and `why!`: ask pi about code, in a drawer
 --   changes   ctrl+k w: what pi changed in its last turn
 --   run       F5: run configurations, the Run panel (bottom)
+--   close     ctrl+k z: close symbiosis, pi and ttt together
 --   panel     ctrl+k h: settings, sessions, keys
 -- See docs/design.md.
 local app = require("core.app").new()
@@ -36,6 +37,7 @@ app:use("features.review")
 app:use("features.ask")
 app:use("features.changes")
 app:use("features.run")
+app:use("features.close")
 app:use("features.panel")
 
 app:start()

@@ -248,6 +248,19 @@ test('stop.json: the plugin asks one session to stop its turn', () => {
 	assert.equal(c.stop(), undefined);
 });
 
+test('close.json: `symbiosis close` asks one session to quit; the session records can be listed', () => {
+	const dir = temp();
+	const c = new FileChannel(dir, () => 5000);
+	assert.equal(c.close(), undefined);
+	c.requestClose('p1');
+	assert.deepEqual(c.close(), { id: `${process.pid}-5000`, to: 'p1' });
+	writeFileSync(join(dir, 'close.json'), JSON.stringify({ id: 3, to: 'p1' }));
+	assert.equal(c.close(), undefined);
+	assert.deepEqual(c.sessions(), []);
+	c.writeSession({ id: 'p1', pane: 'w1:p1', host: 'herdr' } as never);
+	assert.deepEqual(c.sessions().map((s) => [s.id, s.pane]), [['p1', 'w1:p1']]);
+});
+
 test('the pane of pi: herdr, tmux, or none', () => {
 	assert.deepEqual(paneOf({ HERDR_PANE_ID: 'w4:p1', TMUX: 'x', TMUX_PANE: '%1' }), { pane: 'w4:p1', host: 'herdr' });
 	assert.deepEqual(paneOf({ TMUX: '/tmp/t,1,0', TMUX_PANE: '%3' }), { pane: '%3', host: 'tmux' });

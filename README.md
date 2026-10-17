@@ -87,14 +87,22 @@ It opens ttt in the folder and a real pi beside it. The folder is the
 argument, else the git root, else this folder.
 
 - In herdr or tmux, pi gets a tab of its own, "pi · <folder>", and ttt opens
-  here (`--tabs`, the default). `--split`: this pane splits, ttt left, pi
+  here (`--tabs`, the default), in a tab named "ttt · <folder>" ("symbiosis ·
+  <folder>" with `--split`, where both share it). The tab gets its old name
+  back when ttt quits. `--split`: this pane splits, ttt left, pi
   right. `--tab`: all of it in a new tab. Outside herdr and tmux, ttt opens
   alone and symbiosis prints how to start pi.
 - `-c` continues pi's last session there, `--new` opens a second one,
   `-- <args>` go to pi.
 - A second `symbiosis` for the same folder goes to the tab where the first one
   runs (herdr, tmux), or says where it runs.
-- When ttt quits, pi stays: it is a full pi session in its own pane.
+- When ttt quits (`ctrl+q`), pi stays: it is a full pi session in its own pane.
+- `symbiosis close [folder]` ends all of it: pi quits, its tab or pane closes,
+  then ttt quits. Inside ttt it needs no folder, and `ctrl+k z` (or the palette:
+  `symbiosis: Close (pi and ttt)`) does the same after a question. ttt asks about
+  running programs (F5) and unsaved files as for `ctrl+q`. Only the pi that the
+  command started in its own pane is closed; a pi you started yourself stays,
+  and when pi does not quit in 8 s its pane stays and ttt stays too.
 - Config: `~/.config/symbiosis/config.json`
   `{"open": "here" | "tab", "layout": "tabs" | "split", "piArgs": [...]}`.
   A flag wins over the config.
@@ -130,8 +138,10 @@ argument, else the git root, else this folder.
   the open file: the session that wrote it, else the one whose folder holds
   it, else the most recent one. Its name is pi's session name (`/name`), else
   the folder; two sessions with one name also show their pane. Click it or `ctrl+k g` to go to its herdr
-  or tmux pane. `ctrl+k n`: the next session takes over (then back to
-  automatic). `ctrl+k q` stops its turn, as Esc in pi does.
+  or tmux pane. `ctrl+k n`: the next session takes over, after the last one the editor is
+  **detached** (`π detached`: it follows no pi, and `helpi!`, ask and fill say
+  so; pi keeps running), then back to automatic. A click on `π detached`, or
+  `ctrl+k g` there, follows pi again; the panel lists "detached" too. `ctrl+k q` stops its turn, as Esc in pi does.
 - `π symbiosis ? waits for you`: pi shows a dialog in its own pane (a guard's
   "Allow this one call?", a question) and waits. A notice says so with the
   dialog's title; `ctrl+k g` goes there.
@@ -325,8 +335,9 @@ bash test/e2e/help.sh      # helpi!: code, note, ask, Esc; only the session the 
 bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the workspace tests must pass
 bash test/e2e/lag.sh       # the replay behind pi (LAG=-1, SPEED=80); typing waits; buffer = disk at the end
 bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel shows a file outside the folder
-bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, no multiplexer, already open
+bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, tab names, no multiplexer, already open, symbiosis close
 bash test/e2e/marks.sh     # the gutter: ▌ on the change's lines and π on the line typed now, none after
+bash test/e2e/close.sh     # ctrl+k n detaches; ctrl+k z asks, runs `symbiosis close`, quits ttt only when it worked (asks about unsaved files); quit.json
 bash test/e2e/stop.sh      # "? waits for you" while pi shows a dialog; ctrl+k q stops pi's turn
 bash test/e2e/ask.sh       # ctrl+k d and why!: the drawer, a term asked about, the note file, the gutter mark and its click, .gitignore
 bash test/e2e/review.sh    # a filled body: the drawer opens by itself, the gutter mark and status item, Esc hides, ctrl+k x shows, a acks

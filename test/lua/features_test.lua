@@ -29,6 +29,13 @@ local function session(fields)
 	stub.files["/plugin/sessions/s1.json"] = json.encode(rec)
 end
 
+local function has(list, value)
+	for _, v in ipairs(list) do
+		if v == value then return true end
+	end
+	return false
+end
+
 local function send(events)
 	local json = require("ttt.json")
 	local log = stub.files["/plugin/events.jsonl"] or ""
@@ -68,6 +75,7 @@ return {
 		t.eq({ pick({ a, b, c }, nil, "/w/sub/f.ts") }, { c, false, false }, "the one that wrote it")
 		t.eq({ pick({ a, b }, nil, "/y/f.ts") }, { a, true, false }, "else the most recent")
 		t.eq({ pick({ a, b }, "b", "/y/f.ts") }, { b, false, true }, "the chosen one")
+		t.eq({ pick({ a, b }, "-", "/w/sub/f.ts") }, { nil, false, true }, "detached: no session follows, and the choice stays")
 	end },
 	{ "tree: files under their session's folder", function()
 		local build = require("features.tree").build
@@ -85,15 +93,15 @@ return {
 		local ids, keys = {}, {}
 		for _, c in ipairs(reg.commands) do ids[c.id] = true end
 		for _, k in ipairs(reg.keybindings) do keys[k.key] = k.command end
-		for _, id in ipairs({ "togglePin", "goToAgent", "nextSession", "goToSession", "showPlan", "showChanges", "slower", "faster", "pause", "rush", "help", "stop", "fillStub", "releaseStub", "showProposal", "review", "ask", "notes", "run", "runStop", "runPick", "runPanel", "runWrap", "runEdit", "runAsk" }) do
+		for _, id in ipairs({ "togglePin", "goToAgent", "nextSession", "goToSession", "showPlan", "showChanges", "slower", "faster", "pause", "rush", "help", "stop", "fillStub", "releaseStub", "showProposal", "review", "ask", "notes", "run", "runStop", "runPick", "runPanel", "runWrap", "runEdit", "runAsk", "close", "detach" }) do
 			t.ok(ids["symbiosis." .. id], id)
 		end
-		t.eq(#reg.commands, 25)
+		t.eq(#reg.commands, 27)
 		t.eq(keys, {
 			["ctrl+k a"] = "symbiosis.togglePin", ["ctrl+k n"] = "symbiosis.nextSession", ["ctrl+k g"] = "symbiosis.goToSession",
 			["ctrl+k v"] = "symbiosis.showPlan", ["ctrl+k w"] = "symbiosis.showChanges", ["ctrl+k -"] = "symbiosis.slower",
 			["ctrl+k ="] = "symbiosis.faster", ["ctrl+k space"] = "symbiosis.pause", ["ctrl+k ."] = "symbiosis.rush",
-			["ctrl+k h"] = "symbiosis.help", ["ctrl+k q"] = "symbiosis.stop", ["ctrl+k f"] = "symbiosis.fillStub", ["ctrl+k p"] = "symbiosis.showProposal", ["ctrl+k x"] = "symbiosis.review", ["ctrl+k d"] = "symbiosis.ask",
+			["ctrl+k h"] = "symbiosis.help", ["ctrl+k q"] = "symbiosis.stop", ["ctrl+k f"] = "symbiosis.fillStub", ["ctrl+k p"] = "symbiosis.showProposal", ["ctrl+k x"] = "symbiosis.review", ["ctrl+k d"] = "symbiosis.ask", ["ctrl+k z"] = "symbiosis.close",
 			["f5"] = "symbiosis.run", ["shift+f5"] = "symbiosis.runStop", ["ctrl+k f5"] = "symbiosis.runPick", ["ctrl+k shift+f5"] = "symbiosis.runPanel",
 		})
 		t.eq(reg.bottom.title, "Run")
@@ -101,6 +109,68 @@ return {
 		t.eq(stub.notices, {}, "no feature is off")
 		t.eq(stub.status.symbiosis, "pi · following")
 		t.eq(stub.status["symbiosis.speed"], "▶ 160/s")
+	end },
+	{ "bundle: ctrl+k n goes through the sessions, then detached, then back; detached follows no pi", function()
+		load_bundle()
+		session({ title = "api" })
+		local function command(id)
+			for _, c in ipairs(stub.registered.commands) do
+				if c.id == id then return c.handler() end
+			end
+			error("no command " .. id)
+		end
+		command("symbiosis.nextSession")
+		t.eq(stub.status["symbiosis.session"], "π api ○ idle (chosen)")
+		command("symbiosis.nextSession")
+		t.eq(stub.status["symbiosis.session"], "π detached")
+		command("symbiosis.nextSession")
+		t.eq(stub.status["symbiosis.session"], "π api ○ idle")
+		command("symbiosis.detach")
+		t.eq(stub.status["symbiosis.session"], "π detached")
+		command("symbiosis.detach")
+		t.eq(stub.status["symbiosis.session"], "π api ○ idle", "the same command follows again")
+	end },
+	{ "bundle: close asks, runs `symbiosis close --keep-editor`, and quits ttt only when it worked", function()
+		load_bundle()
+		local function command(id)
+			for _, c in ipairs(stub.registered.commands) do
+				if c.id == id then return c.handler() end
+			end
+			error("no command " .. id)
+		end
+		local function closes()
+			local out = {}
+			for _, e in ipairs(stub.execs) do
+				if e.args[1] == "close" then table.insert(out, e) end
+			end
+			return out
+		end
+		do
+			command("symbiosis.close")
+			t.eq(#stub.confirms, 0, "a ttt that symbiosis did not start: nothing to close")
+			t.eq(stub.notices[#stub.notices].level, "warning")
+
+			stub.env.SYMBIOSIS_SESSION = "42-abc"
+			session({ working = true })
+			stub.run_timers()
+			command("symbiosis.close")
+			t.eq(#stub.confirms, 1)
+			t.ok(stub.confirms[1].text:find("pi quits", 1, true), "it says what closes")
+			t.ok(stub.confirms[1].text:find("is working now", 1, true), "and that pi is working")
+			t.eq(#closes(), 0, "nothing before the answer")
+			stub.confirms[1].on_ok()
+			t.eq({ closes()[1].binary, closes()[1].args }, { "symbiosis", { "close", "--keep-editor" } })
+			command("symbiosis.close")
+			t.eq(#stub.confirms, 1, "no second close while one runs")
+			closes()[1].cb({ exit_code = 1, stderr = "pi did not quit\n" })
+			t.ok(not has(stub.commands, "editor.quit"), "pi stayed: ttt stays")
+			t.eq(stub.notices[#stub.notices].level, "error")
+			command("symbiosis.close")
+			stub.confirms[2].on_ok()
+			closes()[2].cb({ exit_code = 0, stderr = "" })
+			t.ok(has(stub.commands, "editor.quit"), "ttt quits with its own command (it asks about unsaved files)")
+			t.eq(stub.quit, 0, "not ttt.quit(): that drops unsaved text")
+		end
 	end },
 	{ "bundle: the panel lists the settings and the keys in order", function()
 		load_bundle()
@@ -120,7 +190,7 @@ return {
 		stub.drawer.render(panel)
 		t.eq(out, {
 			"Replay speed    160/s", "pi ahead (max)  3 changes", "Stub scope      the stub's body", "Autosave        1 s after you type", "Editor          follows pi",
-			"ctrl+k h", "ctrl+k q", "ctrl+k a", "ctrl+k - / =", "ctrl+k space", "ctrl+k .", "ctrl+k v", "ctrl+k d", "ctrl+k w",
+			"ctrl+k h", "ctrl+k q", "ctrl+k z", "ctrl+k a", "ctrl+k - / =", "ctrl+k space", "ctrl+k .", "ctrl+k v", "ctrl+k d", "ctrl+k w",
 			"// … helpi!", "// … why!", "// TODO(pi) helpi!", "ctrl+k p", "ctrl+k x", "F5 · shift+F5", "ctrl+k F5", "Esc", "ctrl+k n", "ctrl+k g",
 		})
 	end },

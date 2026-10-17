@@ -875,8 +875,9 @@ function M.setup(app)
 
 	local quitting = false
 
-	-- ctrl+q while programs run: stop them, keep them, or stay.
-	local function ask_quit(live)
+	-- Quitting while programs run: stop them, keep them, or stay. `finish` is
+	-- what happens when you chose one of the first two (ctrl+q: quit ttt).
+	local function ask_quit(live, finish)
 		app:close_drawer()
 		picker, asking = nil, nil
 		local names = {}
@@ -892,14 +893,14 @@ function M.setup(app)
 					local args = { "stop" }
 					for _, run in ipairs(live) do table.insert(args, run.id) end
 					notify("stopping " .. #live .. " program" .. (#live == 1 and "" or "s") .. "…")
-					cli(args, function() ttt.quit() end)
+					cli(args, finish)
 					return true
 				elseif r == "k" or r == "K" then
 					ttt.command_line.hide()
 					quitting = true
 					local args = { "keep" }
 					for _, run in ipairs(live) do table.insert(args, run.id) end
-					cli(args, function() ttt.quit() end)
+					cli(args, finish)
 					return true
 				elseif ev.key == "Escape" or ev.key == "Esc" then
 					return false
@@ -909,12 +910,28 @@ function M.setup(app)
 		})
 	end
 
-	app:on("key", function(key)
-		if quitting or key.key ~= "Ctrl-Q" then return false end
+	-- The programs that ttt's end would stop: running, and not marked to be kept.
+	local function live_runs()
 		local live = {}
 		for _, r in ipairs(read_runs()) do if M.live(r) and not fs.exists(dir .. "/" .. r.id .. "/keep") then table.insert(live, r) end end
+		return live
+	end
+
+	-- For the close command: when programs run, asks about them and, after s or
+	-- k, calls `finish`; returns true. Esc stays: no call. With none running
+	-- it does nothing and returns false.
+	local function before_quit(finish)
+		local live = live_runs()
 		if #live == 0 then return false end
-		ask_quit(live)
+		ask_quit(live, finish)
+		return true
+	end
+
+	app:on("key", function(key)
+		if quitting or key.key ~= "Ctrl-Q" then return false end
+		local live = live_runs()
+		if #live == 0 then return false end
+		ask_quit(live, function() ttt.quit() end)
 		return true
 	end, 10)
 
@@ -980,7 +997,7 @@ function M.setup(app)
 	app:hint({ key = "F5 · shift+F5", text = "run · stop", order = 95 })
 	app:hint({ key = "ctrl+k F5", text = "pick a run configuration", order = 96 })
 
-	M.api = { pick = pick, start = start, stop = stop, runs = function() return runs end, reveal = reveal }
+	M.api = { pick = pick, start = start, stop = stop, runs = function() return runs end, reveal = reveal, before_quit = before_quit }
 	return M.api
 end
 

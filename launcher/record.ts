@@ -5,7 +5,7 @@
 //
 // A record whose process is gone is old: it is removed and not trusted.
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -21,6 +21,8 @@ export interface OpenRecord {
 	started: number;
 	/** The pane it runs in, to go there later. */
 	host: Host | null;
+	/** The pane the launcher made for pi: `symbiosis close` closes it. Null: none (no herdr, no tmux). */
+	pi?: string | null;
 }
 
 export function stateDir(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
@@ -59,6 +61,24 @@ export function findOpen(dir: string, folder: string, isAlive: (pid: number) => 
 	}
 	if (typeof record?.pid === 'number' && record.folder === folder && isAlive(record.pid)) return record;
 	rmSync(path, { force: true });
+	return undefined;
+}
+
+/** The live record of the symbiosis with process `pid`, if any. */
+export function findByPid(dir: string, pid: number, isAlive: (pid: number) => boolean = alive): OpenRecord | undefined {
+	let names: string[];
+	try {
+		names = readdirSync(dir);
+	} catch {
+		return undefined;
+	}
+	for (const name of names) {
+		if (!name.endsWith('.json')) continue;
+		try {
+			const record = JSON.parse(readFileSync(join(dir, name), 'utf-8')) as OpenRecord;
+			if (record?.pid === pid && typeof record.folder === 'string' && isAlive(pid)) return record;
+		} catch {}
+	}
 	return undefined;
 }
 

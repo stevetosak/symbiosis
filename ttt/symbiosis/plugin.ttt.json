@@ -21,6 +21,7 @@
       "tmux",
       "symbiosis"
     ],
+    "system.env": true,
     "panel.sidebar": true,
     "editor.bookmarks": true,
     "panel.bottom": true
