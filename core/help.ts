@@ -46,14 +46,17 @@ note: the comment asks something to understand ("why does this need a cast?"). A
 
 ask: you cannot answer well from the code you see, because it needs the whole project, the task the agent works on, commands to run, or changes in many places. Write nothing after the kind: the question goes to the agent that does the task.`;
 
+/** The text with a line number in front of each line, from `first`. */
+export function numbered(text: string, first: number): string {
+	return text
+		.split('\n')
+		.map((l, i) => `${String(first + i).padStart(5)}| ${l}`)
+		.join('\n');
+}
+
 /** The user message of the side call. */
 export function helpPrompt(req: HelpRequest, cwd: string, plan: Step[], lastMessage: string | undefined): string {
 	const path = req.path ? relative(cwd, req.path) || req.path : '(unsaved file)';
-	const numbered = (text: string, first: number) =>
-		text
-			.split('\n')
-			.map((l, i) => `${String(first + i).padStart(5)}| ${l}`)
-			.join('\n');
 	const parts = [`File: ${path}${req.language ? ` (${req.language})` : ''}`];
 	if (req.head) parts.push(`The top of the file:\n${numbered(req.head, 1)}`);
 	const last = req.window.first + req.window.text.split('\n').length - 1;

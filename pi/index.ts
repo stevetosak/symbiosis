@@ -25,10 +25,10 @@ import { Changes } from './changes.ts';
 import { Filling, PROPOSE_DESCRIPTION, PROPOSE_PARAMETERS, type ProposeParams } from './fill.ts';
 import { cleanSteps, PLAN_DESCRIPTION, prepareArguments, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
 import { syncTttPlugin } from './setup.ts';
+import { Asking } from './ask.ts';
+import { FLUSH_MS, Flush, streamText } from './side.ts';
 import { tools, whyOf } from './tools.ts';
 
-/** At most one text write per call in this time: the plugin polls every 40 ms. */
-const FLUSH_MS = 40;
 /** The files a session record lists as written by it. */
 const MAX_FILES = 20;
 
@@ -100,6 +100,8 @@ export default function symbiosis(pi: ExtensionAPI) {
 			else pi.sendUserMessage(text, { deliverAs: 'followUp' });
 		},
 	});
+
+	const asking = new Asking({ channel, id, plan: () => record.plan, whys: (path) => changes.whys(path) });
 
 	for (const tool of tools(process.cwd())) pi.registerTool(tool as never);
 
@@ -199,10 +201,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		let raw = '';
 		let started = false;
 		let sent = '';
-		let timer: ReturnType<typeof setTimeout> | undefined;
 		const send = (final: boolean) => {
-			clearTimeout(timer);
-			timer = undefined;
 			const a = parseAnswer(raw, final);
 			if (!a.settled || !a.kind) return;
 			if (!started) {
@@ -221,37 +220,21 @@ export default function symbiosis(pi: ExtensionAPI) {
 			}
 			sent = a.body;
 		};
+		const flush = new Flush(send);
 		try {
-			const model = ctx.model;
-			if (!model) throw new Error('pi has no model');
 			let lastMessage: string | undefined;
 			try {
 				lastMessage = lastAssistantText(ctx.sessionManager.getBranch());
 			} catch {
 				lastMessage = undefined;
 			}
-			const stream = ctx.modelRegistry.streamSimple(
-				model,
-				{
-					systemPrompt: HELP_SYSTEM,
-					messages: [{ role: 'user', content: [{ type: 'text', text: helpPrompt(request, ctx.cwd, record.plan, lastMessage) }], timestamp: Date.now() }],
-				},
-				{ signal: abort.signal },
-			);
-			for await (const ev of stream) {
-				if (abort.signal.aborted) break;
-				if (ev.type === 'text_delta') {
-					raw += ev.delta;
-					// At most one write per FLUSH_MS: the plugin polls that often.
-					timer ??= setTimeout(() => send(false), FLUSH_MS);
-				} else if (ev.type === 'error') {
-					throw new Error(ev.error.errorMessage || ev.reason);
-				}
-			}
-			if (abort.signal.aborted) throw new Error('stopped');
-			send(true);
+			await streamText(ctx, HELP_SYSTEM, helpPrompt(request, ctx.cwd, record.plan, lastMessage), abort.signal, (text) => {
+				raw = text;
+				flush.poke();
+			});
+			flush.now(true);
 		} catch (error) {
-			clearTimeout(timer);
+			flush.cancel();
 			const stopped = abort.signal.aborted;
 			const body = parseAnswer(raw, true).body;
 			channel.emit({
@@ -290,6 +273,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		lastHelp = channel.enabled() ? channel.help()?.id : undefined;
 		lastStop = channel.enabled() ? channel.stop()?.id : undefined;
 		filling.skipOld();
+		asking.skipOld();
 		record.model = ctx.model?.id ?? null;
 		if (channel.enabled()) channel.pruneSessions();
 		record.title = pi.getSessionName?.() ?? null;
@@ -299,6 +283,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		poll = setInterval(() => {
 			checkHelp();
 			checkStop();
+			asking.poll(ctx);
 			filling.poll(ctx.cwd).catch(() => undefined);
 			if (++ticks % 10 === 0) beat();
 		}, 100);
@@ -329,6 +314,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 
 	pi.on('session_shutdown', () => {
 		helping?.abort.abort();
+		asking.stop();
 		clearInterval(poll);
 		poll = undefined;
 		channel.removeSession(id);

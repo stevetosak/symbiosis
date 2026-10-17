@@ -105,6 +105,17 @@ test('a helpi! request names the session it is for', () => {
 	assert.deepEqual(r?.window, { first: 1, text: 'a\nb' });
 });
 
+test('an ask request names the session, and carries the code and the answer before', () => {
+	const dir = temp();
+	assert.equal(new FileChannel(dir).ask(), undefined);
+	writeFileSync(join(dir, 'ask.json'), JSON.stringify({ id: 'a1', to: 's1', path: '/w/a.ts', question: 'why?', target: { startLine: 2, endLine: 3, text: 'x\ny' }, parent: { question: 'q', answer: 'a' }, text: 'abc' }));
+	const r = new FileChannel(dir).ask();
+	assert.equal(r?.to, 's1');
+	assert.deepEqual(r?.target, { startLine: 2, endLine: 3, text: 'x\ny' });
+	assert.deepEqual(r?.parent, { question: 'q', answer: 'a' });
+	assert.equal(r?.cancel, false);
+});
+
 test('when another session wrote the log, the next emit starts it again', () => {
 	const dir = temp();
 	let now = 1000;

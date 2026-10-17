@@ -7,7 +7,8 @@ itself into your editor while the model writes it. Then the editor goes to the
 changed line. You read the code as it comes. The status bar shows which pi
 session the editor follows; a pi you start yourself in any terminal works too.
 A comment that ends in `helpi!` asks that session's model a question, and the
-answer is written where you are.
+answer is written where you are. `ctrl+k d` or `why!` asks what a piece of code
+is and why it is there, in a drawer, and keeps the answer as a note.
 
 Status: built, then used, then changed. See [docs/design.md](docs/design.md).
 
@@ -181,6 +182,18 @@ argument, else the git root, else this folder.
   a helper beside it, another change in the file or another file needs a
   proposal, as for a stub. A comment that is already a function's (no blank
   line under it) or a comment inside a body is refused with a notice.
+- Ask pi about code. `ctrl+k d` asks about the selection, or the line under the
+  cursor. A comment that ends in `why!` asks too (`// why 3 retries? why!`, or
+  on its own line above the code); the comment goes out of the file. pi answers
+  in a drawer, in 2 to 4 lines, with links and a few terms: Enter on a project
+  link opens the file, Enter on a term asks about it, the input asks your own
+  follow-up, `+` asks for more, Back goes back, Stop ends a running answer. A
+  URL is shown as text, marked as unchecked (the model wrote it). Each answer
+  is kept for its line in `.symbiosis/notes/<file>.jsonl` (the first time in a
+  git folder, ttt asks whether to put it in `.gitignore`), and a `◆` in the
+  gutter shows the line. A click on it, or `ctrl+k d` on the line, shows the
+  notes; "symbiosis: Notes of This File" lists them all. The file must be in a
+  folder open in ttt, or no note is kept.
 - The file tree follows pi: when the editor follows pi into a file, ttt's
   tree opens to it, if the file is in a folder open in ttt (start ttt on a
   folder, or on several: `ttt ~/a ~/b`). The "pi files" tab in the sidebar
@@ -309,6 +322,7 @@ bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel
 bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, no multiplexer, already open
 bash test/e2e/marks.sh     # the gutter: ▌ on the change's lines and π on the line typed now, none after
 bash test/e2e/stop.sh      # "? waits for you" while pi shows a dialog; ctrl+k q stops pi's turn
+bash test/e2e/ask.sh       # ctrl+k d and why!: the drawer, a term asked about, the note file, the gutter mark and its click, .gitignore
 bash test/e2e/stubs.sh     # helpi! on a stub: an edit outside it is blocked, the body goes in, a proposal is accepted; then a function from its description
 bash test/e2e/runconf.sh   # run configurations: the picker, F5, shift+F5, a failing run, ctrl+q keeps a run, back in ttt it shows
 bash test/e2e/runinputs.sh # inputs: the drawer asks, F5 runs the pick again, the picker shows it, i asks again, one option asks nothing, an input decided is not listed again
