@@ -20,6 +20,9 @@ ttt/
       buffer.lua        changes to the buffer (regions, the `editing` flag)
       util.lua          pure helpers: text, positions, paths, keys
       marker.lua        a word at the end of a comment (helpi!)
+      trigger.lua       a marker's pause and Enter, once for each text (helpi!, why!)
+      notes.lua         the pure parts of notes: hash, anchoring, file path, JSON lines
+      folder.lua        the workspace folder of a file
     features/
       sessions.lua      the pi sessions; the one the editor follows
       plan.lua          pi's plan in the status bar, ctrl+k v
@@ -27,6 +30,8 @@ ttt/
       replay.lua        pi's writes and edits typed in the buffer
       autosave.lua      saves the file a while after you type
       helpi.lua         `// ... helpi!` asks pi
+      ask.lua           ctrl+k d and `why!`: ask pi about code, in a drawer
+      notes.lua         the answers kept for their lines, ◆ in the gutter
       fill.lua          a fill (a stub, or a function under its description), ctrl+k f; proposals, ctrl+k p
       changes.lua       ctrl+k w: what pi changed
       panel.lua         ctrl+k h: settings, sessions, keys

@@ -17,6 +17,7 @@
 local ttt = require("ttt")
 local editor = require("ttt.editor")
 local fs = require("ttt.fs")
+local workspace = require("core.folder")
 local json = require("ttt.json")
 local system = require("ttt.system")
 local util = require("core.util")
@@ -163,18 +164,8 @@ function M.file_ref(line)
 end
 
 -- What `symbiosis run list` will say the workspace folder of `file` is, as
--- far as the plugin can tell: the nearest folder with .symbiosis/run.json up
--- to the git root, else the git root, else the file's folder.
-function M.guess_folder(file, exists)
-	local d = file:match("^(.*)/[^/]*$")
-	local saved = nil
-	while d and d ~= "" do
-		if not saved and exists(d .. "/.symbiosis/run.json") then saved = d end
-		if exists(d .. "/.git") then return saved or d end
-		d = d:match("^(.*)/[^/]*$")
-	end
-	return saved or file:match("^(.*)/[^/]*$")
-end
+-- far as the plugin can tell (core/folder.lua).
+M.guess_folder = workspace.guess
 
 -- tail.txt's text → its lines.
 -- The rows the output takes in a pane `width` wide: a line each, or with

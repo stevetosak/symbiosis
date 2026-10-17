@@ -26,11 +26,11 @@ local editor = require("ttt.editor")
 local util = require("core.util")
 local buffer = require("core.buffer")
 local marker = require("core.marker")
+local trigger = require("core.trigger")
 
 local runes = util.runes
 
 local CLOSERS = { ["<!--"] = " -->", ["/*"] = " */" }
-local HELP_MS = 600
 local MAX_LINES = 150 -- a longer file sends its top and the lines around the question
 local FRAMES = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
 
@@ -86,7 +86,6 @@ local function setup(app)
 	local channel = app.channel
 	local help = nil       -- the question under way
 	local seq = 0
-	local timer = nil      -- asks after the pause
 	local wait = nil       -- the timer that says pi did not take the question
 	local asked = {}       -- path:line:text -> true: the pause does not ask again (Enter does)
 	local quiet = 0        -- poll tick: changes before it are the plugin's own (the waiting line)
@@ -251,16 +250,6 @@ local function setup(app)
 		end)
 	end
 
-	local function help_soon()
-		if not app.loaded or buffer.editing or help or app.ticks < quiet then return end
-		if timer then ttt.clear_timeout(timer) end
-		timer = ttt.set_timeout(HELP_MS, function()
-			timer = nil
-			local fine, err = pcall(ask_help)
-			if not fine then app.log("error", "symbiosis helpi!: " .. tostring(err)) end
-		end)
-	end
-
 	-- Esc: pi stops the side call; what is written stays.
 	local function help_stop()
 		if not help then return end
@@ -380,26 +369,25 @@ local function setup(app)
 	replay.hold(function() return help ~= nil and help.group == true end)
 	replay.lock(function(path) return help ~= nil and help.group == true and path == help.path end)
 
-	-- Early: Esc stops an answer; Enter at the end of a helpi! line asks at
-	-- once (the Enter still goes in).
+	-- The pause or Enter at the end of a helpi! line asks (core/trigger.lua).
+	trigger.new(app, {
+		name = "helpi!",
+		find = helpi,
+		busy = function() return help ~= nil end,
+		quiet = function() return app.ticks < quiet end,
+		fire = ask_help,
+	})
+
+	-- Early: Esc stops an answer.
 	app:on("key", function(key)
 		local k = tostring(key.key or ""):lower()
 		if help and (k == "esc" or k == "escape") then
 			help_stop()
 			return true
 		end
-		if k == "enter" and (not key.mod or key.mod == "") and not help then
-			local line = editor.current_line() or ""
-			if editor.cursor().col > runes(line) and helpi(line) then
-				if timer then ttt.clear_timeout(timer) timer = nil end
-				local fine, err = pcall(ask_help, true)
-				if not fine then app.log("error", "symbiosis helpi!: " .. tostring(err)) end
-			end
-		end
 		return false
 	end, 10)
 
-	app:on("change", help_soon)
 	app:on("tick", spin_loader, 60)
 	app:hint({ key = "// … helpi!", text = "ask pi here: wait, or Enter", order = 90 })
 	app:hint({ key = "Esc", text = "stop a helpi! answer", order = 100 })

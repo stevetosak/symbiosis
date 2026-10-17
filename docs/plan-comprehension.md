@@ -199,6 +199,17 @@ Tests:
 weeks. Write down: how often the guard rejects, how often a proposal is
 accepted, asks per session, what the operator turned off and why.
 
+### Slice 3, as built
+
+Chord `ctrl+k d`; `why!` as a trigger; one drawer on the right (ttt has no
+popup anchored to a line). Links: a project link (`path:line`) opens the file;
+a URL is text, marked "the model wrote them; not checked". Drill-down: the model
+lists 2 to 5 terms, Enter on one asks with the answer as context, an input
+takes a follow-up, `+` asks deeper. Notes are written by the plugin (Lua), pi
+only makes the folder (ttt's fs cannot). `ttt.confirm` asks about `.gitignore`.
+The `why` is per file, not per hunk. Design and weak points: design.md, "Ask".
+Tests: `test/ask.test.ts`, `test/lua/ask_test.lua`, `test/e2e/ask.sh`.
+
 ## Slice 4: review per stub
 
 - When a body lands: a drawer with the signature, the intent, the body and

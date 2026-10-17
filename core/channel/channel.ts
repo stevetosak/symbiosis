@@ -3,7 +3,7 @@
 // editor asks for. Today the only implementation is files in the plugin
 // folder (./file.ts), because a ttt plugin cannot open a socket. A socket or
 // pipe implementation goes behind this same interface.
-import type { ChannelEvent, FillRequest, HelpRequest, PluginState, ProposalAnswer, Session, StopRequest } from '../protocol.ts';
+import type { AskRequest, ChannelEvent, FillRequest, HelpRequest, PluginState, ProposalAnswer, Session, StopRequest } from '../protocol.ts';
 
 export interface Channel {
 	/** False when the editor side is not installed: then the agent side sends nothing. */
@@ -40,6 +40,9 @@ export interface Channel {
 
 	/** The editor's last helpi! request, if any. */
 	help(): HelpRequest | undefined;
+
+	/** The editor's last ask request, if any. */
+	ask(): AskRequest | undefined;
 
 	/** The editor's last fill! request (or release), if any. */
 	fill(): FillRequest | undefined;

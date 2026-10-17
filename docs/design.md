@@ -192,12 +192,13 @@ extension with another protocol. `ctrl+k g` or a click runs
 so `head.json` and the log always agree.
 
 (Slice 2 also had `AI!` / `AI?` comments, sent with `ctrl+k d` as one
-message to pi. They were replaced by `helpi!`, below: "not smooth enough".)
+message to pi. They were replaced by `helpi!`, below: "not smooth enough".
+`ctrl+k d` is free again: it asks about code, see "Ask".)
 
 Found in the spike, ttt 1.7.1: `gmatch("[^\n]*\n")` crashes with a nil
 pointer on text that has an empty line. The plugin splits lines with `find`.
 Keys `ctrl+k e t i j o r u` belong to ttt; plugin chords that work are
-`a d g h n q v w x z`. A `local ready` flag once hid the `ready` handler:
+`a d g h n q v w x z` (`d` asks, see "Ask" below). A `local ready` flag once hid the `ready` handler:
 Lua locals shadow quietly.
 
 ## Slice 3: the timeline
@@ -339,6 +340,83 @@ Weak points: the kind comes from the model; a wrong kind (a note where you
 wanted code) is undone with ctrl+z. The 3 s "did not take the question" timer
 can fire on a slow first token only if pi does not write `help` (it does, at
 once).
+
+## Ask: what is this code, and why is it here?
+
+The developer points at code and asks, with no comment in the file. Three ways:
+`ctrl+k d` on the selection, or on the line under the cursor (the word under
+the cursor goes along); a comment that ends in `why!`; a click on the `◆` mark
+of a line that has notes. The plugin writes `ask.json` (`AskRequest` in
+`core/protocol.ts`) for the owner: the file as it is in the buffer (a file over
+200 KB sends 80 lines around the target instead, with no outline), the target
+lines, the question, and for a drill-down the answer it grew from. pi answers
+in one side call (`pi/ask.ts`, the same path as `helpi!`: `pi/side.ts`), never
+in its conversation, and streams `ask`, `ask_text` and `ask_done` events
+(`PROTOCOL` 13). `core/ask.ts` builds the prompt: the file's imports, the
+innermost function around the target (cut at 60 lines) or, for code in no
+function, 12 lines around it; the stub's signature and doc when the target is
+inside a stub; the reasons (`why`) pi gave for its changes to that file in its
+last turn (`pi/changes.ts`); the plan. The answer is 2 to 4 lines, then
+`links:` and `terms:` sections, parsed by `parseAskAnswer` while it streams.
+
+**`why!`.** The comment is the question. Code before the comment on the same
+line is the target; a comment on its own line points at the next line of code.
+The comment goes out of the file in one undo group (one `ctrl+z` brings it
+back), as `helpi!` does; both triggers share `ttt/src/core/trigger.lua` (600 ms
+pause or Enter at the end of the line, once for each text).
+
+**The drawer** (id `ask`, on the right). ttt has no popup anchored to a line, so
+the title names the line. It shows the answer as Markdown, the links, and the
+terms. A project link (`path:line`) opens the file; ttt cannot open a URL, so a
+URL is text, marked "the model wrote them; not checked", that can be selected
+and copied. Enter on a term asks about it with this answer as context; the
+input asks a follow-up of your own; `+` or the Deeper button asks the same
+again for up to 8 lines; Back goes to the answer before; Stop ends a running
+answer (Esc closes the drawer: ttt takes that key, so it cannot also stop).
+
+**Notes** (`ttt/src/features/notes.lua`, `ttt/src/core/notes.lua`). Each answer
+is kept as a line of JSON in `<folder>/.symbiosis/notes/<path>.jsonl`:
+`{line, hash, question, answer, links, terms, time}`. The plugin writes it, in
+Lua, as ttt's fs allows a folder open in ttt only (a file outside every open
+folder gets its answer in the drawer but no note, with a notice). `fs.write`
+returns `nil, reason` on a refusal and does not raise, and it does not make
+missing folders (measured, ttt 1.7.1), so the ask request carries `notesDir` and
+pi makes that folder (only one under `.symbiosis/notes`; `isNotesDir`). A `◆`
+in the gutter (a ttt bookmark) shows a line with notes; a click on it
+(`gutter.click` gives `(path, line)`; a click selects the line, so the handler
+shows the notes of the line and does not ask), or `ctrl+k d` on that line with
+no selection, shows them, the newest first and the older ones behind Back. The
+hash is a sum over the line's text without its end blanks (gopher-lua has no
+bit operations). 300 ms after a change each note looks for its text: the
+nearest line with the same hash, else it is "moved" (no mark; it is in the
+palette's "Notes of This File"). The first note in a git folder asks once
+whether `.symbiosis/notes/` goes in `.gitignore` (`ttt.confirm` calls back only
+on OK; Cancel has the focus).
+
+Buttons in the ask drawer have no mnemonic (`&Again`): ttt gives a mnemonic
+letter to the button even while the input has the focus, so typing "and add it"
+pressed Again and Deeper and asked the old question again. The input is the
+first widget, so a new answer has the focus on it.
+
+Weak points:
+
+- The `.gitignore` dialog takes the focus from the drawer, and ttt does not
+  give it back (after OK or Cancel). `ctrl+k d` on the line (a click on the
+  editor first) opens the drawer with the focus again. Once for each folder.
+- `why` is kept for each file, not each hunk: `pi/changes.ts` records the
+  reasons of a turn for the file. A file pi changed in several places sends
+  all its reasons.
+- A hash is the line's text, so two equal lines (`}`) cannot tell their notes
+  apart: the nearest one wins. A blank line cannot hold a note (it is not
+  anchored; the note shows as moved).
+- A note cannot know that its line changed meaning: the text must change for it
+  to move or hold, and if it still matches it stays, now possibly wrong.
+- The `.symbiosis/notes/.ignore-asked` file, written when the question is
+  asked, is in git when the operator says no.
+- The drawer's Markdown area scrolls in a fixed height; a long answer with
+  several URLs is cut off until it is scrolled.
+- Code outside a function that pi's tree-sitter cannot parse (no grammar) gets
+  the 12 lines around it, with no imports line.
 
 ## Stubs and the scope guard
 

@@ -12,6 +12,8 @@
 //                 changes pi may make before the editor has shown them.
 //                 `scope` is how far the guard lets a fill reach.
 //   ack.json      [call ids]: the changes the editor has shown (replayed).
+//   ask.json      AskRequest: the plugin asks session `to` about code
+//                 (core/ask.ts), or to stop the answer (`cancel`).
 //   help.json     HelpRequest: the plugin asks session `to` a helpi!
 //                 question (core/help.ts), or to stop it (`cancel`).
 //   stop.json     {id, to}: the plugin asks session `to` to stop its turn
@@ -22,8 +24,9 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { parseAskRequest } from '../ask.ts';
 import { parseRequest } from '../help.ts';
-import { type ChannelEvent, DEFAULT_LAG, FILL_MODES, type FillRequest, type HelpRequest, type PluginState, type ProposalAnswer, SCOPES, type Scope, type Session, type StopRequest } from '../protocol.ts';
+import { type AskRequest, type ChannelEvent, DEFAULT_LAG, FILL_MODES, type FillRequest, type HelpRequest, type PluginState, type ProposalAnswer, SCOPES, type Scope, type Session, type StopRequest } from '../protocol.ts';
 import type { Channel } from './channel.ts';
 
 /** The log starts again from empty at the start of a turn once it is this big. */
@@ -129,6 +132,11 @@ export class FileChannel implements Channel {
 	/** The plugin's last helpi! request, if any. */
 	help(): HelpRequest | undefined {
 		return parseRequest(readJson(join(this.dir, 'help.json')));
+	}
+
+	/** The plugin's last ask request, if any. */
+	ask(): AskRequest | undefined {
+		return parseAskRequest(readJson(join(this.dir, 'ask.json')));
 	}
 
 	/** The plugin's last fill! request, if any. */

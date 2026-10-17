@@ -14,6 +14,8 @@
 --   helpi     a comment that ends in `helpi!` asks pi; on a stub, pi fills it
 --   fill      a fill: a stub's body, or a new function under its description;
 --             ctrl+k f; pi's proposals
+--   notes     the answers to ask, kept for their lines; ◆ in the gutter
+--   ask       ctrl+k d and `why!`: ask pi about code, in a drawer
 --   changes   ctrl+k w: what pi changed in its last turn
 --   run       F5: run configurations, the Run panel (bottom)
 --   panel     ctrl+k h: settings, sessions, keys
@@ -28,6 +30,8 @@ app:use("features.marks")
 app:use("features.autosave")
 app:use("features.helpi")
 app:use("features.fill")
+app:use("features.notes")
+app:use("features.ask")
 app:use("features.changes")
 app:use("features.run")
 app:use("features.panel")

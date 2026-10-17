@@ -3,7 +3,7 @@
 // and any channel implementation can share it. See docs/design.md.
 
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 12;
+export const PROTOCOL = 13;
 
 /** The tools whose calls stream into the editor. */
 export type Tool = 'write' | 'edit';
@@ -37,6 +37,12 @@ export type ChannelEvent =
 	| { op: 'help_text'; id: string; text: string }
 	/** The answer is complete (`text`), stopped (Esc), or failed (`error`). */
 	| { op: 'help_done'; id: string; text: string; error?: string; stopped?: boolean }
+	/** ask (ctrl+k d, why!): session `session` got the question `id` and asks its model. */
+	| { op: 'ask'; id: string; session: string }
+	/** The answer so far, all of it: the lines to read, without the links and terms. */
+	| { op: 'ask_text'; id: string; text: string }
+	/** The answer is complete, stopped (Esc), or failed (`error`). */
+	| { op: 'ask_done'; id: string; text: string; links: Link[]; terms: string[]; error?: string; stopped?: boolean }
 	/** The agent asks for a change the guard blocks; the editor answers in answer.json. */
 	| ({ op: 'propose' } & Proposal)
 	/** Proposal `id` needs no answer any more (answered, or the turn stopped). */
@@ -123,6 +129,50 @@ export interface HelpRequest {
 	head: string;
 	/** The lines around the question, from line `first`. */
 	window: { first: number; text: string };
+	/** You pressed Esc: stop the answer with this id. */
+	cancel: boolean;
+}
+
+/** A link in an answer. `file`: `target` is `path:line` in the project; `url`: it comes from the model and is not checked. */
+export interface Link {
+	title: string;
+	target: string;
+	kind: 'file' | 'url';
+}
+
+/** The code an `ask` is about: the selection, or the line. */
+export interface AskTarget {
+	/** 1-based lines. */
+	startLine: number;
+	endLine: number;
+	/** The code, as in the buffer. */
+	text: string;
+}
+
+/** ask: the developer asks about code. The code around it comes as in the buffer (it may not be saved). */
+export interface AskRequest {
+	id: string;
+	/** The session that answers. */
+	to: string;
+	path: string;
+	language: string;
+	/** Their own question, or "" (then: explain this code). */
+	question: string;
+	target: AskTarget;
+	/** The symbol under the cursor, when nothing is selected. */
+	word: string;
+	/** The whole file, or "" when it is too big: then `window` holds the lines around the target. */
+	text: string;
+	window: { first: number; text: string };
+	/**
+	 * The folder where the editor will keep this answer as a note, or "". ttt's fs cannot make a folder, so pi
+	 * makes it (only a folder under `.symbiosis/notes`).
+	 */
+	notesDir: string;
+	/** A drill-down: the question this one grew from, with its answer. */
+	parent?: { question: string; answer: string };
+	/** Ask for a deeper answer to the same question (`+`). */
+	deeper: boolean;
 	/** You pressed Esc: stop the answer with this id. */
 	cancel: boolean;
 }

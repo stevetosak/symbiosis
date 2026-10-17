@@ -96,4 +96,15 @@ export class Changes {
 		this.files.push({ path, key: keyOf(path), t: this.now() / 1000 });
 		write(join(this.dir, 'index.json'), JSON.stringify({ session: this.session, turn: this.turn, files: this.files }));
 	}
+
+	/** The reasons the agent gave for its changes to `path` in this turn. */
+	whys(path: string): string[] {
+		if (!this.seen.has(path)) return [];
+		try {
+			const change = JSON.parse(readFileSync(join(this.dir, `${keyOf(path)}.json`), 'utf-8')) as Change;
+			return change.whys ?? [];
+		} catch {
+			return [];
+		}
+	}
 }
