@@ -14,15 +14,16 @@ Then the editor shows the result at the changed line.
 | Protocol | `core/protocol.ts` | Types only: every event and record that crosses the channel, and `PROTOCOL`. |
 | Events | `core/stream.ts` | Pure: turns growing arguments into small `text` events. |
 | Channel | `core/channel/channel.ts` | The interface the agent side talks to: send events, publish the session, read the editor's state and requests. |
-| File channel | `core/channel/file.ts` | The one implementation: files in the plugin folder, `events.jsonl`, `head.json`, `ttt.json` (with the lag limit and the stub scope), `ack.json` (the changes shown), `fill.json` (fill! and release), `answer.json` (the answer to a proposal). |
+| File channel | `core/channel/file.ts` | The one implementation: files in the plugin folder, `events.jsonl`, `head.json`, `ttt.json` (with the lag limit and the stub scope), `ack.json` (the changes shown), `fill.json` (a fill and its release), `answer.json` (the answer to a proposal). |
 | helpi! | `core/help.ts` | Pure: the request, the side call's prompt, the answer parser (kind, imports, body). |
 | Syntax | `core/syntax/` | tree-sitter (WASM): a file's outline (functions with signature, body, intent, stub flag; imports; declarations). One file per language in `languages/`. |
 | Stubs | `core/stubs.ts` | Pure: find a stub on a line, find it again after an edit, the fill message. |
+| Places | `core/place.ts`, `core/target.ts` | Pure: the description that ends on a line, the new function under it found again by the description's text, its message; `target.ts` names either kind of fill target. |
 | Imports | `core/imports/` | One policy per language: does a new import resolve to the project, the standard library or the manifest. |
 | Scope guard | `core/guard.ts` | Pure: is an edit or write inside the stub being filled; what blocks it and which `propose` kind lifts that. |
-| Fill | `core/fill.ts` | One stub being filled: starts it from a line, checks each call with the guard, keeps the accepted proposals, knows when the body is filled. |
+| Fill | `core/fill.ts` | One fill (a stub, or a new function under its description): starts it from a line, checks each call with the guard, keeps the accepted proposals, knows when the work is done. |
 | Tools | `pi/tools.ts` | pi's own `edit` and `write` again, with a `why` argument and one call at a time; a probe that tells what an edit would leave in the file. |
-| Filling | `pi/fill.ts` | The pi side of a fill: the fill! request, the guard before each call, the `propose` tool that waits for the editor's answer. |
+| Filling | `pi/fill.ts` | The pi side of a fill: the fill request, the guard before each call, the `propose` tool that waits for the editor's answer. |
 | Launcher | `launcher/main.ts` (`bin/symbiosis`) | Starts a real pi in its own herdr or tmux pane, runs ttt here as its child, ends when ttt quits. One record per folder in `~/.local/state/symbiosis/`. |
 | Layout | `launcher/layout.ts` | Pure: the herdr and tmux command lines for a pi tab, a split, or a new tab for symbiosis itself. |
 | ttt plugin | `ttt/src` (bundled into `ttt/symbiosis/plugin.lua`) | Polls every 40 ms. Shows the preview. Follows the result. Sends helpi! questions and writes the answers. A host (`ttt/src/core`) and one module per feature (`ttt/src/features`); see `ttt/README.md`. |
@@ -313,6 +314,12 @@ kind, then the answer:
 | `code` | `+import <line>` lines, then the code, from column 0 | The code takes the place of the comment, at its indent. Missing imports go after the last import line (or at the top). |
 | `note` | plain lines | `pi:` comment lines under the question; `helpi!` leaves the question. |
 | `ask` | nothing | The question, file and line go to the agent as a user message (a follow-up when it is busy). The line under the question says `pi: asked <session>; its answer comes in pi`. |
+| `function` | nothing | The comment describes a new function. `helpi!` goes, nothing is written under the comment, and the editor starts a fill of mode `function` at that line (see "Filling a stub"). |
+
+A `helpi!` on a stub's marker line (`TODO(pi)`) asks no model: the editor
+knows the case, takes the marker off and starts a fill of the stub at once.
+There was a second word, `fill!`, for that; the developer wanted one word for
+everything (2026-10-16).
 
 The extension streams `help` (taken), `help_start` (kind, imports),
 `help_text` (the whole answer so far, at most every 40 ms) and `help_done`
@@ -408,13 +415,29 @@ text, which it often gets wrong.
 
 ## Filling a stub
 
-`fill!` at the end of the marker line (or `ctrl+k f`) saves the file and
-writes `fill.json`: the path, the line and the session the editor follows.
-That session (`pi/fill.ts`) finds the stub at the line (`core/fill.ts`) and
-sends its model one user message: the file, the signature, the intent, the
-body's lines and the rule to edit only inside the body. A new fill replaces
-the one before. The session record carries the stub, so the status bar shows
-`filling <name>`.
+`helpi!` at the end of the marker line (or `ctrl+k f`) saves the file and
+writes `fill.json`: the mode, the path, the line and the session the editor
+follows. That session (`pi/fill.ts`) finds the stub at the line
+(`core/fill.ts`) and sends its model one user message: the file, the
+signature, the intent, the body's lines and the rule to edit only inside the
+body. A new fill replaces the one before. The session record carries the
+fill, so the status bar shows `filling <name>`.
+
+A fill of mode `function` comes from a `helpi!` description the side call
+answered with `function`. Its target is a place, not a stub
+(`core/place.ts`): the comment lines that end at the line are the
+description, and the new function is the declaration whose doc comment holds
+the description, so it must come directly under it with no blank line. The
+description's text is the anchor, as the signature is for a stub: in each
+version of the file the place is found again by that text, nearest its old
+line. The guard masks the region from the end of the description to the end
+of that declaration and compares the rest like a stub's file; one more new
+declaration is `new_decl`, and a change to the description itself is
+`outside_edit`. A comment that already is a function's doc, or one inside a
+body, is refused when the fill starts. The status bar shows
+`writing <name>`: the description's first words until the function has a
+name. The fill ends at the end of a run once the declaration is there and no
+function in it is a stub.
 
 The guard runs in pi's `tool_call`, before the replay's own handling, so the
 editor never waits to show a call that will not run. A `write` brings its
@@ -458,8 +481,15 @@ proposal becomes the allowance above.
 
 At the end of pi's run, a stub whose body is no longer a stub ends the fill.
 A body that is still a stub keeps it: pi may have stopped to ask the
-developer, and the answer comes in a new run. "symbiosis: Release the Stub"
+developer, and the answer comes in a new run. "symbiosis: Release the Fill"
 ends it by hand.
+
+Weak points of a function fill: the side call decides that a comment means
+"write a function", so a question can be read as one; the developer sees it
+at once, as the session starts writing, and Esc or release stops it. Two
+equal descriptions are told apart only by their line. A description edited
+while pi writes (in the editor, not by pi) loses the place, and the guard
+then blocks every call until the fill is released.
 
 ## The symbiosis command: ttt and a real pi
 

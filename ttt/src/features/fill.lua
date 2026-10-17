@@ -1,9 +1,14 @@
--- Stub filling, the editor side (pi/fill.ts is the pi side).
+-- Filling, the editor side (pi/fill.ts is the pi side). Two kinds of fill:
 --
---   fill! at the end of a stub's marker line (// TODO(pi) fill!), or ctrl+k f
---   with the cursor in a stub: the file is saved, and the session the editor
---   follows fills the stub. Its guard holds its edits to the body.
---   "symbiosis: Release the Stub" ends the fill.
+--   stub      helpi! at the end of a stub's marker line (// TODO(pi) helpi!),
+--             or ctrl+k f with the cursor in a stub: pi fills its body.
+--   function  helpi! at the end of a description outside any function, when
+--             the side call answers `function` (features/helpi.lua): pi
+--             writes the new function directly under the description.
+--
+--   The file is saved first, and the session the editor follows does the
+--   work; its guard holds its edits to the body or the new function.
+--   "symbiosis: Release the Fill" ends the fill.
 --
 --   A proposal (pi's `propose` tool: a change the guard blocks) opens a
 --   drawer with an optional note: Enter accepts, the Reject button rejects,
@@ -16,12 +21,8 @@
 local ttt = require("ttt")
 local editor = require("ttt.editor")
 local fs = require("ttt.fs")
-local buffer = require("core.buffer")
-local marker = require("core.marker")
 local util = require("core.util")
 
-local WORD = "fill!"
-local FILL_MS = 600   -- after the last key press on a fill! line
 local SAVE_TICKS = 30 -- how long a fill waits for the save (poll ticks)
 local SCOPES = { "stub", "file", "off" }
 local SCOPE_TEXT = {
@@ -34,15 +35,18 @@ local KIND_TEXT = {
 	new_decl = "a new declaration",
 	signature = "a signature change",
 	dependency = "a new dependency",
-	outside_edit = "an edit outside the stub",
+	outside_edit = "an edit outside what pi fills",
+}
+local WHAT = {
+	stub = function(line) return "the stub at line " .. line end,
+	["function"] = function(line) return "the function described at line " .. line end,
 }
 
 local function setup(app)
 	local channel, settings = app.channel, app.settings
 	local sessions = app:need("sessions")
 	local seq = 0
-	local timer = nil
-	local saving = nil   -- {path, line, ticks}: a fill that waits for the save
+	local saving = nil   -- {path, line, mode, ticks, text}: a fill that waits for the save
 	local proposal = nil -- the proposal pi waits on
 	local note = ""
 	local show_proposal
@@ -71,13 +75,15 @@ local function setup(app)
 		return true
 	end
 
-	-- Fill the stub at `line` of the open file, once the file on disk is the buffer.
-	local function fill_at(line)
+	-- A fill at `line` of the open file, once the file on disk is the buffer.
+	-- mode: "stub" (the stub that holds the line) or "function" (a new
+	-- function under the description that ends at the line).
+	local function fill_at(line, mode)
 		local path = editor.file_path()
 		if not path or path == "" then return ttt.notify("symbiosis: save the file first", "warning") end
 		if not sessions.owner() then return owner() end
 		ttt.exec_command("file.save")
-		saving = { path = path, line = line, ticks = 0, text = editor.buffer_text() }
+		saving = { path = path, line = line, mode = mode or "stub", ticks = 0, text = editor.buffer_text() }
 	end
 
 	-- The text as a save may write it: no CR, no final newlines.
@@ -89,42 +95,20 @@ local function setup(app)
 	local function send_saved()
 		if not saving then return end
 		saving.ticks = saving.ticks + 1
-		-- The text when fill! came: what the developer typed after it is not waited on.
+		-- The text when the fill came: what the developer typed after it is not waited on.
 		local on_disk = saved_form(fs.read(saving.path)) == saved_form(saving.text)
 		if not on_disk and saving.ticks < SAVE_TICKS then return end
 		local s = saving
 		saving = nil
-		if not on_disk then ttt.notify("symbiosis: the file did not save; pi fills the stub as it is on disk", "warning") end
-		if request({ path = s.path, line = s.line, release = false }) then
-			ttt.notify("symbiosis: pi fills the stub at line " .. s.line .. " of " .. util.name(s.path), "info")
+		local what = WHAT[s.mode](s.line) .. " of " .. util.name(s.path)
+		if not on_disk then ttt.notify("symbiosis: the file did not save; pi works on " .. what .. " as it is on disk", "warning") end
+		if request({ mode = s.mode, path = s.path, line = s.line, release = false }) then
+			ttt.notify("symbiosis: pi " .. (s.mode == "stub" and "fills " or "writes ") .. what, "info")
 		end
 	end
 
-	-- fill!: the marker goes from the line, and the stub is filled.
-	local function fill_marked()
-		if not app.loaded or buffer.editing then return end
-		local cursor = editor.cursor()
-		local line = editor.get_line(cursor.line) or ""
-		if not marker.find(line, WORD) then return end
-		buffer.editing = true
-		editor.set_line(cursor.line, marker.strip(line, WORD))
-		buffer.editing = false
-		fill_at(cursor.line)
-	end
-
-	local function fill_soon()
-		if not app.loaded or buffer.editing then return end
-		if not marker.find(editor.current_line() or "", WORD) then return end
-		if timer then ttt.clear_timeout(timer) end
-		timer = ttt.set_timeout(FILL_MS, function()
-			timer = nil
-			local fine, err = pcall(fill_marked)
-			if not fine then app.log("error", "symbiosis fill!: " .. tostring(err)) end
-		end)
-	end
-
 	local function release()
-		if request({ release = true }) then ttt.notify("symbiosis: the stub is released", "info") end
+		if request({ release = true }) then ttt.notify("symbiosis: the fill is released", "info") end
 	end
 
 	-- Proposals ------------------------------------------------------------------
@@ -189,7 +173,7 @@ local function setup(app)
 		ttt.notify("symbiosis: pi does not wait for that answer any more", "info")
 	end)
 
-	-- What pi says about a fill (no stub at that line, the stub is released).
+	-- What pi says about a fill (no stub at that line, the fill is released).
 	local LEVELS = { info = "info", warn = "warning", error = "error" }
 	channel:on("notice", function(ev)
 		if type(ev.text) == "string" then ttt.notify(ev.text, LEVELS[ev.level] or "info") end
@@ -203,15 +187,15 @@ local function setup(app)
 		end
 	end)
 
-	app:on("change", fill_soon)
 	app:on("tick", send_saved)
-	app:command({ id = "symbiosis.fillStub", title = "symbiosis: Fill This Stub", key = "ctrl+k f", run = function() fill_at(editor.cursor().line) end })
+	app:command({ id = "symbiosis.fillStub", title = "symbiosis: Fill This Stub", key = "ctrl+k f", run = function() fill_at(editor.cursor().line, "stub") end })
 	app:command({ id = "symbiosis.showProposal", title = "symbiosis: Answer pi's Proposal", key = "ctrl+k p", run = function() show_proposal() end })
-	app:command({ id = "symbiosis.releaseStub", title = "symbiosis: Release the Stub", run = release })
-	app:hint({ key = "// TODO(pi) fill!", text = "pi fills this stub (or ctrl+k f)", order = 92 })
+	app:command({ id = "symbiosis.releaseStub", title = "symbiosis: Release the Fill", run = release })
+	app:hint({ key = "// TODO(pi) helpi!", text = "pi fills this stub (or ctrl+k f)", order = 92 })
 	app:hint({ key = "ctrl+k p", text = "answer pi's proposal", order = 93 })
 
 	return {
+		fill_at = fill_at,
 		proposal = function() return proposal end,
 	}
 end

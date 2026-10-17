@@ -36,7 +36,7 @@ async function check(c: Case) {
 	const after = c.change(text);
 	const input: GuardInput = {
 		scope: c.scope ?? 'stub',
-		stub,
+		target: stub,
 		path: c.other?.path ?? path,
 		before: c.other ? (c.other.before === null ? null : { text: c.other.before, outline: null }) : { text, outline },
 		after: { text: after, outline: c.other ? null : syntax.outline(after) },
@@ -83,7 +83,7 @@ test('ts: an accepted signature change goes through and moves the stub', async (
 	});
 	assert.equal(r.ok, true, r.reason);
 	assert.deepEqual(r.used, [{ kind: 'signature', target: 'sumFile' }]);
-	assert.match(r.stub?.signature ?? '', /limit: number/);
+	assert.match((r.target?.kind === 'stub' ? r.target.signature : '') ?? '', /limit: number/);
 });
 
 test('ts: an edit outside the body is blocked', async () => {

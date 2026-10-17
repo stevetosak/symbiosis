@@ -1,13 +1,15 @@
-// Stub filling, the pi side: fill! in the editor starts a fill (core/fill.ts),
-// each write and edit of the agent is checked by the guard before it runs,
-// and the `propose` tool asks the developer, in the editor, for a change the
-// guard blocks. The fill ends at the end of a run once the body is no longer a
-// stub, or when the developer releases it.
+// Filling, the pi side: helpi! in the editor starts a fill (core/fill.ts) of
+// a stub's body or of a new function under its description; each write and
+// edit of the agent is checked by the guard before it runs, and the `propose`
+// tool asks the developer, in the editor, for a change the guard blocks. The
+// fill ends at the end of a run once the work is there, or when the developer
+// releases it.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { relative } from 'node:path';
 import type { Channel } from '../core/channel/channel.ts';
 import { Fill } from '../core/fill.ts';
 import type { GuardResult } from '../core/guard.ts';
+import { targetName, targetText, stayInside } from '../core/target.ts';
 import { type ChannelEvent, PROPOSE_KINDS, type ProposalAnswer, type ProposeKind, type Scope, type Session } from '../core/protocol.ts';
 import { namedPath, planned, realPath } from './tools.ts';
 
@@ -17,16 +19,16 @@ const ANSWER_MS = 100;
 const LOST_MS = 1500;
 
 export const PROPOSE_DESCRIPTION =
-	'Ask the developer for a change the symbiosis guard blocks while you fill a stub: a new file, a new declaration, a signature change, a new dependency, or an edit outside the stub. Waits for the answer. An accepted proposal lets exactly that one change through, once.';
+	'Ask the developer for a change the symbiosis guard blocks while you fill a stub or write a new function under its description: a new file, a new declaration, a signature change, a new dependency, or an edit outside what you fill. Waits for the answer. An accepted proposal lets exactly that one change through, once.';
 
 export const PROPOSE_PARAMETERS = {
 	type: 'object',
 	required: ['kind', 'target', 'what', 'why'],
 	properties: {
 		kind: { type: 'string', enum: [...PROPOSE_KINDS], description: 'The kind the guard named.' },
-		target: { type: 'string', description: 'The target the guard named: a path, an import, a declaration name, or the stub name.' },
+		target: { type: 'string', description: 'The target the guard named: a path, an import, a declaration name, or the stub\'s name.' },
 		what: { type: 'string', description: 'The change, in one or two sentences.' },
-		why: { type: 'string', description: 'Why the stub needs it.' },
+		why: { type: 'string', description: 'Why the task needs it.' },
 	},
 } as const;
 
@@ -45,8 +47,8 @@ export interface FillHost {
 	/** True when the editor follows this session. */
 	owner(): boolean;
 	scope(): Scope;
-	/** Puts the stub in the session record (null: no fill) and beats. */
-	publish(stub: Session['stub']): void;
+	/** Puts the fill in the session record (null: none) and beats. */
+	publish(fill: Session['fill']): void;
 	/** Sends the agent a user message, now or after its run. */
 	send(text: string): void;
 }
@@ -84,13 +86,13 @@ export class Filling {
 		this.lastRequest = request.id;
 		const generation = ++this.requests;
 		if (request.release) {
-			if (this.fill) this.notice(`symbiosis: released the stub ${this.fill.stub.name}`, 'info');
+			if (this.fill) this.notice(`symbiosis: released ${targetText(this.fill.target)}`, 'info');
 			this.end();
 			return;
 		}
 		const path = realPath(request.path);
-		const started = await Fill.start({ path, line: request.line, shown: relative(cwd, path) || path, root: cwd, read: readText }).catch(
-			(error: unknown) => ({ error: `could not read the stub: ${error instanceof Error ? error.message : String(error)}` }),
+		const started = await Fill.start({ mode: request.mode, path, line: request.line, shown: relative(cwd, path) || path, root: cwd, read: readText }).catch(
+			(error: unknown) => ({ error: `could not read ${relative(cwd, path) || path}: ${error instanceof Error ? error.message : String(error)}` }),
 		);
 		if (generation !== this.requests) return;
 		if ('error' in started) {
@@ -104,7 +106,7 @@ export class Filling {
 	}
 
 	/**
-	 * Before a write or edit runs: blocks it when it reaches past the stub. The
+	 * Before a write or edit runs: blocks it when it reaches past the target. The
 	 * reason goes to the agent; the editor drops what it showed of the call.
 	 * A call that may run spends nothing yet: see `ran`.
 	 */
@@ -121,7 +123,7 @@ export class Filling {
 
 	/**
 	 * A checked call ended. When it ran, its allowances are spent and the
-	 * stub moves with it; a call stopped before it ran (the editor, another
+	 * target moves with it; a call stopped before it ran (the editor, another
 	 * handler) or failed changes nothing.
 	 */
 	ran(call: string, ok: boolean): void {
@@ -130,38 +132,39 @@ export class Filling {
 		if (!entry || !ok || entry.fill !== this.fill) return;
 		entry.fill.commit(entry.result);
 		// A tool that runs at the same time keeps the file as this call left it.
-		const text = readText(entry.fill.stub.path);
+		const text = readText(entry.fill.target.path);
 		if (text !== null) for (const id of this.kept.keys()) this.kept.set(id, text);
 		this.publish();
 	}
 
 	/**
 	 * Before a tool other than write and edit (bash, another extension's
-	 * tool): keeps the stub's file, to put it back if the tool changes it.
+	 * tool): keeps the target's file, to put it back if the tool changes it.
 	 */
 	keep(call: string): void {
-		const text = this.fill ? readText(this.fill.stub.path) : null;
+		const text = this.fill ? readText(this.fill.target.path) : null;
 		if (text !== null) this.kept.set(call, text);
 	}
 
 	/**
-	 * After that tool: when it changed the stub's file, the file is put back
+	 * After that tool: when it changed the target's file, the file is put back
 	 * and the agent is told why. Changes to other files are not seen (see
 	 * docs/design.md, the weak points).
 	 */
 	restore(call: string, cwd: string): string | undefined {
 		const before = this.kept.get(call);
 		this.kept.delete(call);
-		const stub = this.fill?.stub;
-		if (!stub || before === undefined || readText(stub.path) === before) return undefined;
-		writeFileSync(stub.path, before);
+		const target = this.fill?.target;
+		if (!target || before === undefined || readText(target.path) === before) return undefined;
+		writeFileSync(target.path, before);
 		return [
-			`symbiosis undid this call's change to ${relative(cwd, stub.path) || stub.path}: you are filling the stub \`${stub.name}\` there.`,
-			'Change that file only with edit or write, inside the body (the guard checks them), or call propose.',
+			`symbiosis undid this call's change to ${relative(cwd, target.path) || target.path}: you are filling ${targetText(target)} there.`,
+			'Change that file only with edit or write (the guard checks them), or call propose.',
+			stayInside(target),
 		].join(' ');
 	}
 
-	/** At the end of a run: a filled stub ends the fill. A fill that waits on the developer stays. */
+	/** At the end of a run: finished work ends the fill. A fill that waits on the developer stays. */
 	async settle(): Promise<void> {
 		this.pending.clear();
 		this.kept.clear();
@@ -181,9 +184,9 @@ export class Filling {
 	/** The `propose` tool's work: asks the editor and waits for the answer. */
 	async propose(call: string, params: ProposeParams, cwd: string, signal?: AbortSignal): Promise<string> {
 		const fill = this.fill;
-		if (!fill) return 'No stub is being filled: nothing to propose. Go on with the task.';
+		if (!fill) return 'Nothing is being filled: nothing to propose. Go on with the task.';
 		if (!PROPOSE_KINDS.includes(params.kind)) return `Unknown kind "${params.kind}": use one of ${PROPOSE_KINDS.join(', ')}.`;
-		if (!this.host.owner()) return 'Rejected: no one to ask (the editor does not follow this session). Stay inside the body.';
+		if (!this.host.owner()) return 'Rejected: no one to ask (the editor does not follow this session). Stay inside what you fill.';
 		const target = params.kind === 'new_file' || params.kind === 'outside_edit' ? namedPath(params.target, cwd) : params.target.trim();
 		const proposal = { id: call, session: this.host.id, kind: params.kind, target, what: params.what, why: params.why };
 		this.emit({ op: 'propose', ...proposal });
@@ -192,7 +195,7 @@ export class Filling {
 		if (this.host.channel.enabled()) this.host.channel.emit({ op: 'propose_end', id: call });
 		if (!answer) return signal?.aborted ? 'Stopped before the developer answered.' : 'Rejected: the editor stopped following this session.';
 		const note = answer.note ? ` Note from the developer: "${answer.note}".` : '';
-		if (!answer.accept) return `Rejected.${note} Stay inside the body of \`${fill.stub.name}\`, or propose something else.`;
+		if (!answer.accept) return `Rejected.${note} ${stayInside(fill.target)} Or propose something else.`;
 		fill.allow(params.kind, target);
 		return `Accepted: ${params.kind} \`${target}\`, once.${note} Make the whole change in one call.`;
 	}
@@ -216,8 +219,8 @@ export class Filling {
 	}
 
 	private publish(): void {
-		const stub = this.fill?.stub;
-		this.host.publish(stub ? { path: stub.path, name: stub.name, line: stub.line } : null);
+		const target = this.fill?.target;
+		this.host.publish(target ? { kind: target.kind, path: target.path, name: targetName(target), line: target.line } : null);
 	}
 
 	private notice(text: string, level: 'info' | 'warn'): void {

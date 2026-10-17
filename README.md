@@ -155,9 +155,10 @@ argument, else the git root, else this folder.
   the reasons pi gave for those changes (`why`).
 - Stubs: write the signature, a one-line comment above it, and a body that is
   only `// TODO(pi)` (and the language's placeholder, for example
-  `throw new Error('not written')`). Type `fill!` at the end of the
+  `throw new Error('not written')`). Type `helpi!` at the end of the
   `TODO(pi)` line, or put the cursor in the stub and press `ctrl+k f`. The
-  file is saved, and the session the editor follows fills the body. The
+  file is saved, and the session the editor follows fills the body (no side
+  call: the editor sees the stub). The
   status bar shows `· filling <name>`. While it fills, a guard blocks every
   write or edit that reaches past the body: another place in the file, the
   signature, a new declaration, a new dependency, a new file. A change
@@ -167,10 +168,19 @@ argument, else the git root, else this folder.
   Esc only closes the drawer: `ctrl+k p` (or the `? pi proposes` item in the
   status bar) shows it again. An accepted proposal lets that one change in,
   once. The fill ends when the body is filled at the end of pi's run, or with
-  "symbiosis: Release the Stub". "Stub scope" in the panel: the stub's body
+  "symbiosis: Release the Fill". "Stub scope" in the panel: the stub's body
   (default), the stub's file (private helpers allowed), or anywhere (no
   guard). With a reason for a choice that is not obvious, pi gives its edit a
   `why`; the editor shows it as a notice when the change is shown.
+- A function from its description: write a comment that says what the
+  function does, outside any function, and end it with `helpi!`. The side
+  call answers `function`, the marker goes, and the session writes the
+  signature and the body directly under the comment, which stays as the
+  function's doc. The status bar shows `· writing <first words>`, then the
+  function's name. The guard lets in that one function and new import lines;
+  a helper beside it, another change in the file or another file needs a
+  proposal, as for a stub. A comment that is already a function's (no blank
+  line under it) or a comment inside a body is refused with a notice.
 - The file tree follows pi: when the editor follows pi into a file, ttt's
   tree opens to it, if the file is in a folder open in ttt (start ttt on a
   folder, or on several: `ttt ~/a ~/b`). The "pi files" tab in the sidebar
@@ -246,6 +256,10 @@ answers. No model, no tokens, the same every time. `npm run demo -- --real`
 gives the same task (`demo/PROMPT.md`) to a real pi, which costs tokens. See
 `demo/README.md`.
 
+`npm run demo -- --stubs` opens a shopping cart with functions left for pi
+to write, and a real pi that waits: `demo/STUBS.md` walks through each fill,
+each kind of proposal and the guard's limits.
+
 ## The ttt plugin
 
 The plugin's sources are in `ttt/src`: a small host (`ttt/src/core`) and one
@@ -271,7 +285,7 @@ bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel
 bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, no multiplexer, already open
 bash test/e2e/marks.sh     # the gutter: ▌ on the change's lines and π on the line typed now, none after
 bash test/e2e/stop.sh      # "? waits for you" while pi shows a dialog; ctrl+k q stops pi's turn
-bash test/e2e/stubs.sh     # fill!: an edit outside the stub is blocked, the body goes in, a proposal is accepted in the drawer
+bash test/e2e/stubs.sh     # helpi! on a stub: an edit outside it is blocked, the body goes in, a proposal is accepted; then a function from its description
 bash test/e2e/runconf.sh   # run configurations: the picker, F5, shift+F5, a failing run, ctrl+q keeps a run, back in ttt it shows
 sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi): without herdr, with it, twice, key taken, own command file
 ```

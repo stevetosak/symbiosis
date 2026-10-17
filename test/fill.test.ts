@@ -1,4 +1,4 @@
-// Stub filling on the pi side, end to end without ttt: the fake pi loads the
+// Filling on the pi side (a stub, or a new function under its description), end to end without ttt: the fake pi loads the
 // real extension; the test plays the editor by writing its files in the
 // plugin folder (ttt.json, fill.json, answer.json) and reading events.jsonl.
 import assert from 'node:assert/strict';
@@ -42,9 +42,14 @@ async function until(check: () => boolean, what: string): Promise<void> {
 }
 
 let seq = 0;
-async function fill(line: number): Promise<void> {
+/** Writes the editor's fill request; the agent gets a message, or the editor a notice. */
+function request(line: number, mode: 'stub' | 'function' = 'stub', path = file): void {
+	writeFileSync(join(plugin, 'fill.json'), JSON.stringify({ id: `f${++seq}`, to: id, mode, path, line }));
+}
+
+async function fill(line: number, mode: 'stub' | 'function' = 'stub', path = file): Promise<void> {
 	const before = pi.inbox.length;
-	writeFileSync(join(plugin, 'fill.json'), JSON.stringify({ id: `f${++seq}`, to: id, path: file, line }));
+	request(line, mode, path);
 	await until(() => pi.inbox.length > before, 'the fill message reaches the agent');
 }
 
@@ -66,7 +71,7 @@ after(async () => {
 test('fill! sends the agent the fill message and the record names the stub', async () => {
 	await fill(8);
 	assert.match(pi.inbox.at(-1) ?? '', /Fill the stub `sumFile` in sample\.ts/);
-	assert.deepEqual(record().stub, { path: file, name: 'sumFile', line: 7 });
+	assert.deepEqual(record().fill, { kind: 'stub', path: file, name: 'sumFile', line: 7 });
 });
 
 test('inside the body goes through; outside it is blocked and the editor drops it', async () => {
@@ -83,7 +88,7 @@ test('inside the body goes through; outside it is blocked and the editor drops i
 	assert.equal(done?.why, 'Reads the whole file: the files are small.');
 	await pi.endTurn();
 	// The body is filled: the fill ends.
-	assert.equal(record().stub, null);
+	assert.equal(record().fill, null);
 });
 
 test('a proposal the developer accepts lets that one change through, once', async () => {
@@ -107,11 +112,11 @@ test('a proposal the developer accepts lets that one change through, once', asyn
 	assert.match((await addImport('lodash')).blocked ?? '', /kind "dependency", target "lodash"/);
 	await pi.endTurn();
 	// Not filled: the fill stays for the developer's next answer.
-	assert.equal(record().stub?.name, 'put');
+	assert.equal(record().fill?.name, 'put');
 });
 
 test('another tool (bash) that changes the stub\'s file is undone; other work stands', async () => {
-	assert.equal(record().stub?.name, 'put', 'the fill from the test before');
+	assert.equal(record().fill?.name, 'put', 'the fill from the test before');
 	const before = readFileSync(file, 'utf-8');
 	const undone = await pi.other('bash', () => writeFileSync(file, before.replace('const LIMIT = 10;', 'const LIMIT = 99;')));
 	assert.match(undone, /^ran\nsymbiosis undid this call's change to sample\.ts: you are filling the stub `put` there\./);
@@ -129,7 +134,7 @@ test('a rejected proposal says so, with the note; release ends the fill', async 
 	assert.match(await answered, /^Rejected\. Note from the developer: "keep it here"\./);
 
 	writeFileSync(join(plugin, 'fill.json'), JSON.stringify({ id: `f${++seq}`, to: id, release: true }));
-	await until(() => record().stub === null, 'release ends the fill');
+	await until(() => record().fill === null, 'release ends the fill');
 });
 
 test('with no editor to ask, a proposal is rejected at once', async () => {
@@ -147,9 +152,62 @@ test('scope off lets an edit outside the body through', async () => {
 	assert.deepEqual(await pi.edit(file, [{ oldText: 'const LIMIT = 10;', newText: 'const LIMIT = 11;' }]), {});
 	await pi.endTurn();
 	editor({});
+	// The extension reads ttt.json at most every 200 ms.
+	await sleep(250);
 });
 
 test('fill! on a line with no stub tells the editor', async () => {
 	writeFileSync(join(plugin, 'fill.json'), JSON.stringify({ id: `f${++seq}`, to: id, path: file, line: 1 }));
 	await until(() => events().some((e) => e.op === 'notice' && /no stub at line 1/.test(e.text)), 'a notice');
+});
+
+const described = join(ws, 'described.ts');
+const DESCRIBED = `import { helper } from './helper.ts';
+
+const LIMIT = 10;
+
+// a function that clamps n between 0 and LIMIT
+// and adds the helper's count for the key
+
+/** Already there. */
+export function other(): number {
+\treturn 1;
+}
+`;
+const CLAMP = "export function clamp(key: string, n: number): number {\n\treturn Math.min(LIMIT, Math.max(0, n)) + helper(key, 0);\n}\n";
+const DESCRIPTION_END = "// and adds the helper's count for the key\n";
+
+test('a function from its description: one new function under it, nothing else', async () => {
+	writeFileSync(described, DESCRIBED);
+	await fill(6, 'function', described);
+	assert.match(pi.inbox.at(-1) ?? '', /Write a new function in described\.ts, directly under the description at line 5-6:/);
+	assert.deepEqual(record().fill, { kind: 'place', path: described, name: 'a function that clamps n between 0 and …', line: 5 });
+
+	await pi.beginTurn();
+	const helperToo = await pi.edit(described, [
+		{ oldText: DESCRIPTION_END, newText: `${DESCRIPTION_END}${CLAMP}` },
+		{ oldText: '/** Already there. */', newText: 'const twice = (n: number) => n * 2;\n\n/** Already there. */' },
+	]);
+	assert.match(helperToo.blocked ?? '', /you are writing the new function under the description at line 5/);
+	assert.match(helperToo.blocked ?? '', /kind "new_decl", target "twice"/);
+
+	const apart = await pi.edit(described, [{ oldText: DESCRIPTION_END, newText: `${DESCRIPTION_END}\n${CLAMP}` }]);
+	assert.match(apart.blocked ?? '', /new declaration `clamp` that is not directly under the description/);
+
+	assert.deepEqual(await pi.edit(described, [{ oldText: DESCRIPTION_END, newText: `${DESCRIPTION_END}${CLAMP}` }], 'Clamps first.'), {});
+	assert.equal(record().fill?.name, 'clamp', 'the record names the new function');
+	// Its body may change again; the description may not.
+	assert.deepEqual(await pi.edit(described, [{ oldText: '+ helper(key, 0)', newText: '+ helper(key, 1)' }]), {});
+	const reworded = await pi.edit(described, [{ oldText: 'clamps n', newText: 'limits n' }]);
+	assert.match(reworded.blocked ?? '', /changes or removes the description/);
+	await pi.endTurn();
+	assert.equal(record().fill, null, 'the function is there: the fill ends');
+});
+
+test('a function needs a free place: not under a comment that is already a function\'s', async () => {
+	writeFileSync(described, DESCRIBED);
+	request(8, 'function', described);
+	await until(() => events().some((e) => e.op === 'notice' && /is the comment of `other`: leave a blank line under it/.test(e.text)), 'a notice');
+	request(10, 'function', described);
+	await until(() => events().some((e) => e.op === 'notice' && /no comment at line 10/.test(e.text)), 'a notice');
 });

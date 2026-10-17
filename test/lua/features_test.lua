@@ -24,7 +24,7 @@ end
 -- A live pi session for /w, the one the editor follows.
 local function session(fields)
 	local json = require("ttt.json")
-	local rec = { id = "s1", t = os.time(), cwd = "/w", name = "w", version = 11, active = 1 }
+	local rec = { id = "s1", t = os.time(), cwd = "/w", name = "w", version = require("core.channel").PROTOCOL, active = 1 }
 	for k, v in pairs(fields or {}) do rec[k] = v end
 	stub.files["/plugin/sessions/s1.json"] = json.encode(rec)
 end
@@ -121,7 +121,7 @@ return {
 		t.eq(out, {
 			"Replay speed    160/s", "pi ahead (max)  3 changes", "Stub scope      the stub's body", "Autosave        1 s after you type", "Editor          follows pi",
 			"ctrl+k h", "ctrl+k q", "ctrl+k a", "ctrl+k - / =", "ctrl+k space", "ctrl+k .", "ctrl+k v", "ctrl+k w",
-			"// … helpi!", "// TODO(pi) fill!", "ctrl+k p", "F5 · shift+F5", "ctrl+k F5", "Esc", "ctrl+k n", "ctrl+k g",
+			"// … helpi!", "// TODO(pi) helpi!", "ctrl+k p", "F5 · shift+F5", "ctrl+k F5", "Esc", "ctrl+k n", "ctrl+k g",
 		})
 	end },
 	{ "bundle: a write is typed at the speed, acknowledged, then the file comes from disk", function()
@@ -177,40 +177,62 @@ return {
 		t.eq(marker.strip("// TODO: refill!", "fill!"), "// TODO: refill!")
 		t.eq(marker.find("// TODO(pi):fill!", "fill!").opener, "//")
 	end },
-	{ "bundle: fill! saves the file and asks the session the editor follows", function()
+	{ "bundle: helpi! on a stub's marker asks no model: it saves the file and asks for the fill", function()
 		local json = require("ttt.json")
 		load_bundle()
 		session()
-		stub.set_text("/w/a.ts", "function f() {\n\t// TODO(pi) fill!\n}")
-		stub.cursor = { line = 2, col = 18 }
+		stub.set_text("/w/a.ts", "function f() {\n\t// TODO(pi) helpi!\n}")
+		stub.cursor = { line = 2, col = 19 }
 		stub.run_timers() -- the sessions refresh
 		stub.events["editor.change"]()
-		stub.run_timers() -- the fill! timer
+		stub.run_timers() -- the helpi! timer
 		t.eq(stub.text(), "function f() {\n\t// TODO(pi)\n}", "the marker goes")
+		t.eq(stub.files["/plugin/help.json"], nil, "no side call")
 		stub.run_timers() -- the tick sends it, the file is saved
 		local req = json.decode(stub.files["/plugin/fill.json"])
-		t.eq({ req.to, req.path, req.line, req.release }, { "s1", "/w/a.ts", 2, false })
+		t.eq({ req.to, req.mode, req.path, req.line, req.release }, { "s1", "stub", "/w/a.ts", 2, false })
 		t.eq(stub.files["/w/a.ts"], stub.text(), "saved first")
 		t.eq(#stub.notices, 1, "no warning: " .. tostring(stub.notices[1] and stub.notices[1].text))
-		session({ stub = { path = "/w/a.ts", name = "f", line = 1 }, working = true })
+		session({ fill = { kind = "stub", path = "/w/a.ts", name = "f", line = 1 }, working = true })
 		stub.run_timers()
 		t.ok(stub.status["symbiosis.session"]:find("filling f", 1, true), stub.status["symbiosis.session"])
 	end },
-	{ "bundle: fill! waits for the save, not for what is typed after it", function()
+	{ "bundle: helpi! answered `function`: the marker goes, nothing under the description, pi writes it", function()
 		local json = require("ttt.json")
 		load_bundle()
 		session()
-		stub.set_text("/w/a.ts", "function f() {\n\t// TODO(pi) fill!\n}")
-		stub.cursor = { line = 2, col = 18 }
+		stub.set_text("/w/a.ts", "const a = 1;\n\n// clamp n to 0..3 helpi!\n\nexport const b = 2;")
+		stub.cursor = { line = 3, col = 25 }
+		stub.run_timers()
+		stub.events["editor.change"]()
+		stub.run_timers() -- the helpi! timer: the side call is asked
+		local q = json.decode(stub.files["/plugin/help.json"])
+		send({ { op = "help", id = q.id, session = "s1" }, { op = "help_start", id = q.id, kind = "function", imports = {} }, { op = "help_done", id = q.id, text = "" } })
+		stub.run_timers()
+		stub.run_timers()
+		t.eq(stub.text(), "const a = 1;\n\n// clamp n to 0..3\n\nexport const b = 2;", "only the marker goes")
+		local req = json.decode(stub.files["/plugin/fill.json"])
+		t.eq({ req.mode, req.path, req.line }, { "function", "/w/a.ts", 3 })
+		t.ok(stub.notices[#stub.notices].text:find("pi writes the function described at line 3 of a.ts", 1, true), stub.notices[#stub.notices].text)
+		session({ fill = { kind = "place", path = "/w/a.ts", name = "clamp", line = 3 }, working = true })
+		stub.run_timers()
+		t.ok(stub.status["symbiosis.session"]:find("writing clamp", 1, true), stub.status["symbiosis.session"])
+	end },
+	{ "bundle: a fill waits for the save, not for what is typed after it", function()
+		local json = require("ttt.json")
+		load_bundle()
+		session()
+		stub.set_text("/w/a.ts", "function f() {\n\t// TODO(pi) helpi!\n}")
+		stub.cursor = { line = 2, col = 19 }
 		stub.run_timers()
 		-- This save is slow, and writes a final newline.
 		stub.save = function(text) stub.saved_later = text .. "\n" end
 		stub.events["editor.change"]()
-		stub.run_timers() -- fill!: the save starts
+		stub.run_timers() -- helpi!: the save starts
 		stub.run_timers() -- a tick: not on disk yet
 		t.eq(stub.files["/plugin/fill.json"], nil, "waits for the save")
 		stub.files["/w/a.ts"] = stub.saved_later
-		stub.set_text("/w/a.ts", stub.text() .. "\n// typed after fill!")
+		stub.set_text("/w/a.ts", stub.text() .. "\n// typed after helpi!")
 		stub.run_timers()
 		t.eq(json.decode(stub.files["/plugin/fill.json"]).line, 2)
 		for _, n in ipairs(stub.notices) do t.ok(not n.text:find("did not save", 1, true), n.text) end
