@@ -11,6 +11,10 @@ tab). Both work in a copy, `/tmp/symbiosis-demo` (set `DEMO_DIR` for another
 one), and make a new copy each time: the repo never changes. While a demo
 runs, a second one stops and says where the first runs.
 
+For stubs, proposals and functions from a description there is a second
+demo with its own workspace: `npm run demo -- --stubs`, see
+[STUBS.md](STUBS.md).
+
 ## A scripted pi (no model, no tokens)
 
 ```bash

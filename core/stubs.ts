@@ -6,6 +6,7 @@ import type { Fn, Outline } from './syntax/outline.ts';
 
 /** The stub being filled, as the guard finds it again after each edit. */
 export interface StubRef {
+	kind: 'stub';
 	/** Absolute path of its file. */
 	path: string;
 	name: string;
@@ -21,7 +22,7 @@ export function normalize(text: string): string {
 }
 
 export function stubRef(path: string, text: string, fn: Fn): StubRef {
-	return { path, name: fn.name, signature: normalize(text.slice(fn.signature.start, fn.signature.end)), line: fn.line };
+	return { kind: 'stub', path, name: fn.name, signature: normalize(text.slice(fn.signature.start, fn.signature.end)), line: fn.line };
 }
 
 /** The innermost stub whose lines hold `line` (1-based). */

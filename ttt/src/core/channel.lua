@@ -3,7 +3,8 @@
 --   head.json, events.jsonl   pi appends events; poll() reads the new ones
 --                             and hands each to the handler of its `op`
 --   ttt.json                  the heartbeat: the features add their fields
---   ack.json, help.json, ...  written by the features through write_json
+--   ack.json, help.json, fill.json, answer.json, ...
+--                             written by the features through write_json
 --
 -- A feature takes the events it handles: channel:on("start", fn). One
 -- handler for each op; events no feature handles are skipped.
@@ -12,7 +13,7 @@ local json = require("ttt.json")
 local util = require("core.util")
 
 local M = {
-	PROTOCOL = 10, -- the channel protocol of core/protocol.ts
+	PROTOCOL = 12, -- the channel protocol of core/protocol.ts
 }
 
 local Channel = {}

@@ -1,24 +1,40 @@
-// The scope guard: while a stub is being filled, every edit and write is
-// checked before it runs. Pure: the caller parses both versions of the file
-// (core/syntax) and loads the import resolver (core/imports); the guard only
-// compares.
+// The scope guard: while a stub is being filled, or a new function written
+// under its description, every edit and write is checked before it runs.
+// Pure: the caller parses both versions of the file (core/syntax) and loads
+// the import resolver (core/imports); the guard only compares.
 //
-// The check, on the stub's file: mask the stub's body (and its signature, if
-// a change to it was accepted) in both versions, cut the import lines and the
-// declarations that are new, and compare what is left with its whitespace
-// collapsed. Any difference is an edit outside the body. New imports and new
-// declarations are judged on their own. Any other file is outside the stub.
+// The check, on the target's file: mask the region the agent may change in
+// both versions (the stub's body, and its signature if a change to it was
+// accepted; or the new function under the description), cut the import lines
+// and the declarations that are new, and compare what is left with its
+// whitespace collapsed. Any difference is an edit outside the region. New
+// imports and new declarations are judged on their own. Any other file is
+// outside the target.
 import type { Resolver } from './imports/policy.ts';
+import { findPlace, type PlaceRef } from './place.ts';
 import { locate, normalize, type StubRef, stubRef } from './stubs.ts';
-import { contains, type Decl, type Fn, type Outline, type Range } from './syntax/outline.ts';
+import { contains, type Decl, type Outline, type Range } from './syntax/outline.ts';
+import { type FillTarget, stayInside, targetText } from './target.ts';
 
-/** `stub`: only the body. `file`: also new private declarations in its file. `off`: no guard. */
-export type Scope = 'stub' | 'file' | 'off';
-export const SCOPES: readonly Scope[] = ['stub', 'file', 'off'];
+import type { ProposeKind, Scope } from './protocol.ts';
 
-/** What the agent may `propose`; each is also the kind of a violation. */
-export type ProposeKind = 'new_file' | 'new_decl' | 'signature' | 'dependency' | 'outside_edit';
-export const PROPOSE_KINDS: readonly ProposeKind[] = ['new_file', 'new_decl', 'signature', 'dependency', 'outside_edit'];
+export { PROPOSE_KINDS, type ProposeKind, SCOPES, type Scope } from './protocol.ts';
+
+/**
+ * An accepted proposal not used yet: it lets one violation of its kind and
+ * target through, once. The target is what the violation names: the path
+ * (`new_file`, `outside_edit`), the import (`dependency`), the declaration's
+ * name (`new_decl`), the stub's name (`signature`).
+ */
+export interface Allowance {
+	kind: ProposeKind;
+	target: string;
+}
+
+/** True when an allowance's target is the violation's. */
+export function sameTarget(a: string, b: string): boolean {
+	return a.trim() === b.trim();
+}
 
 /** A file's text and its outline; the outline is null for a language symbiosis does not parse. */
 export interface Version {
@@ -28,8 +44,8 @@ export interface Version {
 
 export interface GuardInput {
 	scope: Scope;
-	/** The stub being filled; null when none is. */
-	stub: StubRef | null;
+	/** What is being filled; null when nothing is. */
+	target: FillTarget | null;
 	/** Absolute path of the file the call changes. */
 	path: string;
 	/** The file now; null when it does not exist. */
@@ -38,12 +54,14 @@ export interface GuardInput {
 	after: Version;
 	/** Resolves a new import of the stub's language. */
 	resolves: Resolver;
-	/** Accepted proposals not used yet: each lets one violation of its kind through. */
-	allowances: readonly ProposeKind[];
+	/** Accepted proposals not used yet. */
+	allowances: readonly Allowance[];
 }
 
 export interface Violation {
 	kind: ProposeKind;
+	/** What an allowance must name to let it through (see Allowance). */
+	target: string;
 	detail: string;
 }
 
@@ -52,9 +70,9 @@ export interface GuardResult {
 	/** What stops the call; empty when ok. */
 	violations: Violation[];
 	/** The allowances this call spends, when it is ok. */
-	used: ProposeKind[];
-	/** The stub as found after the call: its signature or line may have moved. */
-	stub: StubRef | null;
+	used: Allowance[];
+	/** The target as found after the call: its signature, name or line may have moved. */
+	target: FillTarget | null;
 	/** For the model when the call is blocked; "" when ok. */
 	reason: string;
 }
@@ -62,17 +80,18 @@ export interface GuardResult {
 const STUB_MASK = '\u0000';
 
 export function guard(input: GuardInput): GuardResult {
-	const { scope, stub } = input;
-	if (scope === 'off' || !stub) return { ok: true, violations: [], used: [], stub, reason: '' };
-	if (input.path !== stub.path) {
-		const detail = input.before ? `the call edits ${input.path}, not the stub's file` : `the call creates ${input.path}`;
-		return settle(input, [{ kind: input.before ? 'outside_edit' : 'new_file', detail }], stub);
+	const { scope, target } = input;
+	if (scope === 'off' || !target) return { ok: true, violations: [], used: [], target, reason: '' };
+	if (input.path !== target.path) {
+		const detail = input.before ? `the call edits ${input.path}, not the file of ${targetText(target)}` : `the call creates ${input.path}`;
+		return settle(input, [{ kind: input.before ? 'outside_edit' : 'new_file', target: input.path, detail }], target);
 	}
 	const { before, after } = input;
 	if (!before?.outline || !after.outline) {
-		return settle(input, [{ kind: 'outside_edit', detail: `${stub.path} could not be read as code` }], stub);
+		return settle(input, [{ kind: 'outside_edit', target: target.path, detail: `${target.path} could not be read as code` }], target);
 	}
-	return checkStubFile(input, stub, { text: before.text, outline: before.outline }, { text: after.text, outline: after.outline });
+	const parsed = [{ text: before.text, outline: before.outline }, { text: after.text, outline: after.outline }] as const;
+	return target.kind === 'stub' ? checkStubFile(input, target, ...parsed) : checkPlace(input, target, ...parsed);
 }
 
 interface Parsed {
@@ -83,39 +102,80 @@ interface Parsed {
 function checkStubFile(input: GuardInput, stub: StubRef, before: Parsed, after: Parsed): GuardResult {
 	const violations: Violation[] = [];
 	const oldFn = locate(before.outline, before.text, stub) ?? locate(before.outline, before.text, stub, true);
-	if (!oldFn) return settle(input, [{ kind: 'outside_edit', detail: `the stub \`${stub.name}\` is no longer in the file` }], stub);
+	if (!oldFn) return settle(input, [{ kind: 'outside_edit', target: stub.path, detail: `the stub \`${stub.name}\` is no longer in the file` }], stub);
 
 	let newFn = locate(after.outline, after.text, stub);
 	let signatureChanged = false;
 	if (!newFn) {
 		newFn = locate(after.outline, after.text, stub, true);
-		if (!newFn) return settle(input, [{ kind: 'signature', detail: `the call removes or renames \`${stub.name}\`` }], stub);
+		if (!newFn) return settle(input, [{ kind: 'signature', target: stub.name, detail: `the call removes or renames \`${stub.name}\`` }], stub);
 		signatureChanged = true;
 		const now = normalize(after.text.slice(newFn.signature.start, newFn.signature.end));
-		violations.push({ kind: 'signature', detail: `the signature changes from \`${stub.signature}\` to \`${now}\`` });
+		violations.push({ kind: 'signature', target: stub.name, detail: `the signature changes from \`${stub.signature}\` to \`${now}\`` });
 	}
 
-	const imports = compareImports(input.resolves, { ...before, fn: oldFn }, { ...after, fn: newFn });
-	violations.push(...imports.violations);
-	const decls = newDecls(before, after, imports.added);
+	const masked = (fn: { signature: Range; body: Range }) => (signatureChanged ? { start: fn.signature.start, end: fn.body.end } : fn.body);
+	const where = { outside: 'outside the body', newDecl: 'outside the body', holder: `the code that holds \`${stub.name}\`` };
+	violations.push(...compareRegions(input, before, after, masked(oldFn), masked(newFn), where));
+	return settle(input, violations, stubRef(stub.path, after.text, newFn));
+}
+
+/**
+ * A new function under its description: the region is the declaration whose
+ * doc comment holds the description, or the empty place under it before the
+ * function is written. A new declaration anywhere else is one too many.
+ */
+function checkPlace(input: GuardInput, place: PlaceRef, before: Parsed, after: Parsed): GuardResult {
+	const old = findPlace(before.outline, before.text, place);
+	if (!old) return settle(input, [{ kind: 'outside_edit', target: place.path, detail: 'the description of the new function is no longer in the file' }], place);
+	const now = findPlace(after.outline, after.text, place);
+	if (!now) {
+		return settle(input, [{ kind: 'outside_edit', target: place.path, detail: 'the call changes or removes the description of the new function: keep it as it is' }], place);
+	}
+	const where = {
+		outside: 'outside the new function',
+		newDecl: now.decl ? 'outside the new function' : 'that is not directly under the description (no blank line between)',
+		holder: 'the description',
+	};
+	const violations = compareRegions(input, before, after, old.region, now.region, where);
+	return settle(input, violations, { ...place, line: now.line, name: now.decl?.name ?? '' });
+}
+
+/** How the violations of one kind of target say where a change is. */
+interface Where {
+	/** Where changed code is: "outside the body". */
+	outside: string;
+	/** Where a new declaration is. */
+	newDecl: string;
+	/** What a cut that swallows the region changes. */
+	holder: string;
+}
+
+/**
+ * What a call changes outside the region: new imports that do not resolve,
+ * changed imports, new declarations, and any other text.
+ */
+function compareRegions(input: GuardInput, before: Parsed, after: Parsed, oldRegion: Range, newRegion: Range, where: Where): Violation[] {
+	const path = input.path;
+	const imports = compareImports(path, input.resolves, { ...before, region: oldRegion }, { ...after, region: newRegion });
+	const violations = [...imports.violations];
+	const decls = newDecls(before, after, imports.added).filter((d) => !contains(newRegion, d.range));
 	const oldNames = new Set(before.outline.decls.map((d) => d.name));
 	for (const decl of decls) {
 		const shadows = oldNames.has(decl.name);
 		if (input.scope === 'file' && decl.private && !shadows) continue;
 		const what = shadows ? 'a second declaration of' : decl.private ? 'a new private declaration' : 'a new declaration';
-		violations.push({ kind: 'new_decl', detail: `${what} \`${decl.name || decl.kind}\` outside the body` });
+		violations.push({ kind: 'new_decl', target: decl.name || decl.kind, detail: `${what} \`${decl.name || decl.kind}\` ${where.newDecl}` });
 	}
 
-	const masked = (fn: Fn) => (signatureChanged ? { start: fn.signature.start, end: fn.body.end } : fn.body);
-	const oldSkeleton = skeleton(before.text, masked(oldFn), imports.removed);
-	const newSkeleton = skeleton(after.text, masked(newFn), [...imports.added, ...decls.map((d) => declCut(d, before.text, after.text))]);
+	const oldSkeleton = skeleton(before.text, oldRegion, imports.removed);
+	const newSkeleton = skeleton(after.text, newRegion, [...imports.added, ...decls.map((d) => declCut(d, before.text, after.text))]);
 	if (oldSkeleton === null || newSkeleton === null) {
-		violations.push({ kind: 'outside_edit', detail: `the call changes the code that holds \`${stub.name}\`` });
+		violations.push({ kind: 'outside_edit', target: path, detail: `the call changes ${where.holder}` });
 	} else if (oldSkeleton !== newSkeleton) {
-		violations.push({ kind: 'outside_edit', detail: `the call changes code outside the body, near: ${near(oldSkeleton, newSkeleton)}` });
+		violations.push({ kind: 'outside_edit', target: path, detail: `the call changes code ${where.outside}, near: ${near(oldSkeleton, newSkeleton)}` });
 	}
-
-	return settle(input, violations, stubRef(stub.path, after.text, newFn));
+	return violations;
 }
 
 /** One import statement: its range, its text with whitespace collapsed, what it imports. */
@@ -150,25 +210,25 @@ function unmatched(before: Statement[], after: Statement[]): { added: Statement[
  * The import lines outside function bodies must stay as they are: one that
  * changes could rebind a name the rest of the file uses (`{ helper }` →
  * `{ evil as helper }`), so it counts as removed and added. A new one must
- * resolve. In the stub's body a new import must resolve too; imports in other
+ * resolve. In the region a new import must resolve too; imports in other
  * bodies are code like any other.
  */
-function compareImports(resolves: Resolver, before: Parsed & { fn: Fn }, after: Parsed & { fn: Fn }) {
-	const inBody = (all: Statement[], fn: Fn) => all.filter((s) => contains(fn.body, s.range));
+function compareImports(path: string, resolves: Resolver, before: Parsed & { region: Range }, after: Parsed & { region: Range }) {
+	const inRegion = (all: Statement[], region: Range) => all.filter((s) => contains(region, s.range));
 	const outside = (all: Statement[], outline: Outline) => all.filter((s) => !outline.functions.some((f) => contains(f.body, s.range)));
 	const old = statements(before);
 	const now = statements(after);
 	const top = unmatched(outside(old, before.outline), outside(now, after.outline));
-	const body = unmatched(inBody(old, before.fn), inBody(now, after.fn));
+	const body = unmatched(inRegion(old, before.region), inRegion(now, after.region));
 
 	const violations: Violation[] = [];
 	for (const spec of [...top.added, ...body.added].flatMap((s) => s.specs)) {
 		if (!resolves(spec, after.text)) {
-			violations.push({ kind: 'dependency', detail: `the import \`${spec}\` is not in the project, the standard library or the manifest` });
+			violations.push({ kind: 'dependency', target: spec, detail: `the import \`${spec}\` is not in the project, the standard library or the manifest` });
 		}
 	}
 	for (const s of top.removed) {
-		violations.push({ kind: 'outside_edit', detail: `the call changes or removes the import \`${s.key}\` (add a new import line instead of changing one)` });
+		violations.push({ kind: 'outside_edit', target: path, detail: `the call changes or removes the import \`${s.key}\` (add a new import line instead of changing one)` });
 	}
 	return { violations, added: top.added.map((s) => s.range), removed: top.removed.map((s) => s.range) };
 }
@@ -233,28 +293,32 @@ function near(before: string, after: string): string {
 	return JSON.stringify(after.slice(at, at + 60).replaceAll(STUB_MASK, '<body>'));
 }
 
-/** Spends the allowances on the violations they cover; what is left blocks the call. */
-function settle(input: GuardInput, violations: Violation[], found: StubRef): GuardResult {
-	const left = [...input.allowances];
-	const used: ProposeKind[] = [];
+/**
+ * Spends the allowances on the violations they cover; what is left blocks the
+ * call. One allowance covers every violation of its kind and target in the
+ * call: one change can show as several (an import line and a constant).
+ */
+function settle(input: GuardInput, violations: Violation[], found: FillTarget): GuardResult {
+	const used: Allowance[] = [];
 	const blocking = violations.filter((v) => {
-		const at = left.indexOf(v.kind);
-		if (at < 0) return true;
-		left.splice(at, 1);
-		used.push(v.kind);
+		const allowance = input.allowances.find((a) => a.kind === v.kind && sameTarget(a.target, v.target));
+		if (!allowance) return true;
+		if (!used.includes(allowance)) used.push(allowance);
 		return false;
 	});
-	if (blocking.length === 0) return { ok: true, violations: [], used, stub: found, reason: '' };
-	const stub = input.stub as StubRef;
-	return { ok: false, violations: blocking, used: [], stub, reason: reasonFor(input, stub, blocking) };
+	if (blocking.length === 0) return { ok: true, violations: [], used, target: found, reason: '' };
+	const target = input.target as FillTarget;
+	return { ok: false, violations: blocking, used: [], target, reason: reasonFor(input, target, blocking) };
 }
 
-function reasonFor(input: GuardInput, stub: StubRef, violations: Violation[]): string {
-	const kinds = [...new Set(violations.map((v) => v.kind))];
+function reasonFor(input: GuardInput, target: FillTarget, violations: Violation[]): string {
+	const proposals = [...new Set(violations.map((v) => `kind "${v.kind}", target "${v.target}"`))];
+	const doing = target.kind === 'stub' ? 'filling' : 'writing';
 	return [
-		`Blocked by symbiosis: you are filling the stub \`${stub.name}\` in ${stub.path} (scope: ${input.scope}).`,
-		...violations.map((v) => `- ${v.kind}: ${v.detail}.`),
+		`Blocked by symbiosis: you are ${doing} ${targetText(target)} in ${target.path} (scope: ${input.scope}).`,
+		...violations.map((v) => `- ${v.kind} (target \`${v.target}\`): ${v.detail}.`),
 		...(input.after.outline?.broken ? ['- The file does not parse after this call: check the edit for an unclosed string, bracket or block.'] : []),
-		`Edit only inside the body of \`${stub.name}\`. If the task needs this change, call propose with kind ${kinds.map((k) => `"${k}"`).join(' or ')}, say what and why, and wait for the answer.`,
+		`${stayInside(target)} If the task needs this change, call propose with ${proposals.join('; and with ')}, say what and why, and wait for the answer.`,
+		'An accepted proposal lets exactly that one change through, once: make the whole change in one call.',
 	].join('\n');
 }

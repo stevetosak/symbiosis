@@ -29,9 +29,9 @@ test('events are appended and head.json tracks the size', () => {
 test('the heartbeat says if ttt is alive and pinned', () => {
 	const dir = temp();
 	const c = new FileChannel(dir, () => 10_000);
-	assert.deepEqual(c.plugin(), { alive: false, pinned: false, lag: 3 });
+	assert.deepEqual(c.plugin(), { alive: false, pinned: false, lag: 3, scope: 'stub' });
 	writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 9, pinned: true }));
-	assert.deepEqual(c.plugin(), { alive: true, pinned: true, lag: 3 });
+	assert.deepEqual(c.plugin(), { alive: true, pinned: true, lag: 3, scope: 'stub' });
 	writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 6 }));
 	assert.equal(c.plugin().alive, false);
 });
@@ -40,7 +40,7 @@ test('the heartbeat names the owner: the session the editor follows', () => {
 	const dir = temp();
 	const c = new FileChannel(dir, () => 10_000);
 	writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 9, owner: 's1' }));
-	assert.deepEqual(c.plugin(), { alive: true, pinned: false, lag: 3, owner: 's1' });
+	assert.deepEqual(c.plugin(), { alive: true, pinned: false, lag: 3, scope: 'stub', owner: 's1' });
 });
 
 test('the heartbeat says how far pi may run ahead; a bad value is the default', () => {
@@ -50,6 +50,35 @@ test('the heartbeat says how far pi may run ahead; a bad value is the default', 
 		writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 9, lag }));
 		assert.equal(c.plugin().lag, want, String(lag));
 	}
+});
+
+test('the heartbeat carries the scope; a bad value, or an editor that is gone, is stub', () => {
+	const dir = temp();
+	const c = new FileChannel(dir, () => 10_000);
+	for (const [scope, want] of [['file', 'file'], ['off', 'off'], ['stub', 'stub'], ['all', 'stub'], [3, 'stub']] as const) {
+		writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 9, scope }));
+		assert.equal(c.plugin().scope, want, String(scope));
+	}
+	writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 1, scope: 'off' }));
+	assert.equal(c.plugin().scope, 'stub', 'an old ttt.json');
+});
+
+test('fill requests and proposal answers are read; a bad one is none', () => {
+	const dir = temp();
+	const c = new FileChannel(dir, () => 10_000);
+	assert.equal(c.fill(), undefined);
+	writeFileSync(join(dir, 'fill.json'), JSON.stringify({ id: 'f1', to: 's1', path: '/w/a.ts', line: 3 }));
+	assert.deepEqual(c.fill(), { id: 'f1', to: 's1', mode: 'stub', path: '/w/a.ts', line: 3, release: false }, 'no mode is a stub');
+	writeFileSync(join(dir, 'fill.json'), JSON.stringify({ id: 'f4', to: 's1', mode: 'function', path: '/w/a.ts', line: 5 }));
+	assert.deepEqual(c.fill(), { id: 'f4', to: 's1', mode: 'function', path: '/w/a.ts', line: 5, release: false });
+	writeFileSync(join(dir, 'fill.json'), JSON.stringify({ id: 'f2', to: 's1', release: true }));
+	assert.deepEqual(c.fill(), { id: 'f2', to: 's1', release: true });
+	writeFileSync(join(dir, 'fill.json'), JSON.stringify({ id: 'f3', to: 's1', path: '/w/a.ts' }));
+	assert.equal(c.fill(), undefined);
+	writeFileSync(join(dir, 'answer.json'), JSON.stringify({ id: 'p1', accept: true, note: ' ok \n' }));
+	assert.deepEqual(c.answer(), { id: 'p1', accept: true, note: 'ok' });
+	writeFileSync(join(dir, 'answer.json'), JSON.stringify({ id: 'p1', accept: 'yes' }));
+	assert.equal(c.answer(), undefined);
 });
 
 test('session records are written, removed, and pruned when stale', () => {

@@ -559,7 +559,7 @@ function M.setup(app)
 	local function close_picker()
 		picker = nil
 		asking = nil
-		pcall(ttt.close_drawer)
+		app:close_drawer("run")
 	end
 
 	-- The drawer for an input: a filter and the options; Enter or a click
@@ -669,7 +669,7 @@ function M.setup(app)
 
 	local function show_picker()
 		picker = { items = configs }
-		ttt.open_drawer({ width = 64, min_width = 40, side = "right", render = render_picker })
+		app:open_drawer("run", { width = 64, min_width = 40, side = "right", render = render_picker })
 	end
 
 	local function pick()
@@ -886,7 +886,7 @@ function M.setup(app)
 
 	-- ctrl+q while programs run: stop them, keep them, or stay.
 	local function ask_quit(live)
-		pcall(ttt.close_drawer)
+		app:close_drawer()
 		picker, asking = nil, nil
 		local names = {}
 		for _, r in ipairs(live) do table.insert(names, r.name) end

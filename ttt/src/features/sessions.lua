@@ -125,6 +125,10 @@ return {
 					ttt.notify("")
 				end
 				text = "π " .. owner.name .. (waiting and " ? waits for you" or owner.working and " ● working" or " ○ idle")
+				local fill = owner.fill
+				if type(fill) == "table" and fill.name then
+					text = text .. (fill.kind == "place" and " · writing " or " · filling ") .. fill.name
+				end
 				if owner.version ~= PROTOCOL then text = "π " .. owner.name .. " · old, /reload" end
 				if chosen then text = text .. " (chosen)"
 				elseif outside then text = text .. " (outside its folder)" end

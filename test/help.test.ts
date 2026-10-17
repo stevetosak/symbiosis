@@ -45,8 +45,10 @@ test('a note drops a "pi:" the model wrote; no kind line means a note', () => {
 	assert.deepEqual(parseAnswer('Because it is any.', true), { kind: 'note', imports: [], body: 'Because it is any.', settled: true });
 });
 
-test('ask has no body', () => {
+test('ask and function have no body', () => {
 	assert.deepEqual(parseAnswer('ask\nwhatever', true), { kind: 'ask', imports: [], body: '', settled: true });
+	assert.deepEqual(parseAnswer('function\nexport function f() {}', true), { kind: 'function', imports: [], body: '', settled: true });
+	assert.equal(parseAnswer('function\n', false).kind, 'function', 'known at the end of the first line');
 });
 
 test('the prompt numbers the lines and names the comment', () => {

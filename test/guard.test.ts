@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { type GuardInput, guard, type ProposeKind, type Scope } from '../core/guard.ts';
+import { type Allowance, type GuardInput, guard, type Scope } from '../core/guard.ts';
 import type { Resolver } from '../core/imports/policy.ts';
 import { stubRef } from '../core/stubs.ts';
 import { syntaxFor } from '../core/syntax/parse.ts';
@@ -16,7 +16,7 @@ interface Case {
 	/** The file after the call, from the fixture's text. */
 	change: (text: string) => string;
 	scope?: Scope;
-	allowances?: ProposeKind[];
+	allowances?: Allowance[];
 	/** The path the call changes, when not the stub's file; `before` null makes it a new file. */
 	other?: { path: string; before: string | null };
 	/** The file before the call, in place of the fixture's text (the fixture still names the language). */
@@ -36,7 +36,7 @@ async function check(c: Case) {
 	const after = c.change(text);
 	const input: GuardInput = {
 		scope: c.scope ?? 'stub',
-		stub,
+		target: stub,
 		path: c.other?.path ?? path,
 		before: c.other ? (c.other.before === null ? null : { text: c.other.before, outline: null }) : { text, outline },
 		after: { text: after, outline: c.other ? null : syntax.outline(after) },
@@ -71,19 +71,19 @@ test('ts: a local helper inside the body is allowed', async () => {
 test('ts: a changed signature is blocked', async () => {
 	const r = await check({ file: 'sample.ts', stub: 'sumFile', change: (t) => TS_FILL(t).replace('sumFile(path: string)', 'sumFile(path: string, limit: number)') });
 	assert.deepEqual(kinds(r), ['signature']);
-	assert.match(r.reason, /propose with kind "signature"/);
+	assert.match(r.reason, /propose with kind "signature", target "sumFile"/);
 });
 
 test('ts: an accepted signature change goes through and moves the stub', async () => {
 	const r = await check({
 		file: 'sample.ts',
 		stub: 'sumFile',
-		allowances: ['signature'],
+		allowances: [{ kind: 'signature', target: 'sumFile' }],
 		change: (t) => TS_FILL(t).replace('sumFile(path: string)', 'sumFile(path: string, limit: number)'),
 	});
 	assert.equal(r.ok, true, r.reason);
-	assert.deepEqual(r.used, ['signature']);
-	assert.match(r.stub?.signature ?? '', /limit: number/);
+	assert.deepEqual(r.used, [{ kind: 'signature', target: 'sumFile' }]);
+	assert.match((r.target?.kind === 'stub' ? r.target.signature : '') ?? '', /limit: number/);
 });
 
 test('ts: an edit outside the body is blocked', async () => {
@@ -132,9 +132,27 @@ test('ts: a new import that resolves is allowed; an unknown package is a depende
 });
 
 test('ts: an accepted dependency is spent on one call', async () => {
-	const r = await check({ file: 'sample.ts', stub: 'sumFile', allowances: ['dependency'], change: (t) => "import { sum } from 'lodash';\n" + TS_FILL(t) });
+	const lodash = { kind: 'dependency', target: 'lodash' } as const;
+	const r = await check({ file: 'sample.ts', stub: 'sumFile', allowances: [lodash], change: (t) => "import { sum } from 'lodash';\n" + TS_FILL(t) });
 	assert.equal(r.ok, true, r.reason);
-	assert.deepEqual(r.used, ['dependency']);
+	assert.deepEqual(r.used, [lodash]);
+});
+
+test('ts: an allowance lets only its own target through', async () => {
+	const r = await check({ file: 'sample.ts', stub: 'sumFile', allowances: [{ kind: 'dependency', target: 'ramda' }], change: (t) => "import { sum } from 'lodash';\n" + TS_FILL(t) });
+	assert.deepEqual(kinds(r), ['dependency']);
+	assert.deepEqual(r.used, []);
+	assert.match(r.reason, /target `lodash`/);
+});
+
+test('ts: one allowance covers every violation of its kind and target in one call', async () => {
+	const change = (t: string) => TS_FILL(t).replace("import { helper } from './helper.ts';\n", '').replace('const LIMIT = 10;', 'const LIMIT = 20;');
+	const blocked = await check({ file: 'sample.ts', stub: 'sumFile', change });
+	assert.deepEqual(kinds(blocked), ['outside_edit', 'outside_edit']);
+	const allowance = { kind: 'outside_edit', target: blocked.violations[0].target } as const;
+	const r = await check({ file: 'sample.ts', stub: 'sumFile', allowances: [allowance], change });
+	assert.equal(r.ok, true, r.reason);
+	assert.deepEqual(r.used, [allowance]);
 });
 
 test('ts: a removed import is outside the body', async () => {
@@ -166,7 +184,7 @@ test('several violations are all named, each with its kind', async () => {
 	const r = await check({ file: 'sample.ts', stub: 'sumFile', change: (t) => "import { sum } from 'lodash';\n" + TS_FILL(t).replace('const LIMIT = 10;', 'const LIMIT = 20;') + NEW_HELPER });
 	assert.deepEqual(kinds(r).sort(), ['dependency', 'new_decl', 'outside_edit']);
 	// An allowance for one kind does not let the call through while another blocks.
-	const partly = await check({ file: 'sample.ts', stub: 'sumFile', allowances: ['dependency'], change: (t) => "import { sum } from 'lodash';\n" + TS_FILL(t) + NEW_HELPER });
+	const partly = await check({ file: 'sample.ts', stub: 'sumFile', allowances: [{ kind: 'dependency', target: 'lodash' }], change: (t) => "import { sum } from 'lodash';\n" + TS_FILL(t) + NEW_HELPER });
 	assert.deepEqual(kinds(partly), ['new_decl']);
 	assert.deepEqual(partly.used, []);
 });
@@ -269,12 +287,12 @@ test('go: a fill is allowed; an import added to the group must resolve', async (
 });
 
 test('go: new var, const and type are declarations, not outside edits', async () => {
-	for (const added of ['var cache = map[string]int{}', 'type entry struct{ n int }', 'const max = 3']) {
+	for (const [added, name] of [['var cache = map[string]int{}', 'cache'], ['type entry struct{ n int }', 'entry'], ['const max = 3', 'max']]) {
 		const stub = await check({ file: 'sample.go', stub: 'SumFile', change: (t) => `${GO_FILL(t)}\n${added}\n` });
 		assert.deepEqual(kinds(stub), ['new_decl'], added);
 		const file = await check({ file: 'sample.go', stub: 'SumFile', scope: 'file', change: (t) => `${GO_FILL(t)}\n${added}\n` });
 		assert.equal(file.ok, true, `${added}: ${file.reason}`);
-		const allowed = await check({ file: 'sample.go', stub: 'SumFile', allowances: ['new_decl'], change: (t) => `${GO_FILL(t)}\n${added}\n` });
+		const allowed = await check({ file: 'sample.go', stub: 'SumFile', allowances: [{ kind: 'new_decl', target: name }], change: (t) => `${GO_FILL(t)}\n${added}\n` });
 		assert.equal(allowed.ok, true, `${added}: ${allowed.reason}`);
 	}
 });

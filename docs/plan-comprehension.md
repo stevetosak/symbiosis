@@ -142,6 +142,27 @@ Tests:
 - e2e `stubs.sh`: a fake pi fills a stub; a second call outside the stub is
   rejected; a `propose` is accepted and the change goes in.
 
+### Slice 2c: one word, and a function from its description
+
+Added 2026-10-16, before Slice 3. The developer wants to describe a function
+in a comment and have pi write it, and one trigger word for everything.
+
+- `helpi!` on a stub's marker line fills the stub; the editor decides, no
+  model call. `fill!` is removed; `ctrl+k f` stays.
+- `helpi!` at the end of a description: the side call picks a new kind,
+  `function`, from its first line. The editor takes the marker off and
+  starts a fill of mode `function` at that line. pi writes the signature
+  and the body in one go, with its tools, the guard and `propose`.
+- The guard allows one new declaration directly under the description and
+  new imports by the usual policy; nothing else (a helper needs `propose`).
+  The description stays as the function's doc.
+- The fill ends when the function is there and no function in it is a stub.
+- `code` stays for small snippets in place.
+
+Tests: `place.test.ts` (the place, the guard in Python, Go and Lua),
+`fill.test.ts` (the pi side), Lua tests for both helpi! routes, and a second
+scenario in `stubs.sh`.
+
 ## Slice 3: ask
 
 **Trigger.** Cursor on a symbol, a selection, or a line ending in `why!`;
@@ -210,6 +231,8 @@ need, the workaround, what it unblocks. Start from design.md:
 | LSP for plugins (hover, symbols) | None | Grounded answers, stubs |
 | Scoped `exec` | `herdr` only | show me, spikes |
 | Plugin key chords, show a sidebar tab | Free chords only; manual tab | UX |
+| A drawer close callback; the command line while a drawer is open; an input's start value | The proposal drawer holds its own note input and buttons; Esc only hides it (`ctrl+k p` shows it again) | Proposals (2b) |
+| Lua 5.1 patterns in full (no `%f` frontier in ttt's Lua; the unit tests run in LuaJIT, which has it) | Check the byte before a match by hand | Markers |
 
 Before any fork: open upstream issues for the top 2–3 needs with the use
 case. A fork, if the operator decides on one, adds generic plugin APIs only

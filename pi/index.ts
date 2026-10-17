@@ -6,6 +6,10 @@
 // answers helpi! questions (core/help.ts). Without the plugin folder (ttt or the plugin not
 // installed) this extension writes nothing.
 //
+// While a stub or a described function is filled (helpi! in ttt), every write and edit is checked by
+// the guard first (pi/fill.ts); pi's own edit and write are registered again
+// with a `why` argument and one call at a time (pi/tools.ts).
+//
 // This file wires core/ into pi. The rules live in core/, which knows nothing
 // of pi, so another agent or another channel can use them.
 import { existsSync, readFileSync } from 'node:fs';
@@ -18,8 +22,10 @@ import { type ChannelEvent, DEFAULT_LAG, type HelpRequest, type PluginState, PRO
 import { paneOf } from '../core/session.ts';
 import { absolutePath, adler32, BEFORE_MAX, firstLine, Tracker } from '../core/stream.ts';
 import { Changes } from './changes.ts';
+import { Filling, PROPOSE_DESCRIPTION, PROPOSE_PARAMETERS, type ProposeParams } from './fill.ts';
 import { cleanSteps, PLAN_DESCRIPTION, prepareArguments, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
 import { syncTttPlugin } from './setup.ts';
+import { tools, whyOf } from './tools.ts';
 
 /** At most one text write per call in this time: the plugin polls every 40 ms. */
 const FLUSH_MS = 40;
@@ -69,6 +75,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		plan: [],
 		files: [],
 		title: null,
+		fill: null,
 	};
 
 	/** pi writes `path`: the editor follows this session for it. Beats at once,
@@ -78,6 +85,37 @@ export default function symbiosis(pi: ExtensionAPI) {
 		record.files = [...record.files.filter((p) => p !== path), path].slice(-MAX_FILES);
 		beat();
 	}
+
+	const filling = new Filling({
+		channel,
+		id,
+		owner: () => owner(),
+		scope: () => plugin().scope,
+		publish(fill) {
+			record.fill = fill;
+			beat();
+		},
+		send(text) {
+			if (!session || session.isIdle()) pi.sendUserMessage(text);
+			else pi.sendUserMessage(text, { deliverAs: 'followUp' });
+		},
+	});
+
+	for (const tool of tools(process.cwd())) pi.registerTool(tool as never);
+
+	pi.registerTool({
+		name: 'propose',
+		label: 'Propose',
+		description: PROPOSE_DESCRIPTION,
+		promptSnippet: 'Ask the developer for a change the symbiosis guard blocked while you fill a stub or write a described function',
+		// A JSON schema: pi takes it as it takes TypeBox's (which builds the same).
+		parameters: PROPOSE_PARAMETERS as never,
+		executionMode: 'sequential',
+		async execute(call: string, params: ProposeParams, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) {
+			const text = await filling.propose(call, params, ctx?.cwd ?? process.cwd(), signal);
+			return { content: [{ type: 'text' as const, text }], details: undefined };
+		},
+	});
 
 	// pi's plan, shown in ttt as the timeline. The tool only records it: the
 	// next heartbeat carries it to the plugin.
@@ -107,7 +145,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 	}
 
 	// The plugin's state, read at most every 200 ms: message_update comes often.
-	let state: PluginState = { alive: false, pinned: false, lag: DEFAULT_LAG };
+	let state: PluginState = { alive: false, pinned: false, lag: DEFAULT_LAG, scope: 'stub' };
 	let stateAt = 0;
 	function plugin(): PluginState {
 		if (Date.now() - stateAt > 200) {
@@ -251,6 +289,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		// A question from before this session is old: do not answer it again.
 		lastHelp = channel.enabled() ? channel.help()?.id : undefined;
 		lastStop = channel.enabled() ? channel.stop()?.id : undefined;
+		filling.skipOld();
 		record.model = ctx.model?.id ?? null;
 		if (channel.enabled()) channel.pruneSessions();
 		record.title = pi.getSessionName?.() ?? null;
@@ -260,6 +299,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		poll = setInterval(() => {
 			checkHelp();
 			checkStop();
+			filling.poll(ctx.cwd).catch(() => undefined);
 			if (++ticks % 10 === 0) beat();
 		}, 100);
 		poll.unref?.();
@@ -388,7 +428,20 @@ export default function symbiosis(pi: ExtensionAPI) {
 	// replays the changes at the operator's speed, behind pi: pi waits only
 	// when more changes than the operator's limit are not shown yet.
 	pi.on('tool_call', async (event, ctx) => {
-		if (!isTool(event.toolName) || !channel.enabled()) return undefined;
+		if (!isTool(event.toolName)) {
+			filling.keep(event.toolCallId);
+			return undefined;
+		}
+		// The guard first: the editor must not wait to show a call that will not run.
+		const blocked = await filling.check(event.toolCallId, event.toolName, event.input, ctx.cwd);
+		if (blocked) {
+			const entry = live.get(event.toolCallId);
+			live.delete(event.toolCallId);
+			if (entry) clearTimeout(entry.timer);
+			if (entry?.tracker.started) channel.emit({ op: 'abort', call: event.toolCallId, reason: blocked.reason });
+			return blocked;
+		}
+		if (!channel.enabled()) return undefined;
 		const target = (event.input as { path?: unknown })?.path;
 		if (typeof target === 'string' && target !== '') wrote(absolutePath(target, ctx.cwd));
 		keepBefore(event.input, ctx.cwd);
@@ -412,13 +465,19 @@ export default function symbiosis(pi: ExtensionAPI) {
 	});
 
 	pi.on('tool_result', (event, ctx) => {
-		if (!isTool(event.toolName) || !channel.enabled()) return undefined;
+		if (!isTool(event.toolName)) {
+			const undone = filling.restore(event.toolCallId, ctx.cwd);
+			return undone ? { content: [...event.content, { type: 'text' as const, text: undone }], structuredContent: event.structuredContent } : undefined;
+		}
+		filling.ran(event.toolCallId, !event.isError);
+		if (!channel.enabled()) return undefined;
 		const path = (event.input as { path?: unknown }).path;
 		if (typeof path !== 'string' || path === '') return undefined;
-		if (changesRun === run) safely(() => changes.after(absolutePath(path, ctx.cwd)));
+		const why = whyOf(event.input);
+		if (changesRun === run) safely(() => changes.after(absolutePath(path, ctx.cwd), why));
 		const streamed = live.delete(event.toolCallId);
 		if (!streamed && !owner()) return undefined;
-		const done = { op: 'done' as const, call: event.toolCallId, tool: event.toolName, path: absolutePath(path, ctx.cwd), line: firstLine(event.toolName, event.details), ok: !event.isError, sum: sumOf(absolutePath(path, ctx.cwd)) };
+		const done = { op: 'done' as const, call: event.toolCallId, tool: event.toolName, path: absolutePath(path, ctx.cwd), line: firstLine(event.toolName, event.details), ok: !event.isError, sum: sumOf(absolutePath(path, ctx.cwd)), ...(why ? { why } : {}) };
 		if (done.ok) last = { path: done.path, line: done.line };
 		channel.emit(done);
 		return undefined;
@@ -428,8 +487,9 @@ export default function symbiosis(pi: ExtensionAPI) {
 		if (channel.enabled()) abortOpen();
 	});
 
-	pi.on('agent_end', () => {
+	pi.on('agent_end', async () => {
 		record.working = false;
+		await filling.settle();
 		beat();
 		if (!channel.enabled()) return;
 		abortOpen();

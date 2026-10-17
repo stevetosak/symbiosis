@@ -14,12 +14,16 @@ Then the editor shows the result at the changed line.
 | Protocol | `core/protocol.ts` | Types only: every event and record that crosses the channel, and `PROTOCOL`. |
 | Events | `core/stream.ts` | Pure: turns growing arguments into small `text` events. |
 | Channel | `core/channel/channel.ts` | The interface the agent side talks to: send events, publish the session, read the editor's state and requests. |
-| File channel | `core/channel/file.ts` | The one implementation: files in the plugin folder, `events.jsonl`, `head.json`, `ttt.json` (with the lag limit), `ack.json` (the changes shown). |
+| File channel | `core/channel/file.ts` | The one implementation: files in the plugin folder, `events.jsonl`, `head.json`, `ttt.json` (with the lag limit and the stub scope), `ack.json` (the changes shown), `fill.json` (a fill and its release), `answer.json` (the answer to a proposal). |
 | helpi! | `core/help.ts` | Pure: the request, the side call's prompt, the answer parser (kind, imports, body). |
 | Syntax | `core/syntax/` | tree-sitter (WASM): a file's outline (functions with signature, body, intent, stub flag; imports; declarations). One file per language in `languages/`. |
 | Stubs | `core/stubs.ts` | Pure: find a stub on a line, find it again after an edit, the fill message. |
+| Places | `core/place.ts`, `core/target.ts` | Pure: the description that ends on a line, the new function under it found again by the description's text, its message; `target.ts` names either kind of fill target. |
 | Imports | `core/imports/` | One policy per language: does a new import resolve to the project, the standard library or the manifest. |
 | Scope guard | `core/guard.ts` | Pure: is an edit or write inside the stub being filled; what blocks it and which `propose` kind lifts that. |
+| Fill | `core/fill.ts` | One fill (a stub, or a new function under its description): starts it from a line, checks each call with the guard, keeps the accepted proposals, knows when the work is done. |
+| Tools | `pi/tools.ts` | pi's own `edit` and `write` again, with a `why` argument and one call at a time; a probe that tells what an edit would leave in the file. |
+| Filling | `pi/fill.ts` | The pi side of a fill: the fill request, the guard before each call, the `propose` tool that waits for the editor's answer. |
 | Launcher | `launcher/main.ts` (`bin/symbiosis`) | Starts a real pi in its own herdr or tmux pane, runs ttt here as its child, ends when ttt quits. One record per folder in `~/.local/state/symbiosis/`. |
 | Layout | `launcher/layout.ts` | Pure: the herdr and tmux command lines for a pi tab, a split, or a new tab for symbiosis itself. |
 | ttt plugin | `ttt/src` (bundled into `ttt/symbiosis/plugin.lua`) | Polls every 40 ms. Shows the preview. Follows the result. Sends helpi! questions and writes the answers. A host (`ttt/src/core`) and one module per feature (`ttt/src/features`); see `ttt/README.md`. |
@@ -310,6 +314,12 @@ kind, then the answer:
 | `code` | `+import <line>` lines, then the code, from column 0 | The code takes the place of the comment, at its indent. Missing imports go after the last import line (or at the top). |
 | `note` | plain lines | `pi:` comment lines under the question; `helpi!` leaves the question. |
 | `ask` | nothing | The question, file and line go to the agent as a user message (a follow-up when it is busy). The line under the question says `pi: asked <session>; its answer comes in pi`. |
+| `function` | nothing | The comment describes a new function. `helpi!` goes, nothing is written under the comment, and the editor starts a fill of mode `function` at that line (see "Filling a stub"). |
+
+A `helpi!` on a stub's marker line (`TODO(pi)`) asks no model: the editor
+knows the case, takes the marker off and starts a fill of the stub at once.
+There was a second word, `fill!`, for that; the developer wanted one word for
+everything (2026-10-16).
 
 The extension streams `help` (taken), `help_start` (kind, imports),
 `help_text` (the whole answer so far, at most every 40 ms) and `help_done`
@@ -365,9 +375,11 @@ with whitespace collapsed (a re-indent is not a change). What it reports:
 
 Local functions and closures inside the body are the body. A `write` is
 checked like an edit: the old text against the new. Each kind is also a
-`propose` kind. An accepted proposal is an allowance: it lets one violation
-of its kind through, once, and only when nothing else blocks the call. The
-reason the model gets names every violation and the kinds to propose.
+`propose` kind. An accepted proposal is an allowance for one kind and one
+target (the path, the import, the declaration's name, the stub's name): it
+lets that one violation through, once, and only when nothing else blocks the
+call. The reason the model gets names every violation with its kind and
+target, so the model can propose exactly that.
 
 The import policies (`core/imports/`) read the project once: package.json;
 the Gradle files and the version catalog (group ids); the .csproj files;
@@ -381,9 +393,7 @@ not resolve, so the model must propose it. Two functions with the same
 signature are told apart only by their line. A file that does not parse
 well can lose the stub; the guard then reports `signature`.
 
-The guard is also wider than it looks in places. An allowance covers any one
-violation of its kind, not the target that was proposed; 2b ties it to the
-target through `propose`. `file` scope lets in private code that runs at load
+The guard is also wider than it looks in places. `file` scope lets in private code that runs at load
 time (TypeScript `const _x = sideEffect()`); only Go `init` and `var _` and
 C# static constructors are refused. The own package root is the first two
 package segments in Kotlin and the first namespace segment in C#, which is
@@ -392,6 +402,94 @@ namespace that resolves is allowed. Expression-body stubs
 (`fun f() = TODO() // TODO(pi)`, C# `=> throw`) are not found. An import
 inside a `try:` or `if TYPE_CHECKING:` block is not an import line, so a new
 one reads as `outside_edit`.
+
+The guard sees only what reaches it. A tool other than edit and write can
+change any file but the stub's own (only that one is put back), and it can
+write the plugin folder: a forged `fill.json` releases the fill. (A `scope`
+written to `ttt.json` lasts until ttt's next heartbeat, at most a second;
+from an editor that is gone it does not count.) An accepted `outside_edit`
+names the file, not the region: it lets any one call that edits outside the
+body through, whatever the proposal's `what` said. The developer chose to
+keep it so (2026-10-16); tying it to a region needs the model to send exact
+text, which it often gets wrong.
+
+## Filling a stub
+
+`helpi!` at the end of the marker line (or `ctrl+k f`) saves the file and
+writes `fill.json`: the mode, the path, the line and the session the editor
+follows. That session (`pi/fill.ts`) finds the stub at the line
+(`core/fill.ts`) and sends its model one user message: the file, the
+signature, the intent, the body's lines and the rule to edit only inside the
+body. A new fill replaces the one before. The session record carries the
+fill, so the status bar shows `filling <name>`.
+
+A fill of mode `function` comes from a `helpi!` description the side call
+answered with `function`. Its target is a place, not a stub
+(`core/place.ts`): the comment lines that end at the line are the
+description, and the new function is the declaration whose doc comment holds
+the description, so it must come directly under it with no blank line. The
+description's text is the anchor, as the signature is for a stub: in each
+version of the file the place is found again by that text, nearest its old
+line. The guard masks the region from the end of the description to the end
+of that declaration and compares the rest like a stub's file; one more new
+declaration is `new_decl`, and a change to the description itself is
+`outside_edit`. A comment that already is a function's doc, or one inside a
+body, is refused when the fill starts. The status bar shows
+`writing <name>`: the description's first words until the function has a
+name. The fill ends at the end of a run once the declaration is there and no
+function in it is a stub.
+
+The guard runs in pi's `tool_call`, before the replay's own handling, so the
+editor never waits to show a call that will not run. A `write` brings its
+new text. An `edit` does not: pi matches its old texts against the file
+itself. Thus `pi/tools.ts` runs pi's own edit code with a `writeFile` that
+throws the text it was given, and that text is what the edit would leave.
+The same probe runs pi's write code, so the path is pi's too (`@`, `~`,
+unicode spaces); then symlinks are resolved, as the editor sends real paths.
+Matching, line endings and the BOM stay pi's. A call the guard blocks gets
+the reason as its result; a preview that has started is undone with
+`abort` and that reason. A call the guard lets through spends nothing yet:
+its allowances are spent, and the stub moves with it, only in `tool_result`
+of a call that ran. The editor's lag wait or Esc can still stop it.
+
+Every other tool (bash, another extension's tool) can change files too. The
+stub's file is kept before such a tool runs; if the tool changed it, the file
+is put back and the tool's result tells the agent to use edit or write, or
+propose. The developer chose this over blocking bash during a fill, so that
+tests and reads still run.
+
+The guard checks each call against the file as the call before left it. pi
+runs the tool calls of one message in parallel by default, so all their
+`tool_call` handlers would see the file before any of them ran. `edit` and
+`write` are therefore registered again with `executionMode: 'sequential'`.
+This holds in every session, with or without a fill or an editor: a message
+with an edit runs all its tool calls one after the other.
+The same registration adds `why`: an optional argument for the reason for a
+choice that is not obvious, taken off before pi's code runs. It travels in
+the `done` event (a notice when the replay shows the change) and in the
+change log (`ctrl+k w`).
+
+`propose` emits a `propose` event and polls `answer.json` every 100 ms. The
+editor shows the proposal in a drawer with a note and two buttons. ttt's
+command line does not open while a drawer is open (measured in 1.7.1), so the
+note is an input in the drawer: Enter accepts. ttt does not tell a plugin that
+its drawer was closed, so Esc only hides the proposal; `ctrl+k p` shows it
+again. The tool gives up when pi's turn stops, or when the editor does not
+follow the session for 1.5 s (one read of `ttt.json` while ttt writes it does
+not count). With no editor following, it rejects at once. An accepted
+proposal becomes the allowance above.
+
+At the end of pi's run, a stub whose body is no longer a stub ends the fill.
+A body that is still a stub keeps it: pi may have stopped to ask the
+developer, and the answer comes in a new run. "symbiosis: Release the Fill"
+ends it by hand.
+
+Weak points of a function fill: the side call decides that a comment means
+"write a function", so a question can be read as one; the developer sees it
+at once, as the session starts writing, and Esc or release stops it. Two
+equal descriptions are told apart only by their line. A description edited
+while pi writes (in the editor, not by pi) loses the place, and the guard
+then blocks every call until the fill is released.
 
 ## The symbiosis command: ttt and a real pi
 

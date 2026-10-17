@@ -71,6 +71,18 @@ return {
 		s2:save()
 		t.eq(require("ttt.json").decode(stub.files["/plugin/settings.json"]).other, 5, "unknown keys stay")
 	end },
+	{ "app: a feature closes only its own drawer; no id closes any", function()
+		local app = new_app()
+		app:open_drawer("proposal", { render = "proposal" })
+		app:open_drawer("run", { render = "run" })
+		app:close_drawer("proposal")
+		t.eq(stub.drawer and stub.drawer.render, "run", "the run picker stays")
+		app:close_drawer("run")
+		t.eq(stub.drawer, nil)
+		app:open_drawer("proposal", { render = "proposal" })
+		app:close_drawer()
+		t.eq(stub.drawer, nil, "ctrl+q closes whatever is open")
+	end },
 	{ "channel: skips history, dispatches new events, one handler per op", function()
 		local json = require("ttt.json")
 		local channel = require("core.channel")

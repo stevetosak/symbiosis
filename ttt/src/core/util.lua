@@ -15,6 +15,11 @@ function M.lines(text)
 	end
 end
 
+-- `s` with Lua's pattern characters escaped: matches itself in a pattern.
+function M.escape(s)
+	return (s:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0"))
+end
+
 -- Characters (not bytes) in a UTF-8 string: editor columns count characters.
 function M.runes(s)
 	local _, continuation = s:gsub("[\128-\191]", "")
