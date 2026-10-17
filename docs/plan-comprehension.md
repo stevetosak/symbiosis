@@ -218,6 +218,16 @@ Tests: `test/ask.test.ts`, `test/lua/ask_test.lua`, `test/e2e/ask.sh`.
   a count of un-acked bodies per file.
 - `ctrl+k w` (the turn diff) stays.
 
+### Slice 4, as built
+
+The drawer opens by itself when a stub body lands (after the replay); Esc hides
+it; the chord is `ctrl+k x` (`r` is ttt's). The state is pi's session record
+only (`review` in the heartbeat): one writer, and a pi restart forgets it. Only
+`a` acks; an edit does not. The mark `●` follows the function by its first
+line's text; the tree shows `● n` at a file. Design and weak points: design.md,
+"Review per stub". Tests: `test/review.test.ts`, `test/lua/review_test.lua`,
+`test/e2e/review.sh`.
+
 ## Slice 5: the follow-ups
 
 - **show me:** from an answer, a minimal runnable example in a scratch file
@@ -243,6 +253,7 @@ need, the workaround, what it unblocks. Start from design.md:
 | Scoped `exec` | `herdr` only | show me, spikes |
 | Plugin key chords, show a sidebar tab | Free chords only; manual tab | UX |
 | A drawer close callback; the command line while a drawer is open; an input's start value | The proposal drawer holds its own note input and buttons; Esc only hides it (`ctrl+k p` shows it again) | Proposals (2b) |
+| A gutter API with more than one mark on a line | One bookmark a line: the mark drawn first stays (note ◆ over review ●) | Review and note marks on one line (4) |
 | Lua 5.1 patterns in full (no `%f` frontier in ttt's Lua; the unit tests run in LuaJIT, which has it) | Check the byte before a match by hand | Markers |
 
 Before any fork: open upstream issues for the top 2–3 needs with the use

@@ -10,6 +10,7 @@ import { resolverFor } from './imports/index.ts';
 import { fsProject } from './imports/project.ts';
 import { describeAt, findPlace, inBody, type PlaceRef, placeMessage } from './place.ts';
 import type { FillMode } from './protocol.ts';
+import { type Landing, landingOf } from './review.ts';
 import { fillMessage, locate, stubAt, stubRef } from './stubs.ts';
 import { contains, type Outline } from './syntax/outline.ts';
 import { syntaxFor } from './syntax/parse.ts';
@@ -112,16 +113,27 @@ export class Fill {
 	 * a stub; or the new function is there and no function in it is a stub.
 	 */
 	async filled(): Promise<boolean> {
+		return (await this.landing()) !== undefined;
+	}
+
+	/**
+	 * The function the fill wrote, as the developer reviews it; undefined while
+	 * the work is not done (see `filled`). A new function's landing is the first
+	 * function inside its declaration.
+	 */
+	async landing(): Promise<Landing | undefined> {
 		const target = this.target;
 		const syntax = await syntaxFor(target.path);
 		const text = this.read(target.path);
-		if (!syntax || text === null) return false;
+		if (!syntax || text === null) return undefined;
 		const outline = syntax.outline(text);
 		if (target.kind === 'place') {
 			const decl = findPlace(outline, text, target)?.decl;
-			return decl !== undefined && !outline.functions.some((f) => f.stub && contains(decl.range, f.range));
+			if (!decl || outline.functions.some((f) => f.stub && contains(decl.range, f.range))) return undefined;
+			const fn = outline.functions.find((f) => contains(decl.range, f.range));
+			return fn ? landingOf(target.path, text, fn) : undefined;
 		}
 		const fn = locate(outline, text, target) ?? locate(outline, text, target, true);
-		return fn !== undefined && !fn.stub;
+		return fn !== undefined && !fn.stub ? landingOf(target.path, text, fn) : undefined;
 	}
 }

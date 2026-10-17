@@ -2,8 +2,10 @@
 // crosses the channel, as types. No logic and no I/O, so any agent adapter
 // and any channel implementation can share it. See docs/design.md.
 
+import type { Landed } from './review.ts';
+
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 13;
+export const PROTOCOL = 14;
 
 /** The tools whose calls stream into the editor. */
 export type Tool = 'write' | 'edit';
@@ -103,6 +105,8 @@ export interface Session {
 	title: string | null;
 	/** What this session fills, if any: the guard holds its edits to it. `name`: the function's, or the description's start. */
 	fill: { kind: 'stub' | 'place'; path: string; name: string; line: number } | null;
+	/** Bodies the agent filled that the developer has not acked (core/review.ts), the newest last. */
+	review: Landed[];
 }
 
 /** ctrl+k q in ttt: stop the turn of session `to`. */

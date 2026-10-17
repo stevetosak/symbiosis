@@ -25,7 +25,7 @@ local IGNORE = ".symbiosis/notes/"
 local function setup(app)
 	local has_marks, bookmarks = pcall(require, "ttt.bookmarks")
 	local files = {}                 -- path -> { notes = list, file = where it is kept }
-	local marked, marked_path, marks_key = {}, nil, ""
+	local gutter = has_marks and require("core.gutter").new(bookmarks, MARK, "success") or nil
 	local timer = nil
 
 	local function exists(path)
@@ -84,40 +84,14 @@ local function setup(app)
 	local function draw()
 		if not has_marks then return end
 		local path = editor.file_path()
-		if path ~= marked_path then marked, marked_path, marks_key = {}, path, "" end
-		local want, parts = {}, {}
+		local want = {}
 		if path and path ~= "" then
 			local last = editor.line_count()
 			for line in pairs(notes.by_line(entry(path).notes)) do
-				if line <= last then
-					want[line] = true
-					table.insert(parts, line)
-				end
+				if line <= last then want[line] = true end
 			end
 		end
-		table.sort(parts)
-		local key = table.concat(parts, ",")
-		local lost = false
-		for line in pairs(want) do
-			local b = bookmarks.get(line)
-			if not b or b.icon ~= MARK then lost = true end
-		end
-		if key == marks_key and not lost then return end
-		marks_key = key
-		for line in pairs(marked) do
-			if not want[line] then
-				local b = bookmarks.get(line)
-				if b and b.icon == MARK then bookmarks.remove(line) end
-			end
-		end
-		marked = {}
-		for line in pairs(want) do
-			local b = bookmarks.get(line)
-			if not b or b.icon == MARK then
-				if not b then bookmarks.set(line, MARK, "success") end
-				marked[line] = true
-			end
-		end
+		gutter.draw(path, want)
 	end
 
 	local function draw_safe()

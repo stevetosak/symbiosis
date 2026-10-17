@@ -15,6 +15,7 @@
 --   fill      a fill: a stub's body, or a new function under its description;
 --             ctrl+k f; pi's proposals
 --   notes     the answers to ask, kept for their lines; ◆ in the gutter
+--   review    ctrl+k x: the bodies pi filled, until you ack them; ● in the gutter
 --   ask       ctrl+k d and `why!`: ask pi about code, in a drawer
 --   changes   ctrl+k w: what pi changed in its last turn
 --   run       F5: run configurations, the Run panel (bottom)
@@ -31,6 +32,7 @@ app:use("features.autosave")
 app:use("features.helpi")
 app:use("features.fill")
 app:use("features.notes")
+app:use("features.review")
 app:use("features.ask")
 app:use("features.changes")
 app:use("features.run")

@@ -41,7 +41,7 @@ function M.anchor(notes, lines)
 	for _, n in ipairs(notes) do
 		local at = nil
 		if n.hash ~= M.hash("") then
-			for d = 0, #lines do
+			for d = 0, math.max(#lines, n.line) do
 				local up, down = n.line - d, n.line + d
 				if up >= 1 and up <= #lines and not blank(lines[up]) and M.hash(lines[up]) == n.hash then at = up break end
 				if d > 0 and down >= 1 and down <= #lines and not blank(lines[down]) and M.hash(lines[down]) == n.hash then at = down break end

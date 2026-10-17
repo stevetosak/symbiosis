@@ -26,6 +26,7 @@ import { Filling, PROPOSE_DESCRIPTION, PROPOSE_PARAMETERS, type ProposeParams } 
 import { cleanSteps, PLAN_DESCRIPTION, prepareArguments, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
 import { syncTttPlugin } from './setup.ts';
 import { Asking } from './ask.ts';
+import { Reviewing } from './review.ts';
 import { FLUSH_MS, Flush, streamText } from './side.ts';
 import { tools, whyOf } from './tools.ts';
 
@@ -76,6 +77,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		files: [],
 		title: null,
 		fill: null,
+		review: [],
 	};
 
 	/** pi writes `path`: the editor follows this session for it. Beats at once,
@@ -98,6 +100,15 @@ export default function symbiosis(pi: ExtensionAPI) {
 		send(text) {
 			if (!session || session.isIdle()) pi.sendUserMessage(text);
 			else pi.sendUserMessage(text, { deliverAs: 'followUp' });
+		},
+	});
+
+	const reviewing = new Reviewing({
+		channel,
+		id,
+		publish(list) {
+			record.review = list;
+			beat();
 		},
 	});
 
@@ -274,6 +285,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		lastStop = channel.enabled() ? channel.stop()?.id : undefined;
 		filling.skipOld();
 		asking.skipOld();
+		reviewing.skipOld();
 		record.model = ctx.model?.id ?? null;
 		if (channel.enabled()) channel.pruneSessions();
 		record.title = pi.getSessionName?.() ?? null;
@@ -284,6 +296,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 			checkHelp();
 			checkStop();
 			asking.poll(ctx);
+			reviewing.poll();
 			filling.poll(ctx.cwd).catch(() => undefined);
 			if (++ticks % 10 === 0) beat();
 		}, 100);
@@ -475,7 +488,8 @@ export default function symbiosis(pi: ExtensionAPI) {
 
 	pi.on('agent_end', async () => {
 		record.working = false;
-		await filling.settle();
+		const landing = await filling.settle();
+		if (landing) reviewing.land(landing, changes.whys(landing.path));
 		beat();
 		if (!channel.enabled()) return;
 		abortOpen();

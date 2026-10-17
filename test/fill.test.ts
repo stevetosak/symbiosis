@@ -91,6 +91,22 @@ test('inside the body goes through; outside it is blocked and the editor drops i
 	assert.equal(record().fill, null);
 });
 
+test('the filled body lands in the record, with the reasons, until the developer acks it', async () => {
+	const [landed, ...rest] = record().review;
+	assert.equal(rest.length, 0);
+	assert.equal(landed.name, 'sumFile');
+	assert.equal(landed.path, file);
+	assert.equal(landed.intent, 'Sum the numbers in a file, one per line.');
+	assert.match(landed.body, /^const data = await readFile\(path, 'utf8'\);\nreturn data\.split/);
+	assert.deepEqual(landed.whys, ['Reads the whole file: the files are small.']);
+	// Another session's ack, and an old id, change nothing.
+	writeFileSync(join(plugin, 'review.json'), JSON.stringify({ id: 'r0', to: 'other', ack: landed.id }));
+	await sleep(250);
+	assert.equal(record().review.length, 1);
+	writeFileSync(join(plugin, 'review.json'), JSON.stringify({ id: 'r1', to: id, ack: landed.id }));
+	await until(() => record().review.length === 0, 'the ack removes the body');
+});
+
 test('a proposal the developer accepts lets that one change through, once', async () => {
 	await fill(17);
 	await pi.beginTurn();

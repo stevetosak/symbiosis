@@ -25,7 +25,7 @@ printf 'const LIMIT = 10;\n\n// clamp n between 0 and LIMIT\n\nexport const othe
 # Line 8 is the stub's marker: // TODO(pi). pi gets the fill about 1 s after
 # helpi!, makes its edits, then waits for the answer to its proposal.
 steps="wait 2500; key down; key down; key down; key down; key down; key down; key down; key end; key space; type helpi!"
-steps="$steps; wait 5000; screenshot $OUT/propose.txt; type looks fine; key enter; wait 3000; screenshot $OUT/end.txt"
+steps="$steps; wait 5000; screenshot $OUT/propose.txt; type looks fine; key enter; wait 3000; screenshot $OUT/end.txt; key escape; wait 500"
 # Then clamp.ts (the tab before): line 3 is the description.
 steps="$steps; exec \"View: Previous Tab\"; wait 800; key down; key down; key end; key space; type helpi!; wait 5000; screenshot $OUT/clamp.txt; quit"
 (cd "$OUT/ws" && ttt --size 140x30 clamp.ts sample.ts --exec "$steps" > /dev/null 2>&1) &

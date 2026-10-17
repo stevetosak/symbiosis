@@ -11,6 +11,7 @@ local ttt = require("ttt")
 local editor = require("ttt.editor")
 local fs = require("ttt.fs")
 local util = require("core.util")
+local review = require("core.review")
 
 -- Adds `node` under `dir` (a node), in the folder named by `parts`.
 local function place(dir, id, parts, node)
@@ -42,7 +43,8 @@ end
 
 -- The tree: one node for each session ("▶" = the one the editor follows),
 -- its files under its folder; a file outside the folder goes under its own
--- folder, by full path. "✎" marks the file pi changes now (`now`).
+-- folder, by full path. "✎" marks the file pi changes now (`now`); "● n" a file
+-- with n filled bodies the developer has not acked.
 local function build(sessions, owner, now)
 	local items, paths = {}, {}
 	for _, rec in ipairs(sessions) do
@@ -55,12 +57,15 @@ local function build(sessions, owner, now)
 			children = {},
 		}
 		local seen = {}
+		-- A file with bodies pi filled that are not acked (features/review.lua) shows how many.
+		local waiting = review.count(review.collect({ rec }))
 		for _, path in ipairs(type(rec.files) == "table" and rec.files or {}) do
 			if type(path) == "string" and not seen[path] then
 				seen[path] = true
 				local id = rec.id .. "|" .. path
 				paths[id] = path
 				local file = { id = id, label = util.name(path), icon = (followed and path == now) and "✎" or " " }
+				if waiting[path] then file.badge = "● " .. waiting[path] end
 				if rec.cwd and util.starts_with(path, rec.cwd .. "/") then
 					place(node, rec.id, util.split_path(path:sub(#rec.cwd + 2)), file)
 				else

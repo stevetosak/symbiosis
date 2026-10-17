@@ -3,6 +3,7 @@
 // editor asks for. Today the only implementation is files in the plugin
 // folder (./file.ts), because a ttt plugin cannot open a socket. A socket or
 // pipe implementation goes behind this same interface.
+import type { ReviewRequest } from '../review.ts';
 import type { AskRequest, ChannelEvent, FillRequest, HelpRequest, PluginState, ProposalAnswer, Session, StopRequest } from '../protocol.ts';
 
 export interface Channel {
@@ -49,4 +50,7 @@ export interface Channel {
 
 	/** The editor's last answer to a proposal, if any. */
 	answer(): ProposalAnswer | undefined;
+
+	/** The editor's last ack of a filled body, if any. */
+	review(): ReviewRequest | undefined;
 }

@@ -9,6 +9,7 @@ import { relative } from 'node:path';
 import type { Channel } from '../core/channel/channel.ts';
 import { Fill } from '../core/fill.ts';
 import type { GuardResult } from '../core/guard.ts';
+import type { Landing } from '../core/review.ts';
 import { targetName, targetText, stayInside } from '../core/target.ts';
 import { type ChannelEvent, PROPOSE_KINDS, type ProposalAnswer, type ProposeKind, type Scope, type Session } from '../core/protocol.ts';
 import { namedPath, planned, realPath } from './tools.ts';
@@ -164,13 +165,17 @@ export class Filling {
 		].join(' ');
 	}
 
-	/** At the end of a run: finished work ends the fill. A fill that waits on the developer stays. */
-	async settle(): Promise<void> {
+	/**
+	 * At the end of a run: finished work ends the fill and is returned, for the
+	 * developer's review. A fill that waits on the developer stays.
+	 */
+	async settle(): Promise<Landing | undefined> {
 		this.pending.clear();
 		this.kept.clear();
 		// A file that cannot be read now keeps the fill: the developer can release it.
-		const filled = await this.fill?.filled().catch(() => false);
-		if (filled) this.end();
+		const landing = await this.fill?.landing().catch(() => undefined);
+		if (landing) this.end();
+		return landing;
 	}
 
 	end(): void {
