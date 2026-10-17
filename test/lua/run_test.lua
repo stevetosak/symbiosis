@@ -58,6 +58,27 @@ return {
 		t.eq(items[1].children[2].label, "test  npm run test")
 		t.eq(items[1].children[2].icon, "▶", "the chosen one")
 		t.eq(items[2].children[1].id, "b")
+		cs[2].picked = "Pixel 7"
+		t.eq(ids(run.filter(cs, "pixel")), { "b" }, "what its inputs picked")
+		t.eq(run.picker_items(cs)[2].children[1].label, "build → Pixel 7  make build")
+	end },
+	{ "run: an input's options: filter, items, and the arguments for run start", function()
+		local os_ = {
+			{ value = "R5CT", label = "Pixel 7", detail = "Android 15" },
+			{ value = "emulator-5554", label = "Pixel_7_API_35", ready = true },
+			{ value = "x", label = "Other" },
+		}
+		local values = function(list) local out = {} for _, o in ipairs(list) do table.insert(out, o.value) end return out end
+		t.eq(values(run.filter_options(os_, "")), { "R5CT", "emulator-5554", "x" })
+		t.eq(values(run.filter_options(os_, "android")), { "R5CT" }, "the detail")
+		t.eq(values(run.filter_options(os_, "5554")), { "emulator-5554" }, "the value")
+		local items = run.input_items(os_, "x")
+		t.eq(items[1], { id = "R5CT", label = "Pixel 7  Android 15", icon = " " })
+		t.eq(items[2].icon, "●", "up already")
+		t.eq(items[3].icon, "▶", "picked last")
+		t.eq(run.input_args({ mode = "Debug", device = "R5CT" }, { device = "Pixel 7" }),
+			{ "--input", "device=R5CT", "--input-label", "device=Pixel 7", "--input", "mode=Debug" })
+		t.eq(run.input_args(nil, nil), {})
 	end },
 	{ "run: file references in output", function()
 		t.eq({ run.file_ref("src/app.ts:12:5 - error TS2322") }, { "src/app.ts", 12 })
