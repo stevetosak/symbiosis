@@ -194,6 +194,12 @@ argument, else the git root, else this folder.
   gutter shows the line. A click on it, or `ctrl+k d` on the line, shows the
   notes; "symbiosis: Notes of This File" lists them all. The file must be in a
   folder open in ttt, or no note is kept.
+- Review what pi filled. When a stub's body lands, a drawer opens by itself
+  with the signature, the intent, the body and the reasons pi gave; `a` (the
+  Ack button) acks it. Esc hides the drawer, `ctrl+k x` shows it again. A `●` in
+  the gutter marks the function until it is acked, the status bar says "● n to
+  review", and the "pi files" tab shows `● n` at the file. An edit does not ack;
+  a restart of pi forgets what was not acked.
 - The file tree follows pi: when the editor follows pi into a file, ttt's
   tree opens to it, if the file is in a folder open in ttt (start ttt on a
   folder, or on several: `ttt ~/a ~/b`). The "pi files" tab in the sidebar
@@ -323,6 +329,7 @@ bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run
 bash test/e2e/marks.sh     # the gutter: ▌ on the change's lines and π on the line typed now, none after
 bash test/e2e/stop.sh      # "? waits for you" while pi shows a dialog; ctrl+k q stops pi's turn
 bash test/e2e/ask.sh       # ctrl+k d and why!: the drawer, a term asked about, the note file, the gutter mark and its click, .gitignore
+bash test/e2e/review.sh    # a filled body: the drawer opens by itself, the gutter mark and status item, Esc hides, ctrl+k x shows, a acks
 bash test/e2e/stubs.sh     # helpi! on a stub: an edit outside it is blocked, the body goes in, a proposal is accepted; then a function from its description
 bash test/e2e/runconf.sh   # run configurations: the picker, F5, shift+F5, a failing run, ctrl+q keeps a run, back in ttt it shows
 bash test/e2e/runinputs.sh # inputs: the drawer asks, F5 runs the pick again, the picker shows it, i asks again, one option asks nothing, an input decided is not listed again

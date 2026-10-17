@@ -418,6 +418,58 @@ Weak points:
 - Code outside a function that pi's tree-sitter cannot parse (no grammar) gets
   the 12 lines around it, with no imports line.
 
+## Review per stub: read what pi filled
+
+A filled body is not done until the developer has read it. When a fill ends
+(`Filling.settle` in `pi/fill.ts`: the stub's function is there and no longer a
+stub), pi turns the function into a `Landing` (`core/review.ts`: signature on
+one line, the doc comment as intent, the body without its braces and indent,
+cut at 120 lines, and the text of the function's first line as an anchor), adds
+the reasons (`why`) it gave for that file in the turn, and keeps it in
+`pi/review.ts`. The list is the session record's `review` field (`PROTOCOL` 14),
+the newest last, 20 at most; filling the same function again replaces its entry.
+
+The plugin (`ttt/src/features/review.lua`) reads that list from every session
+record:
+
+- **Drawer.** A body from the session the editor follows opens the drawer by
+  itself once the replay has typed pi's changes in. It shows the signature, the
+  intent, the body and the reasons; the button `Ack` (key `a`) acks it. Esc hides
+  the drawer; `ctrl+k x`, a click on the gutter mark or on the status item
+  "● n to review" shows it again. After an ack the next body of that session
+  shows, if there is one. Nothing opens at startup: what the plugin sees on its
+  first look counts as seen.
+- **Gutter.** `●` on the function's first line while it is not acked. The line
+  is found again by the text of that line, like a note (`core/notes.lua`,
+  `anchor`); the mark follows the function when lines move, and goes when the
+  line's text changes. The drawing is `core/gutter.lua`, shared with the notes'
+  `◆`.
+- **Tree.** The "pi files" tab shows `● n` at a file with n bodies waiting.
+- **Ack.** The plugin writes `review.json` (`{id, to, ack}`); pi drops the body
+  from its list in the next poll and writes the record at once. `acked` in the
+  plugin hides the body until the record agrees.
+
+Decisions (operator, 2026-10-17): the drawer opens by itself; the state is the
+session's only (a restart of pi forgets the marks: Gate 1 shows whether the habit
+needs more); only `a` acks, an edit of the body does not.
+
+Weak points:
+
+- The marks are not on disk: a pi restart forgets what was not acked, and so
+  does a second ttt that starts after the ack of the first.
+- A function whose first line is edited loses its mark, though it is not acked:
+  the list still holds it (the status item counts it, `ctrl+k x` shows it).
+- A line holds one bookmark: where a note `◆` and a review `●` meet, the one
+  drawn first stays.
+- The drawer takes the focus when it opens by itself: a letter typed in that
+  moment goes to it (`a` acks). The wait for the replay makes this rare, but it
+  can happen.
+- `whys` is per file, not per function: a file filled in several places sends
+  all its reasons with each body (as in "Ask").
+- Only a stub fill lands. A body pi writes with no fill (no `helpi!`) is not
+  listed: `ctrl+k w` shows the turn's diff.
+- The body is shown as text: no syntax colors (ttt's Markdown area).
+
 ## Stubs and the scope guard
 
 You write the signature and a one-line intent above it; the body is only a

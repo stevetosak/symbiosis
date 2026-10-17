@@ -81,6 +81,16 @@ test('fill requests and proposal answers are read; a bad one is none', () => {
 	assert.equal(c.answer(), undefined);
 });
 
+test('review acks are read; a bad one is none', () => {
+	const dir = temp();
+	const c = new FileChannel(dir, () => 10_000);
+	assert.equal(c.review(), undefined);
+	writeFileSync(join(dir, 'review.json'), JSON.stringify({ id: 'r1', to: 's1', ack: 'l1' }));
+	assert.deepEqual(c.review(), { id: 'r1', to: 's1', ack: 'l1' });
+	writeFileSync(join(dir, 'review.json'), JSON.stringify({ id: 'r1', to: 's1' }));
+	assert.equal(c.review(), undefined);
+});
+
 test('session records are written, removed, and pruned when stale', () => {
 	const dir = temp();
 	const c = new FileChannel(dir, () => 100_000);

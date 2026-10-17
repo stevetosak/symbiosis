@@ -14,6 +14,8 @@
 //   ack.json      [call ids]: the changes the editor has shown (replayed).
 //   ask.json      AskRequest: the plugin asks session `to` about code
 //                 (core/ask.ts), or to stop the answer (`cancel`).
+//   review.json   {id, to, ack}: the plugin acks filled body `ack` of session
+//                 `to` (core/review.ts).
 //   help.json     HelpRequest: the plugin asks session `to` a helpi!
 //                 question (core/help.ts), or to stop it (`cancel`).
 //   stop.json     {id, to}: the plugin asks session `to` to stop its turn
@@ -26,6 +28,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseAskRequest } from '../ask.ts';
 import { parseRequest } from '../help.ts';
+import { parseReviewRequest, type ReviewRequest } from '../review.ts';
 import { type AskRequest, type ChannelEvent, DEFAULT_LAG, FILL_MODES, type FillRequest, type HelpRequest, type PluginState, type ProposalAnswer, SCOPES, type Scope, type Session, type StopRequest } from '../protocol.ts';
 import type { Channel } from './channel.ts';
 
@@ -147,6 +150,11 @@ export class FileChannel implements Channel {
 		if (typeof raw.path !== 'string' || typeof raw.line !== 'number') return undefined;
 		const mode = FILL_MODES.find((m) => m === raw.mode) ?? 'stub';
 		return { id: raw.id, to: raw.to, release: false, mode, path: raw.path, line: raw.line };
+	}
+
+	/** The plugin's last ack of a filled body, if any. */
+	review(): ReviewRequest | undefined {
+		return parseReviewRequest(readJson(join(this.dir, 'review.json')));
 	}
 
 	/** The plugin's last answer to a proposal, if any. */

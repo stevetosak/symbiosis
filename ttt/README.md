@@ -22,6 +22,8 @@ ttt/
       marker.lua        a word at the end of a comment (helpi!)
       trigger.lua       a marker's pause and Enter, once for each text (helpi!, why!)
       notes.lua         the pure parts of notes: hash, anchoring, file path, JSON lines
+      gutter.lua        gutter marks of one icon on ttt's bookmarks (notes ◆, review ●)
+      review.lua        the pure parts of review: the list, finding a function again, choosing
       folder.lua        the workspace folder of a file
     features/
       sessions.lua      the pi sessions; the one the editor follows
@@ -32,6 +34,7 @@ ttt/
       helpi.lua         `// ... helpi!` asks pi
       ask.lua           ctrl+k d and `why!`: ask pi about code, in a drawer
       notes.lua         the answers kept for their lines, ◆ in the gutter
+      review.lua        ctrl+k x: the bodies pi filled, until acked; ● in the gutter
       fill.lua          a fill (a stub, or a function under its description), ctrl+k f; proposals, ctrl+k p
       changes.lua       ctrl+k w: what pi changed
       panel.lua         ctrl+k h: settings, sessions, keys
