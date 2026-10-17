@@ -4,8 +4,9 @@ ttt runs one Lua file per plugin (Lua 5.1), and its `require` loads only
 ttt's own modules (`ttt`, `ttt.editor`, `ttt.fs`, ...): a plugin cannot load
 a file next to it. So the sources are here, in modules, and `npm run build`
 (`ttt/build.ts`) bundles them into `ttt/symbiosis/plugin.lua`, the file ttt
-runs. The bundle is committed; `npm test` fails when it is not built from
-the sources. Never edit the bundle.
+runs. Git ignores the bundle (a generated file in git conflicts at every
+merge and goes stale). pi builds it when it starts, and `bin/setup.sh`,
+`install.ts` and the tests build it too. Never edit the bundle.
 
 ```
 ttt/
@@ -30,7 +31,7 @@ ttt/
       changes.lua       ctrl+k w: what pi changed
       panel.lua         ctrl+k h: settings, sessions, keys
   symbiosis/
-    plugin.lua          GENERATED
+    plugin.lua          GENERATED, not in git
     plugin.ttt.json     the manifest (permissions, version)
 ```
 

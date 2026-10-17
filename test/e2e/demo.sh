@@ -10,6 +10,7 @@ OUT=${1:-$(mktemp -d /tmp/symbiosis-e2e.XXXXXX)}
 mkdir -p "$OUT" && OUT=$(cd "$OUT" && pwd -P)
 export DEMO_DIR="$OUT/ws" XDG_STATE_HOME="$OUT/state" TTT_CONFIG_DIR="$OUT/cfg" PAUSE_MS=${PAUSE_MS:-300} SUGGEST_MS=${SUGGEST_MS:-60000}
 mkdir -p "$OUT/cfg/plugins/symbiosis"
+"$repo/bin/run-node" "$repo/ttt/build.ts" >/dev/null
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"
 echo "{\"speed\":${SPEED:-1280},\"lag\":${LAG:-3}}" > "$OUT/cfg/plugins/symbiosis/settings.json"
 perms=$(python3 -c "import json; print(json.dumps(json.load(open('$repo/ttt/symbiosis/plugin.ttt.json'))['permissions']))")

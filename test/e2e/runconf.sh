@@ -9,6 +9,7 @@ OUT=${1:-$(mktemp -d /tmp/symbiosis-runconf.XXXXXX)}
 mkdir -p "$OUT" && OUT=$(cd "$OUT" && pwd -P)
 rm -rf "$OUT/cfg" "$OUT/ws"
 mkdir -p "$OUT/cfg/plugins/symbiosis" "$OUT/ws/.symbiosis" "$OUT/ws/web"
+"$repo/bin/run-node" "$repo/ttt/build.ts" >/dev/null
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"
 perms=$(python3 -c "import json; print(json.dumps(json.load(open('$repo/ttt/symbiosis/plugin.ttt.json'))['permissions']))")
 echo "[{\"name\":\"symbiosis\",\"displayName\":\"symbiosis\",\"version\":\"0.1.0\",\"enabled\":true,\"permissions\":$perms}]" > "$OUT/cfg/plugins.ttt.json"

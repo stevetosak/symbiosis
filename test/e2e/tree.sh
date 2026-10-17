@@ -10,6 +10,7 @@ OUT=${1:-$(mktemp -d /tmp/symbiosis-e2e.XXXXXX)}
 mkdir -p "$OUT" && OUT=$(cd "$OUT" && pwd -P)
 export TTT_CONFIG_DIR="$OUT/cfg"
 mkdir -p "$OUT/cfg/plugins/symbiosis" "$OUT/ws/src" "$OUT/ws/docs"
+"$repo/bin/run-node" "$repo/ttt/build.ts" >/dev/null
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"
 echo '{"speed":0}' > "$OUT/cfg/plugins/symbiosis/settings.json"
 # A wide sidebar, so the "pi files" tab shows and a click reaches it.

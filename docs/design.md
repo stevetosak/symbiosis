@@ -527,7 +527,7 @@ and dropped: the panel was a poorer copy of pi's own terminal.)
   `tab focus`; tmux: `select-window` and `select-pane`). When that fails it
   says where it runs and stops. `--new` opens another.
 - **Install.** `install.sh` installs ttt and pi when missing, then the pi
-  package, then runs the package's `bin/setup.sh`: it copies the ttt plugin
+  package, then runs the package's `bin/setup.sh`: it builds the ttt plugin from `ttt/src` (git does not hold the bundle) and copies it
   and links `~/.local/bin/symbiosis` to `bin/symbiosis` in pi's copy of the
   package. So the launcher, the extension and the plugin come from one copy,
   and `pi update` updates all three. herdr is optional; install.sh does not
