@@ -19,6 +19,10 @@ local function reset()
 	M.groups = 0
 	M.save = nil        -- file.save: fn(text) instead of a save at once
 	M.drawer = nil
+	M.confirms = {}     -- {text, on_ok}: ttt.confirm
+	M.quit = 0          -- ttt.quit calls
+	M.execs = {}        -- {binary, args, cb}: system.exec_async
+	M.env = {}          -- name -> value: system.env
 end
 reset()
 M.reset = reset
@@ -62,6 +66,8 @@ local ttt = {
 	open_drawer = function(opts) M.drawer = opts end,
 	close_drawer = function() M.drawer = nil end,
 	open_diff = function(...) M.diff = { ... } end,
+	confirm = function(text, on_ok) table.insert(M.confirms, { text = text, on_ok = on_ok }) end,
+	quit = function() M.quit = M.quit + 1 end,
 	exec_command = function(name)
 		table.insert(M.commands, name)
 		if name == "file.save" and M.buffer.path then
@@ -147,7 +153,7 @@ local events = {
 	on = function(name, fn) M.events[name] = fn end,
 }
 
-local system = { exec_async = function() end }
+local system = { env = function(name) return M.env[name] end, exec_async = function(binary, args, cb) table.insert(M.execs, { binary = binary, args = args, cb = cb }) end }
 
 M.modules = {
 	ttt = ttt, ["ttt.editor"] = editor, ["ttt.fs"] = fs, ["ttt.json"] = json,

@@ -5,6 +5,9 @@
 //   layout split  this pane splits: ttt left, pi right
 //   open tab      first a new tab "<folder>", where symbiosis runs again with --here
 //
+// The tab where ttt runs is named too ("ttt · <folder>", "symbiosis · <folder>"
+// with `split`, where pi shares it) and gets its old name back when ttt quits.
+//
 // Measured with herdr 0.9.3: `tab create` prints the new tab's root pane at
 // .result.root_pane.pane_id, `pane split` the new pane at .result.pane.pane_id;
 // `pane run` types a command into that pane's shell. tmux prints the pane id
@@ -98,6 +101,49 @@ export function paneFromOutput(kind: Host['kind'], stdout: string): string {
 	const pane = json.result?.root_pane?.pane_id ?? json.result?.pane?.pane_id;
 	if (typeof pane === 'string' && pane) return pane;
 	throw new Error(`herdr gave no pane: ${typeof json.error?.message === 'string' ? json.error.message : stdout.trim()}`);
+}
+
+/** A tab as it was before symbiosis named it. */
+export interface TabName {
+	/** herdr: the tab id; tmux: the window id. */
+	id: string;
+	label: string;
+	/** tmux: the window renamed itself after its program until it was named. */
+	automatic: boolean;
+}
+
+/** The tab (herdr) or window (tmux) of `host`'s pane, with its name; undefined when the multiplexer does not say. */
+export function currentTab(host: Host, run: (argv: Argv) => string): TabName | undefined {
+	try {
+		if (host.kind === 'tmux') {
+			const [id, label, auto] = run(['tmux', 'display-message', '-p', '-t', host.pane, '#{window_id}\t#{window_name}\t#{automatic-rename}']).replace(/\n$/, '').split('\t');
+			return id && label !== undefined ? { id, label, automatic: auto === '1' } : undefined;
+		}
+		const place = herdrPlace(run(['herdr', 'pane', 'get', host.pane]));
+		if (!place) return undefined;
+		const tab = (JSON.parse(run(['herdr', 'tab', 'get', place.tab])) as { result?: { tab?: { label?: unknown } } }).result?.tab;
+		return { id: place.tab, label: typeof tab?.label === 'string' ? tab.label : '', automatic: false };
+	} catch {
+		return undefined;
+	}
+}
+
+/** The command that names a tab. */
+export function renameTab(host: Host, tab: Pick<TabName, 'id'>, name: string): Argv {
+	return host.kind === 'tmux' ? ['tmux', 'rename-window', '-t', tab.id, name] : ['herdr', 'tab', 'rename', tab.id, name];
+}
+
+/** The commands that give a tab its old name back. */
+export function restoreTab(host: Host, tab: TabName): Argv[] {
+	if (host.kind === 'tmux') {
+		return tab.automatic ? [['tmux', 'set-window-option', '-t', tab.id, 'automatic-rename', 'on']] : [renameTab(host, tab, tab.label)];
+	}
+	return tab.label ? [renameTab(host, tab, tab.label)] : [];
+}
+
+/** The command that closes a pane (and with the last pane, its tab). */
+export function closePane(host: Host, pane: string): Argv {
+	return host.kind === 'tmux' ? ['tmux', 'kill-pane', '-t', pane] : ['herdr', 'pane', 'close', pane];
 }
 
 /** The workspace and tab of a herdr pane, from `herdr pane get <pane>`. */

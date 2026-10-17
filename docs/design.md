@@ -173,7 +173,10 @@ ttt was tried and dropped: it took space from the code.) Each pi writes
 **owner**, and writes its id to `ttt.json`:
 
 1. the session you chose with `ctrl+k n` (it cycles through the sessions, then
-   back to automatic);
+   to **detached**, then back to automatic). Detached has no owner at all: the
+   chosen id is the sentinel `-`, `pick` returns no session, the bar says
+   `π detached` and the features that need a pi say that the editor is
+   detached. pi itself runs on;
 2. else the session that wrote or edited the open file (each session record
    lists its last 20 files; pi adds a file when it starts to write it, before
    the editor opens it), the most recent;
@@ -644,8 +647,31 @@ and dropped: the panel was a poorer copy of pi's own terminal.)
   ends when the launcher's record goes (ttt quit). `--real` gives a real pi
   `--name demo @demo/PROMPT.md`.
 - **Outside herdr and tmux** it opens ttt only and prints how to start pi.
-- **pi stays.** When ttt quits, the launcher removes its record and ends; pi
-  is a normal session in its own pane, to go on with or to quit there.
+- **pi stays.** When ttt quits (`ctrl+q`), the launcher removes its record and
+  ends; pi is a normal session in its own pane, to go on with or to quit there.
+- **Tab names.** The tab where ttt runs is named like pi's: `ttt · <folder>`
+  (`symbiosis · <folder>` with `split`, where both share it). The launcher reads
+  the old name first (herdr: `pane get` → `tab get`; tmux: `window_name` and
+  `automatic-rename`) and restores it when ttt ends (tmux: `automatic-rename
+  on` when the window had no name of its own).
+- **Close.** `symbiosis close` (launcher/close.ts) ends what the launcher
+  opened. The launcher's record holds the pi pane it made (`pi`). Steps: find
+  the record (inside ttt by the pid in `SYMBIOSIS_SESSION`, else by folder);
+  find the live session registered from that pane; write `close.json`
+  `{id, to}` (PROTOCOL 15); pi's poll calls `ctx.shutdown()`; when the
+  process has ended, close the pane (herdr `pane close`, tmux `kill-pane`; the
+  tab goes with its last pane). A pi in another pane, or none, is never closed;
+  pi that does not quit in 8 s keeps its pane and the command fails. Then ttt:
+  the command writes `quit.json` `{id}` and the plugin (polled each second)
+  runs ttt's own `editor.quit` command, which asks about unsaved files, as
+  ctrl+q does. SIGTERM would drop unsaved text without a word, and
+  `ttt.quit()` too, which is why neither is used. `ctrl+k z` in ttt asks first
+  (a confirm; with programs running, the Run question is the confirm), runs
+  `symbiosis close --keep-editor` and quits ttt itself only on success. The
+  plugin needs the permission `system.env` to know it is under symbiosis
+  (`SYMBIOSIS_SESSION`): ttt's Lua has no `os.getenv`. `shift+q` is not a key
+  for this: ttt lowercases the keys of a chord, so `ctrl+k shift+q` never
+  matched and `ctrl+k Q` fired `ctrl+k q` (stop).
 - **Stop.** `ctrl+k q` writes `stop.json` `{id, to}` for the session the
   editor follows; that pi aborts its turn (`ctx.abort()`) if it works.
 - **Waits for you.** pi emits `ui_prompt_start`/`ui_prompt_end` for every

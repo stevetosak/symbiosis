@@ -94,7 +94,7 @@ local function setup(app)
 		sessions.refresh()
 		local o = sessions.owner()
 		if not o then
-			ttt.notify("symbiosis: ask needs a pi session; none runs", "warning")
+			ttt.notify("symbiosis: " .. sessions.missing("ask needs a pi session; none runs"), "warning")
 			return nil
 		end
 		if o.version ~= sessions.PROTOCOL then

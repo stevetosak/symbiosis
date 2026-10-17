@@ -5,7 +5,7 @@
 import type { Landed } from './review.ts';
 
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 14;
+export const PROTOCOL = 15;
 
 /** The tools whose calls stream into the editor. */
 export type Tool = 'write' | 'edit';
@@ -111,6 +111,12 @@ export interface Session {
 
 /** ctrl+k q in ttt: stop the turn of session `to`. */
 export interface StopRequest {
+	id: string;
+	to: string;
+}
+
+/** `symbiosis close`: session `to` quits (`ctx.shutdown()`); `id` is new for each request. */
+export interface CloseRequest {
 	id: string;
 	to: string;
 }

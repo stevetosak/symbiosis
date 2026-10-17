@@ -6,6 +6,8 @@
 // a full pi session in its own pane, to keep talking to or to quit there.
 // Outside herdr and tmux it runs ttt only and says how to start pi.
 //
+// `symbiosis close` ends all of it again (launcher/close.ts).
+//
 // Environment, for tests and unusual installs: SYMBIOSIS_PI and SYMBIOSIS_TTT
 // name the pi and ttt commands (default: pi, ttt from PATH).
 import { execFileSync, spawn } from 'node:child_process';
@@ -14,10 +16,12 @@ import { constants } from 'node:os';
 import { parseArgs, USAGE, UsageError } from './args.ts';
 import { ConfigError, configPath, readConfig } from './config.ts';
 import { projectFolder } from './folder.ts';
-import { type Argv, goTo, herdrPlace, label, newTab, noHost, type PaneStart, paneFromOutput, piCommand, piStart } from './layout.ts';
+import { type Argv, currentTab, goTo, herdrPlace, label, newTab, noHost, type PaneStart, paneFromOutput, piCommand, piStart, renameTab, restoreTab } from './layout.ts';
 import { alreadyOpen, findOpen, type Host, hostOf, removeRecord, stateDir, writeRecord } from './record.ts';
 import { pluginDir } from '../core/channel/file.ts';
 import { askStopRuns, runMain } from './run.ts';
+import { CLOSE_USAGE, closePi, parseCloseArgs, quitEditor, target } from './close.ts';
+import { FileChannel } from '../core/channel/file.ts';
 
 function fail(message: string, code = 1): never {
 	process.stderr.write(`${message}\n`);
@@ -63,9 +67,61 @@ function why(error: unknown): string {
 	return stderr || (error instanceof Error ? error.message : String(error));
 }
 
+/** The tab where ttt runs gets a name like pi's tab; the function gives the old name back. */
+function nameTab(host: Host, name: string): () => void {
+	const before = currentTab(host, run);
+	if (!before) return () => {};
+	try {
+		run(renameTab(host, before, name));
+	} catch {
+		return () => {};
+	}
+	return () => {
+		try {
+			for (const argv of restoreTab(host, before)) run(argv);
+		} catch {
+			// The tab is gone, or the multiplexer is.
+		}
+	};
+}
+
+/** `symbiosis close`: pi quits and its pane closes, then ttt quits. */
+async function closeMain(argv: string[]): Promise<number> {
+	let args;
+	try {
+		args = parseCloseArgs(argv);
+	} catch (error) {
+		if (error instanceof UsageError) fail(`${error.message}\n\n${CLOSE_USAGE}`, 2);
+		throw error;
+	}
+	if (args.help) {
+		process.stdout.write(`${CLOSE_USAGE}\n`);
+		return 0;
+	}
+	const states = stateDir();
+	let named = '';
+	const record = target(args, process.env, states, () => {
+		try {
+			named = projectFolder(args.folder, process.cwd());
+		} catch (error) {
+			if (error instanceof UsageError) fail(error.message, 2);
+			throw error;
+		}
+		return named;
+	});
+	if (!record) fail(`symbiosis does not run for ${named || 'this folder'}.`);
+	const say = (line: string) => process.stderr.write(`${line}\n`);
+	const deps = { channel: new FileChannel(pluginDir()), run: (a: Argv) => void run(a), say };
+	if (!(await closePi(record, deps)).ok) return 1;
+	if (args.keepEditor) return 0;
+	return (await quitEditor(record, deps)).ok ? 0 : 1;
+}
+
 async function main(): Promise<number> {
 	// `symbiosis run ...`: the run configurations, for the ttt plugin (launcher/run.ts).
 	if (process.argv[2] === 'run') return runMain(process.argv.slice(3));
+	// `symbiosis close ...`: pi and ttt end together (launcher/close.ts).
+	if (process.argv[2] === 'close') return closeMain(process.argv.slice(3));
 	let args;
 	try {
 		args = parseArgs(process.argv.slice(2));
@@ -139,9 +195,10 @@ async function main(): Promise<number> {
 		process.stderr.write('symbiosis: a new tab needs herdr or tmux; opening here.\n');
 	}
 
+	let piPane: string | null = null;
 	if (host) {
 		try {
-			start(piStart(host, layout, folder, pi));
+			piPane = start(piStart(host, layout, folder, pi));
 		} catch (error) {
 			fail(`symbiosis: could not start pi in a ${host.kind} ${layout === 'split' ? 'pane' : 'tab'}: ${why(error)}`);
 		}
@@ -149,7 +206,9 @@ async function main(): Promise<number> {
 		process.stderr.write(`${noHost(folder, pi)}\n`);
 	}
 
-	writeRecord(states, { pid: process.pid, folder, started: Date.now(), host });
+	// ttt's tab is named like pi's: "ttt · folder"; with `split` it holds both.
+	const restoreTabName = host ? nameTab(host, label(folder, layout === 'split' ? 'symbiosis' : 'ttt')) : () => {};
+	writeRecord(states, { pid: process.pid, folder, started: Date.now(), host, pi: piPane });
 	const tttCommand = process.env.SYMBIOSIS_TTT || 'ttt';
 	// The runs ttt starts (`symbiosis run start`) carry this session: at the
 	// end, the ones still going are this ttt's to stop.
@@ -174,6 +233,7 @@ async function main(): Promise<number> {
 
 	process.off('SIGINT', ignore);
 	removeRecord(states, folder, process.pid);
+	restoreTabName();
 	// ttt is gone, maybe without asking (it quit from its terminal): ask here
 	// about the programs it started and nobody chose to keep.
 	await askStopRuns(folder, session);

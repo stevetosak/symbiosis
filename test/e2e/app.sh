@@ -9,6 +9,8 @@
 #  - neither: ttt only, and how to start pi;
 #  - a second symbiosis for the same folder goes to the first one's tab, or
 #    says where it runs when it cannot;
+#  - ttt's own tab is named like pi's ("ttt · ws") and gets its old name back;
+#  - `symbiosis close`: pi quits, its pane closes, then ttt is asked to quit;
 #  - when ttt quits, the record is gone.
 # Usage: test/e2e/app.sh [out-dir]
 set -euo pipefail
@@ -28,6 +30,7 @@ echo "herdr $*" >> "$CALLS"
 case "$1 $2" in
 	"tab create") echo '{"result":{"root_pane":{"pane_id":"w9:pT"},"tab":{"tab_id":"w9:tT"}}}' ;;
 	"pane split") echo '{"result":{"pane":{"pane_id":"w9:pS"}}}' ;;
+	"tab get") echo '{"result":{"tab":{"label":"2","tab_id":"'"$3"'"}}}' ;;
 	"pane get")
 		if [ "$3" = "${HERDR_GONE:-}" ]; then echo '{"error":{"message":"pane not found"}}'; exit 1; fi
 		echo "{\"result\":{\"pane\":{\"pane_id\":\"$3\",\"tab_id\":\"w9:t1\",\"workspace_id\":\"w9\"}}}" ;;
@@ -37,12 +40,17 @@ SH
 cat > "$OUT/bin/tmux" <<'SH'
 #!/bin/sh
 echo "tmux $*" >> "$CALLS"
-case "$1" in new-window|split-window) echo '%7' ;; esac
+case "$1" in
+	new-window|split-window) echo '%7' ;;
+	display-message) printf '@5\tzsh\t1\n' ;;
+esac
 SH
 cat > "$OUT/bin/ttt" <<'SH'
 #!/bin/sh
 echo "ttt $* (in $(pwd))" >> "$CALLS"
-sleep "${TTT_HOLD:-0.3}"
+# Quits after TTT_HOLD seconds, or when the plugin is asked to (quit.json).
+ticks=$(awk "BEGIN{print int(${TTT_HOLD:-0.3}*10)}")
+while [ "$ticks" -gt 0 ] && [ ! -f "$TTT_CONFIG_DIR/plugins/symbiosis/quit.json" ]; do sleep 0.1; ticks=$((ticks - 1)); done
 SH
 chmod +x "$OUT/bin/"*
 export PATH="$OUT/bin:$PATH"
@@ -62,11 +70,14 @@ has "$CALLS" "herdr tab create --workspace w9 --cwd $OUT/ws --label pi · ws" "a
 hasnt "$CALLS" "--focus" "the focus stays on ttt"
 has "$CALLS" "herdr pane run w9:pT pi --model fake" "pi with the config's piArgs in that tab"
 has "$CALLS" "ttt $OUT/ws (in $OUT/ws)" "ttt here, in the folder"
+has "$CALLS" "herdr tab rename w9:t1 ttt · ws" "ttt's tab is named like pi's"
+has "$CALLS" "herdr tab rename w9:t1 2" "and gets its old name back when ttt quits"
 
 echo "== herdr --split -c -- --thinking high"
 HERDR_PANE_ID=w9:p1 run --split -c -- --thinking high
 has "$CALLS" "herdr pane split w9:p1 --direction right --cwd $OUT/ws --no-focus" "this pane splits"
 has "$CALLS" "herdr pane run w9:pS pi --continue --model fake --thinking high" "pi on the right, -c and the args after --"
+has "$CALLS" "herdr tab rename w9:t1 symbiosis · ws" "split: the tab that holds both is named symbiosis"
 
 echo "== herdr --tab"
 HERDR_PANE_ID=w9:p1 run --tab
@@ -79,6 +90,8 @@ TMUX=/tmp/t,1,0 TMUX_PANE=%1 run
 has "$CALLS" "tmux new-window -d -P -F #{pane_id} -c $OUT/ws -n pi · ws" "a tmux window for pi, not focused"
 has "$CALLS" "tmux send-keys -t %7 -l pi --model fake" "pi typed into it"
 has "$CALLS" "tmux send-keys -t %7 Enter" "and started"
+has "$CALLS" "tmux rename-window -t @5 ttt · ws" "ttt's window is named like pi's"
+has "$CALLS" "tmux set-window-option -t @5 automatic-rename on" "and renames itself again when ttt quits"
 
 echo "== neither herdr nor tmux"
 run
@@ -102,6 +115,42 @@ has "$OUT/third.txt" "already runs for $OUT/ws in herdr pane w9:p1" "its pane is
 [ "$c" = 1 ] && ok "and stops" || bad "the third exit is $c"
 wait $first
 if ls "$OUT/state/symbiosis/"*.json > /dev/null 2>&1; then bad "the record is left"; else ok "the record is gone"; fi
+
+echo "== symbiosis close: pi quits, its pane closes, ttt is asked to quit"
+cat > "$OUT/bin/fakepi" <<'SH'
+#!/bin/sh
+# A pi session: registers in the plugin folder and quits when asked (close.json).
+d="$TTT_CONFIG_DIR/plugins/symbiosis"
+mkdir -p "$d/sessions"
+printf '{"id":"s1","pane":"w9:pT","host":"herdr","pid":%s,"name":"ws","t":0}' "$$" > "$d/sessions/s1.json"
+until grep -q '"to":"s1"' "$d/close.json" 2> /dev/null; do sleep 0.1; done
+rm -f "$d/sessions/s1.json"
+SH
+chmod +x "$OUT/bin/fakepi"
+rm -f "$OUT/cfg/plugins/symbiosis/close.json" "$OUT/cfg/plugins/symbiosis/quit.json"
+: > "$CALLS"
+(cd "$OUT/ws" && TTT_HOLD=30 HERDR_PANE_ID=w9:p1 "$repo/bin/symbiosis" < /dev/null > /dev/null 2>&1) &
+first=$!
+sleep 1.5
+( "$OUT/bin/fakepi" & )
+sleep 0.5
+(cd "$OUT/ws" && timeout 20 "$repo/bin/symbiosis" close --keep-editor < /dev/null > "$OUT/close.txt" 2>&1) && c=0 || c=$?
+[ "$c" = 0 ] && ok "close --keep-editor ends well" || bad "close --keep-editor exits $c: $(cat "$OUT/close.txt")"
+has "$OUT/cfg/plugins/symbiosis/close.json" '"to":"s1"' "pi is asked to quit"
+has "$CALLS" "herdr pane close w9:pT" "its pane is closed once it has quit"
+[ -f "$OUT/cfg/plugins/symbiosis/quit.json" ] && bad "ttt was asked to quit" || ok "ttt is not asked (the plugin quits it itself)"
+kill -0 $first 2> /dev/null && ok "and symbiosis still runs" || bad "symbiosis ended"
+: > "$CALLS"
+(cd "$OUT/ws" && timeout 20 "$repo/bin/symbiosis" close < /dev/null > "$OUT/close.txt" 2>&1) && c=0 || c=$?
+[ "$c" = 0 ] && ok "close ends well" || bad "close exits $c: $(cat "$OUT/close.txt")"
+has "$OUT/close.txt" "pi does not run in herdr pane w9:pT" "pi was gone already: it says so and leaves the pane"
+hasnt "$CALLS" "pane close" "no second pane close"
+has "$OUT/cfg/plugins/symbiosis/quit.json" '"id"' "ttt is asked to quit"
+wait $first && ok "ttt quit, the launcher ended" || bad "the launcher ended with an error"
+(cd "$OUT/ws" && "$repo/bin/symbiosis" close < /dev/null > "$OUT/close.txt" 2>&1) && c=0 || c=$?
+[ "$c" = 1 ] && ok "close with nothing open fails" || bad "close with nothing open exits $c"
+has "$OUT/close.txt" "symbiosis does not run for $OUT/ws" "and says so"
+rm -f "$OUT/cfg/plugins/symbiosis/close.json" "$OUT/cfg/plugins/symbiosis/quit.json" # the fake ttt quits at once when one is left
 
 echo "== the herdr action runs symbiosis <folder> --tab"
 mkdir -p "$OUT/sbin"

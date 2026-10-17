@@ -61,7 +61,7 @@ local function setup(app)
 
 	local function owner()
 		local o = sessions.owner()
-		if not o then ttt.notify("symbiosis: no pi session follows this file", "warning") end
+		if not o then ttt.notify("symbiosis: " .. sessions.missing("no pi session follows this file"), "warning") end
 		return o
 	end
 

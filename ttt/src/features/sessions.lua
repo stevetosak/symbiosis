@@ -1,7 +1,9 @@
 -- Sessions: each pi writes sessions/<id>.json. The editor follows one of
 -- them, the owner: the session whose folder holds the open file (the most
 -- recent one if several do), or the one you chose with ctrl+k n. Only the
--- owner writes events and answers helpi!. ctrl+k g goes to its herdr or tmux
+-- owner writes events and answers helpi!. "detached" is a choice too: the
+-- editor follows no pi (the status bar says so), and no pi writes events or
+-- gets questions; pi itself runs on. ctrl+k g goes to its herdr or tmux
 -- pane, ctrl+k q stops its turn (stop.json), and the bar says when it waits
 -- on a dialog in its own pane.
 --
@@ -16,6 +18,9 @@ local util = require("core.util")
 local channel_mod = require("core.channel")
 
 local PROTOCOL = channel_mod.PROTOCOL
+
+-- `chosen` when you detached the editor from every pi: no owner at all.
+local DETACHED = "-"
 
 -- Reads sessions/: the records with a heartbeat in the last 3 seconds.
 local function load(dir)
@@ -57,6 +62,7 @@ local function wrote(rec, path)
 end
 
 -- The session the editor follows, for the file at `path`:
+--   0. none, when you detached (ctrl+k n, the panel);
 --   1. the one you chose (ctrl+k n);
 --   2. else the one that wrote or edited the file, the most recent;
 --   3. else the one whose folder holds the file, the deepest folder, then the
@@ -65,6 +71,7 @@ end
 -- Returns the session, and true for 4 (for the status bar), and whether the
 -- chosen one is still there.
 local function pick(sessions, chosen, path)
+	if chosen == DETACHED then return nil, false, true end
 	for _, rec in ipairs(sessions) do
 		if rec.id == chosen then return rec, false, true end
 	end
@@ -94,6 +101,7 @@ end
 return {
 	name = "sessions",
 	pick = pick, -- for the unit tests
+	DETACHED = DETACHED,
 	setup = function(app)
 		local DIR = app.channel:path("sessions")
 		local sessions = {} -- the live pi sessions, by name
@@ -105,7 +113,9 @@ return {
 
 		local function show()
 			local text
-			if not owner then
+			if chosen == DETACHED then
+				text = "π detached"
+			elseif not owner then
 				text = "π none"
 			else
 				local waiting = type(owner.waiting) == "string" and owner.waiting or nil
@@ -147,25 +157,38 @@ return {
 			show()
 		end
 
-		-- ctrl+k n: the next session takes over; after the last one, back to "by the open file".
+		-- ctrl+k n: the next session takes over; after the last one, "detached";
+		-- then back to "by the open file".
 		local function next_session()
 			sessions = load(DIR)
-			if #sessions == 0 then
+			if #sessions == 0 and chosen ~= DETACHED then
 				ttt.notify("symbiosis: no pi session is running", "warning")
 				return refresh()
 			end
-			local i = 0
-			for k, rec in ipairs(sessions) do
-				if rec.id == chosen then i = k end
+			if chosen == DETACHED then
+				chosen = nil
+			else
+				local i = 0
+				for k, rec in ipairs(sessions) do
+					if rec.id == chosen then i = k end
+				end
+				local nxt = sessions[i + 1]
+				chosen = nxt and nxt.id or DETACHED
 			end
-			local nxt = sessions[i + 1]
-			chosen = nxt and nxt.id or nil
 			-- No notice: a notice covers the status bar for 4 s, and the bar shows it.
+			refresh()
+		end
+
+		-- The editor follows no pi, or follows one again (by the open file).
+		local function toggle_detach()
+			chosen = chosen ~= DETACHED and DETACHED or nil
 			refresh()
 		end
 
 		-- ctrl+k g, or a click on "π ...": go to the owner's pane in herdr or tmux.
 		go_session = function()
+			-- "π detached": a click follows pi again.
+			if chosen == DETACHED then return toggle_detach() end
 			if not owner then
 				return ttt.notify("symbiosis: no pi session is running", "warning")
 			end
@@ -203,10 +226,11 @@ return {
 		app:on("file", refresh)
 
 		app:command({ id = "symbiosis.nextSession", title = "symbiosis: Next pi Session Takes Over", key = "ctrl+k n", run = next_session })
+		app:command({ id = "symbiosis.detach", title = "symbiosis: Detach from pi (or Follow pi Again)", run = toggle_detach })
 		app:command({ id = "symbiosis.goToSession", title = "symbiosis: Go to the pi Session (herdr, tmux)", key = "ctrl+k g", run = go_session })
 		app:command({ id = "symbiosis.stop", title = "symbiosis: Stop pi's Turn", key = "ctrl+k q", run = stop_pi })
 		app:hint({ key = "ctrl+k q", text = "stop pi's turn", order = 20 })
-		app:hint({ key = "ctrl+k n", text = "next pi session", order = 110 })
+		app:hint({ key = "ctrl+k n", text = "next pi session, then detached", order = 110 })
 		app:hint({ key = "ctrl+k g", text = "go to pi's pane (herdr, tmux)", order = 120 })
 
 		-- In the panel: the sessions; Enter follows one.
@@ -226,6 +250,7 @@ return {
 						muted = rec.version ~= PROTOCOL,
 					})
 				end
+				table.insert(items, { id = DETACHED, label = (chosen == DETACHED and "✓ " or "  ") .. "detached: follow no pi" })
 				panel:list({
 					items = items,
 					truncate_left = false,
@@ -241,6 +266,12 @@ return {
 		return {
 			PROTOCOL = PROTOCOL,
 			owner = function() return owner end,
+			detached = function() return chosen == DETACHED end,
+			-- What to tell when a feature needs a pi session and there is none.
+			missing = function(default)
+				if chosen == DETACHED then return "the editor is detached from pi (ctrl+k n, or the panel, follows one again)" end
+				return default
+			end,
 			list = function() return sessions end,
 			refresh = refresh,
 		}

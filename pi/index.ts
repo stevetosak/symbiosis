@@ -57,6 +57,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 	let session: ExtensionContext | undefined;
 	let lastHelp: string | undefined;
 	let lastStop: string | undefined;
+	let lastClose: string | undefined;
 	let helping: { id: string; abort: AbortController } | undefined;
 	let poll: ReturnType<typeof setInterval> | undefined;
 	let ticks = 0;
@@ -184,6 +185,15 @@ export default function symbiosis(pi: ExtensionAPI) {
 		if (!session.isIdle()) session.abort();
 	}
 
+	/** `symbiosis close`: this session quits, as /quit does. */
+	function checkClose(): void {
+		if (!session || !channel.enabled()) return;
+		const request = channel.close();
+		if (!request || request.to !== id || request.id === lastClose) return;
+		lastClose = request.id;
+		session.shutdown();
+	}
+
 	/** helpi! in ttt: a question for this session, or Esc on the one it answers. */
 	function checkHelp(): void {
 		if (!session || !channel.enabled()) return;
@@ -283,6 +293,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		// A question from before this session is old: do not answer it again.
 		lastHelp = channel.enabled() ? channel.help()?.id : undefined;
 		lastStop = channel.enabled() ? channel.stop()?.id : undefined;
+		lastClose = channel.enabled() ? channel.close()?.id : undefined;
 		filling.skipOld();
 		asking.skipOld();
 		reviewing.skipOld();
@@ -295,6 +306,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		poll = setInterval(() => {
 			checkHelp();
 			checkStop();
+			checkClose();
 			asking.poll(ctx);
 			reviewing.poll();
 			filling.poll(ctx.cwd).catch(() => undefined);

@@ -1,6 +1,7 @@
 // The command line of `symbiosis`:
 //
 //   symbiosis [folder] [--tab | --here] [--tabs | --split] [-c] [--new] [-- <pi args>]
+//   symbiosis close [folder] [--keep-editor]     (launcher/close.ts)
 //
 // Pure: no file system, so the tests need nothing.
 
@@ -41,6 +42,8 @@ Opens ttt in the folder and a pi beside it, in herdr or tmux.
   -h          this text
 
 Outside herdr and tmux, symbiosis opens ttt only: start pi in another terminal.
+
+Close it again: symbiosis close [folder]  (pi quits and its tab closes, then ttt quits)
 
 Run configurations (for the ttt plugin, F5): symbiosis run list|start|again|stop|ps|keep|save
 
