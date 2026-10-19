@@ -264,14 +264,19 @@ return {
 				{ id = "b:1", label = "child one two three four five six seven eight" },
 			} },
 		}, 24)
-		local ids = {}
-		for _, it in ipairs(items) do table.insert(ids, wrap.id(it.id)) end
-		t.eq(ids[1], "a")
-		t.ok(#items > 3, "the long row took more rows")
-		t.eq(items[3].muted, true, "a continuation keeps the muting")
-		t.eq(ids[#ids], "b", "a continuation stands for its row")
-		t.ok(items[2].children and #items[2].children > 1, "the children wrap too")
-		for _, it in ipairs(items) do t.ok(require("core.util").runes(it.label) <= 24, "fits: " .. it.label) end
+		t.eq(#items, 2, "a node's continuation rows are its children, not siblings")
+		t.eq(items[1].id, "a")
+		local node = items[2]
+		t.eq(node.id, "b")
+		t.ok(#node.children > 2, "continuation rows, then the child, wrapped")
+		t.eq(wrap.id(node.children[1].id), "b", "a continuation stands for its row")
+		t.eq(node.children[1].muted, true, "a continuation keeps the muting")
+		t.eq(node.children[#node.children].id:sub(1, 3), "b:1", "the real child comes last")
+		local util = require("core.util")
+		t.ok(util.runes(node.label) <= 24, "fits: " .. node.label)
+		for _, c in ipairs(node.children) do t.ok(util.runes(c.label) <= 24, "fits: " .. c.label) end
+		local flat = wrap.items({ { id = "c", label = "one two three four five six seven eight" } }, 24)
+		t.ok(#flat > 1 and wrap.id(flat[#flat].id) == "c", "a leaf's continuation rows follow it")
 	end },
 	{ "wrap: a pair that does not fit leaves the keyvalue", function()
 		local wrap = require("core.wrap")
