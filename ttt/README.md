@@ -27,7 +27,8 @@ ttt/
       folder.lua        the workspace folder of a file
     features/
       sessions.lua      the pi sessions; the one the editor follows
-      changemarks.lua   the lines pi changed: a gutter bar by plan step, hover text
+      changemarks.lua   the lines pi changed: a gutter bar by plan step, hover text; seen marks (ctrl+k /)
+      changediff.lua    the exact diff of one change (ctrl+k . and `d` in the plan drawer)
       plan.lua          pi's plan in the status bar, ctrl+k v: the steps with their files and changes
       tree.lua          the "pi files" sidebar
       follow.lua        which file pi writes; the editor follows it when you turn that on

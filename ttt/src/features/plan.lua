@@ -47,17 +47,28 @@ end
 
 return {
 	name = "plan",
-	needs = { "sessions", "follow" },
+	needs = { "sessions", "follow", "changediff" },
 	plan_line = plan_line, -- for the unit tests
 	setup = function(app)
 		local sessions = app:need("sessions")
 		local follow = app:need("follow")
+		local diff = app:need("changediff")
 		local seen = nil   -- the plan as last shown, to redraw only on a change
 		local drawer = nil -- the plan drawer's panel, once opened: redrawn on a change
 		local open
 		local actions = {} -- node id -> {path, line}, of the list as last drawn
 
 		local function log_of(owner) return changelist.read_log(app.channel, owner) end
+
+		-- `s` in the drawer: these changes are seen; their bars and tags go.
+		local function mark_seen(list)
+			local owner = sessions.owner()
+			local ids = {}
+			for _, c in ipairs(list) do table.insert(ids, c.id) end
+			if not owner or #ids == 0 then return ttt.notify("symbiosis: nothing to mark seen here", "info") end
+			changelist.mark_seen(app.channel, owner, ids, log_of(owner))
+			app:emit("seen")
+		end
 
 		local function render(panel)
 			drawer = panel
@@ -70,17 +81,22 @@ return {
 			local changes = log_of(owner)
 			if #steps > 0 or #changes > 0 then
 				local nodes
-				nodes, actions = changelist.build(steps, changes, { cwd = owner and owner.cwd, editing = follow.editing })
+				nodes, actions = changelist.build(steps, changes, { cwd = owner and owner.cwd, editing = follow.editing, seen = changelist.read_seen(app.channel, owner) })
 				panel:list({
-					items = nodes, truncate_left = false,
+					items = nodes, truncate_left = false, key_commands = { s = "seen", d = "diff" },
 					on_command = function(command, node)
-						if command ~= "activate" then return end
 						local a = actions[node.id]
-						if a then ttt.open_file(a.path, a.line) end
+						if not a then return end
+						if command == "activate" and a.kind == "file" then return ttt.open_file(a.path, a.line) end
+						if command == "seen" then return mark_seen(a.changes) end
+						if command == "diff" then
+							if a.kind ~= "file" or #a.changes == 0 then return ttt.notify("symbiosis: d shows a file row's changes as a diff", "info") end
+							diff.open(owner, a.changes)
+						end
 					end,
 				})
 			end
-			panel:label({ text = "Tab, then Enter opens a file · Esc closes", style = "muted", margin_top = 1 })
+			panel:label({ text = "Tab, then: Enter opens · d diff · s seen (a step: all its files) · Esc closes", style = "muted", margin_top = 1 })
 		end
 
 		-- Shows the owner's plan; only when it changed, so the drawer does not flicker.
@@ -114,6 +130,7 @@ return {
 			seen = nil
 			show()
 		end
+		app:on("seen", touch)
 		app:on("start", touch)
 		app:on("done", touch)
 		app:command({ id = "symbiosis.showPlan", title = "symbiosis: Show pi's Plan", key = "ctrl+k v", run = function() open() end })

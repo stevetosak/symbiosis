@@ -147,8 +147,8 @@ message to pi. They were replaced by `helpi!`, below: "not smooth enough".
 
 Found in the spike, ttt 1.7.1: `gmatch("[^\n]*\n")` crashes with a nil
 pointer on text that has an empty line. The plugin splits lines with `find`.
-Keys `ctrl+k e t i j o r u` belong to ttt; plugin chords that work are
-`a d g h n q v w x z` (`d` asks, see "Ask" below). A `local ready` flag once hid the `ready` handler:
+Keys `ctrl+k e t i j o r s u y` belong to ttt (`s` is Save As, `y` the keybindings); plugin chords that work are
+`a d g h n q v w x z` and `.` `/` (`d` asks, see "Ask" below). A `local ready` flag once hid the `ready` handler:
 Lua locals shadow quietly.
 
 ## Slice 3: the timeline
@@ -212,6 +212,20 @@ it. Texts over 256 KB are not kept, so such a file is marked as pi left it. A
 line with another feature's bookmark (a note, a review mark) keeps that one.
 It redraws on a file change, 300 ms after pi's call or your typing, and each
 second; the setting "Changed lines" turns it off.
+
+**Seen and the exact diff** (`changemarks.lua`, `changediff.lua`). A change
+the operator has seen leaves no bar and no hover text. The ids are in
+`log/<session>/seen.json` (`{ids: {<change id>: true}}`); the plugin writes it,
+and pi's clean-up of old log directories removes it with them
+(`changelist.mark_seen` drops ids that are no longer in the log).
+`ctrl+k /` marks the changes of the open file; in the plan drawer `s` marks a
+file row (its changes in that step) or a step row (all its changes). A file row
+whose changes are all seen reads `✓ file · N changes · seen`, muted.
+`ctrl+k .` opens ttt's own diff tab (`ttt.open_diff`) from the text before the
+change to the text after it, for the change that wrote the cursor line; `d` on a
+file row does the same for the first to the last change in that step. Neither
+blocks pi. The keys are `.` and `/` because the letters are all taken (see
+the key list in Slice 2): `s` is Save As and `y` the keybindings in ttt 1.7.1.
 
 ## The gutter marks
 

@@ -159,6 +159,11 @@ argument, else the git root, else this folder.
   mark), and a hint underline over each run with a hover text: the step and
   pi's `why`. If you edit the file after pi, the lines you edited lose their
   bar and the others keep it. Panel setting "Changed lines" turns it off.
+  `ctrl+k .` opens the exact diff of the change that wrote the line under the
+  cursor (with pi's `why`); `ctrl+k /` marks pi's changes in the open file
+  seen, so their bars go. In the plan drawer (`ctrl+k v`), `d` on a file row
+  opens its diff for that step, and `s` marks a file row or a whole step seen
+  (`✓`). Seen marks are kept for the pi session, not for ever.
 - `ctrl+k w`: what pi changed in its last turn, as a diff: the open file, or
   the last file pi changed if pi did not touch the open one. A notice lists
   the reasons pi gave for those changes (`why`).

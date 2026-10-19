@@ -17,7 +17,7 @@ echo 'export const x = 1;' > "$OUT/ws/a.ts"
 
 # The drawer opens after pi wrote (about 3 s); Tab goes into the list, Enter
 # opens the file under the cursor.
-steps="wait 4000; key ctrl+k v; wait 1200; screenshot $OUT/drawer.txt; key tab; key down; key enter; wait 1500; screenshot $OUT/opened.txt; debug $OUT/debug.json; quit"
+steps="wait 4000; key ctrl+k v; wait 1200; screenshot $OUT/drawer.txt; key tab; key down; key enter; wait 1500; key escape; wait 300; screenshot $OUT/opened.txt; debug $OUT/debug.json; key ctrl+k .; wait 1200; screenshot $OUT/diff.txt; click 24 2; wait 500; screenshot $OUT/back.txt; key ctrl+k /; wait 1500; screenshot $OUT/seen.txt; key ctrl+k v; wait 600; key tab; key down; wait 300; screenshot $OUT/seen-row.txt; key down; key d; wait 1200; screenshot $OUT/row-diff.txt; key ctrl+k v; wait 400; key tab; key up; key up; key up; key up; key down; key down; key s; wait 800; screenshot $OUT/row-seen.txt; quit"
 (cd "$OUT/ws" && ttt --size 140x30 a.ts --exec "$steps" > /dev/null 2>&1) &
 ttt=$!
 sleep 0.4
@@ -36,4 +36,13 @@ grep -q '· Document it' "$OUT/drawer.txt" || fail "the next step is not in the 
 grep -q '│ store.ts x │' "$OUT/opened.txt" || fail "Enter on the file row did not open it"
 grep -q '▌ 1  export const store' "$OUT/opened.txt" || fail "no change bar on the line pi wrote"
 grep -q 'pi · Write the store · new file · the store is a Map' "$OUT/debug.json" || fail "no hover text (step and why) on the changed lines"
+grep -q 'the store is a Map' "$OUT/diff.txt" || fail "ctrl+k . did not open the diff of the change (no why notice)"
+grep -q 'store.ts' "$OUT/diff.txt" || fail "no diff tab for store.ts"
+grep -q '▌ 1  export const store' "$OUT/seen.txt" && fail "the change bar stayed after ctrl+k /"
+grep -q '│ store.ts x │' "$OUT/back.txt" || fail "the click did not go back to store.ts"
+grep -q '▌ 1  export const store' "$OUT/back.txt" || fail "the change bar is not back before ctrl+k /"
+grep -q '│  1  export const store' "$OUT/seen.txt" || fail "store.ts is not open after ctrl+k /"
+grep -q '✓ store.ts' "$OUT/seen-row.txt" || fail "the file row is not marked seen in the drawer"
+grep -q 'extra.ts (diff)' "$OUT/row-diff.txt" || fail "d on a file row did not open its diff"
+grep -q '✓ extra.ts' "$OUT/row-seen.txt" || fail "s on a file row did not mark it seen"
 echo "all passed ($OUT)"

@@ -14,6 +14,6 @@ await pi.plan(['Write the store', 'now', ['store.ts', 'store.test.ts']], ['Docum
 await pi.write(join(dir, 'store.ts'), 'export const store = new Map();\n', 'the store is a Map');
 await pi.write(join(dir, 'extra.ts'), 'export const extra = 1;\n');
 console.log('written');
-await sleep(9000);
+await sleep(18000);
 await pi.endTurn();
 await pi.stop();

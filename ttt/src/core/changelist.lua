@@ -7,7 +7,9 @@
 --   changes  the log, oldest first: {id, seq, path, step, stepText, created, hunks, why}
 --   opts     cwd (paths show relative to it), editing(path) -> pi has a call open there
 --
--- Returns nodes, actions: `actions[node.id]` is {path, line} for a file row.
+-- Returns nodes, actions: `actions[node.id]` is {kind = "file", path, line,
+-- changes} for a file row (the changes it lists, oldest first), and
+-- {kind = "step", changes} for a step row (all of its changes). opts.seen: id -> true.
 local util = require("core.util")
 
 local M = {}
@@ -17,6 +19,25 @@ function M.read_log(channel, owner)
 	if not owner then return {} end
 	local index = channel:read_json("log/" .. owner.id .. "/index.json")
 	return type(index) == "table" and type(index.changes) == "table" and index.changes or {}
+end
+
+-- The changes you marked seen: id -> true (log/<session>/seen.json, which
+-- the plugin writes beside pi's log; pi's 7-day clean removes both).
+function M.read_seen(channel, owner)
+	if not owner then return {} end
+	local saved = channel:read_json("log/" .. owner.id .. "/seen.json")
+	return type(saved) == "table" and type(saved.ids) == "table" and saved.ids or {}
+end
+
+-- Marks the changes with these ids seen. Ids of changes that left the log go.
+function M.mark_seen(channel, owner, ids, changes)
+	local seen = M.read_seen(channel, owner)
+	for _, id in ipairs(ids) do seen[id] = true end
+	local keep = {}
+	for _, c in ipairs(changes or {}) do
+		if seen[c.id] then keep[c.id] = true end
+	end
+	channel:write_json("log/" .. owner.id .. "/seen.json", { ids = keep })
 end
 
 -- The index of the plan step a change belongs to. The plan may have been
@@ -70,24 +91,35 @@ local function plural(n, word)
 	return n .. " " .. word .. (n == 1 and "" or "s")
 end
 
+-- Whether every change of the list is seen.
+local function all_seen(list, seen)
+	for _, c in ipairs(list) do
+		if not seen[c.id] then return false end
+	end
+	return #list > 0
+end
+
 -- The row of one file. Named but untouched: muted, "planned". Changed: "●";
--- pi has a call open in it: "✎". When the step names files, a changed file it
--- did not name says "unplanned".
+-- pi has a call open in it: "✎"; you marked every change seen: "✓", muted.
+-- When the step names files, a changed file it did not name says "unplanned".
 local function file_node(e, id, group_named, opts)
 	local editing = opts.editing and opts.editing(e.path)
-	local mark = editing and "✎" or (#e.changes > 0 and "●" or "·")
+	local seen = all_seen(e.changes, opts.seen or {}) and not editing
+	local mark = editing and "✎" or (seen and "✓" or (#e.changes > 0 and "●" or "·"))
 	local parts = {}
 	if #e.changes == 0 then
 		table.insert(parts, "planned")
 	else
 		if e.changes[1].created then table.insert(parts, "new") end
 		if #e.changes > 1 or not e.changes[1].created then table.insert(parts, plural(#e.changes, "change")) end
+		if seen then table.insert(parts, "seen") end
 		if group_named and not e.planned then table.insert(parts, "unplanned") end
 	end
 	local label = mark .. " " .. relative(e.path, opts.cwd)
 	if #parts > 0 then label = label .. " · " .. table.concat(parts, " · ") end
 	local line = #e.changes > 0 and M.first_line(e.changes[1]) or 1
-	return { id = id, label = label, muted = #e.changes == 0 and not editing }, { path = e.path, line = line }
+	return { id = id, label = label, muted = (#e.changes == 0 or seen) and not editing },
+		{ kind = "file", path = e.path, line = line, changes = e.changes }
 end
 
 -- The list: a node per plan step with its files under it, then "Other
@@ -113,6 +145,11 @@ function M.build(steps, changes, opts)
 			table.insert(children, node)
 			actions[node.id] = action
 		end
+		local all = {}
+		for _, e in ipairs(list) do
+			for _, c in ipairs(e.changes) do table.insert(all, c) end
+		end
+		actions[id] = { kind = "step", changes = all }
 		local node = { id = id, label = label, muted = state == "done", children = #children > 0 and children or nil }
 		if node.children then
 			node.expandable = true
@@ -146,7 +183,8 @@ end
 
 -- The lines pi changed in `path`, as the file is after pi's last change in it:
 -- line -> the change that wrote it last. A pure delete leaves no line to mark.
-function M.marked_lines(changes, path)
+function M.marked_lines(changes, path, seen)
+	seen = seen or {}
 	local mine = {}
 	for _, c in ipairs(changes or {}) do
 		if c.path == path then table.insert(mine, c) end
@@ -159,7 +197,9 @@ function M.marked_lines(changes, path)
 				for j = i + 1, #mine do
 					line = line and M.move_line(line, mine[j].hunks)
 				end
-				if line then marks[line] = c end
+				-- A change you saw leaves no mark, but still moves the lines of the others.
+				if line and not seen[c.id] then marks[line] = c end
+				if line and seen[c.id] then marks[line] = nil end
 			end
 		end
 	end

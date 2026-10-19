@@ -98,9 +98,14 @@ return {
 		t.eq(labels(nodes[4].children), { "● old.ts · 1 change" }, "a step that is gone: no unplanned tag, the step names no files")
 		t.ok(nodes[1].muted and nodes[1].expanded == false, "a done step is muted and collapsed")
 		t.eq(nodes[2].expanded, true)
-		t.eq(actions["step:2:1"], { path = "/w/a.test.ts", line = 12 })
-		t.eq(actions["step:2:2"], { path = "/w/helper.ts", line = 1 }, "line 0 (a delete at the top) is line 1")
-		t.eq(actions["step:2:3"], { path = "/w/b.test.ts", line = 1 })
+		t.eq({ actions["step:2:1"].path, actions["step:2:1"].line, #actions["step:2:1"].changes }, { "/w/a.test.ts", 12, 2 })
+		t.eq(actions["step:2:2"].line, 1, "line 0 (a delete at the top) is line 1")
+		t.eq({ actions["step:2:3"].path, actions["step:2:3"].line, #actions["step:2:3"].changes }, { "/w/b.test.ts", 1, 0 })
+		t.eq({ actions["step:2"].kind, #actions["step:2"].changes }, { "step", 3 }, "a step row: all of its changes")
+		local seen_nodes = build(steps, changes, { cwd = "/w", seen = { ["2"] = true, ["3"] = true } })
+		t.eq(seen_nodes[2].children[1].label, "✓ a.test.ts · 2 changes · seen")
+		t.eq(seen_nodes[2].children[1].muted, true)
+		t.eq(seen_nodes[2].children[2].label, "● helper.ts · 1 change · unplanned", "an unseen file stays")
 	end },
 	{ "changelist: a rewritten plan keeps the change with its step", function()
 		local index = require("core.changelist").step_index
@@ -121,6 +126,8 @@ return {
 		local other = { id = "3", path = "/w/b.ts", hunks = { { oldStart = 1, oldLines = 0, newStart = 1, newLines = 1 } } }
 		local marks = cl.marked_lines({ first, second, other }, "/w/a.ts")
 		t.eq({ marks[1], marks[2], marks[3], marks[4], marks[5] }, { first, second, first, first, nil }, "the later change owns its line")
+		local hidden = cl.marked_lines({ first, second, other }, "/w/a.ts", { ["2"] = true })
+		t.eq({ hidden[1], hidden[2], hidden[3], hidden[4] }, { first, nil, first, first }, "a seen change leaves no mark; the line is not given back to the older one")
 		t.eq(cl.marked_lines({ { id = "d", path = "/w/a.ts", hunks = { { oldStart = 3, oldLines = 2, newStart = 2, newLines = 0 } } } }, "/w/a.ts"), {}, "a delete marks nothing")
 		local runs = cl.runs(marks)
 		t.eq({ #runs, runs[1].first, runs[1].last, runs[2].first, runs[3].first, runs[3].last }, { 3, 1, 1, 2, 3, 4 })
@@ -173,11 +180,11 @@ return {
 		for _, id in ipairs({ "toggleFollow", "goToAgent", "nextSession", "goToSession", "showPlan", "showChanges", "help", "stop", "fillStub", "releaseStub", "showProposal", "review", "ask", "notes", "run", "runStop", "runPick", "runPanel", "runWrap", "runEdit", "runAsk", "close", "detach" }) do
 			t.ok(ids["symbiosis." .. id], id)
 		end
-		t.eq(#reg.commands, 23)
+		t.eq(#reg.commands, 26)
 		t.eq(keys, {
 			["ctrl+k a"] = "symbiosis.toggleFollow", ["ctrl+k n"] = "symbiosis.nextSession", ["ctrl+k g"] = "symbiosis.goToSession",
 			["ctrl+k v"] = "symbiosis.showPlan", ["ctrl+k w"] = "symbiosis.showChanges",
-			["ctrl+k h"] = "symbiosis.help", ["ctrl+k q"] = "symbiosis.stop", ["ctrl+k f"] = "symbiosis.fillStub", ["ctrl+k p"] = "symbiosis.showProposal", ["ctrl+k x"] = "symbiosis.review", ["ctrl+k d"] = "symbiosis.ask", ["ctrl+k z"] = "symbiosis.close",
+			["ctrl+k h"] = "symbiosis.help", ["ctrl+k q"] = "symbiosis.stop", ["ctrl+k f"] = "symbiosis.fillStub", ["ctrl+k p"] = "symbiosis.showProposal", ["ctrl+k x"] = "symbiosis.review", ["ctrl+k d"] = "symbiosis.ask", ["ctrl+k z"] = "symbiosis.close", ["ctrl+k ."] = "symbiosis.changeHere", ["ctrl+k /"] = "symbiosis.markSeen",
 			["f5"] = "symbiosis.run", ["shift+f5"] = "symbiosis.runStop", ["ctrl+k f5"] = "symbiosis.runPick", ["ctrl+k shift+f5"] = "symbiosis.runPanel",
 		})
 		t.eq(reg.bottom.title, "Run")
@@ -265,7 +272,7 @@ return {
 		stub.drawer.render(panel)
 		t.eq(out, {
 			"Stub scope      the stub's body", "Autosave        1 s after you type", "Editor          stays", "Changed lines   marked in the gutter",
-			"ctrl+k h", "ctrl+k q", "ctrl+k z", "ctrl+k a", "ctrl+k v", "ctrl+k d", "ctrl+k w",
+			"ctrl+k h", "ctrl+k q", "ctrl+k z", "ctrl+k a", "ctrl+k v", "ctrl+k d", "ctrl+k w", "ctrl+k .", "ctrl+k /",
 			"// … helpi!", "// … why!", "// TODO(pi) helpi!", "ctrl+k p", "ctrl+k x", "F5 · shift+F5", "ctrl+k F5", "Esc", "ctrl+k n", "ctrl+k g",
 		})
 	end },

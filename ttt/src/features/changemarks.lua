@@ -8,6 +8,13 @@
 -- ttt gives a plugin no line background, so this is the gutter (ttt.bookmarks)
 -- and a diagnostic (ttt.diagnostics). A line with a note or a review mark keeps
 -- that mark: the bar is not drawn there.
+--
+-- A change you marked seen (ctrl+k / for the open file, or `s` in the plan
+-- drawer) leaves no bar: core/changelist.lua `mark_seen` keeps them in
+-- log/<session>/seen.json. ctrl+k y opens the diff of the change that wrote
+-- the line under the cursor (features/changediff.lua).
+--
+-- Hooks it takes: "file", "second", "done", "change", "seen". API: `at(line)`.
 local ttt = require("ttt")
 local editor = require("ttt.editor")
 local json = require("ttt.json")
@@ -53,25 +60,35 @@ local function setup(app)
 		return owner and type(owner.plan) == "table" and owner.plan or {}
 	end
 
-	local function draw()
+	-- line -> the change that wrote it, in the open file as it is now, the
+	-- changes you did not see yet. Also the owner and the whole log.
+	local function current()
 		local path = editor.file_path()
 		local owner = sessions.owner()
+		if not path or path == "" or not owner then return {}, owner, {} end
+		local changes = changelist.read_log(channel, owner)
+		local marks = changelist.marked_lines(changes, path, changelist.read_seen(channel, owner))
+		if next(marks) then
+			local last
+			for _, c in ipairs(changes) do if c.path == path then last = c end end
+			local after = last and after_lines(owner, last)
+			if after then marks = changelist.remap(marks, after, editor.buffer_lines()) end
+		end
+		return marks, owner, changes
+	end
+
+	local function draw()
+		local path = editor.file_path()
 		local want, runs = {}, {}
+		local owner = sessions.owner()
 		local steps = plan_of(owner)
-		if path and path ~= "" and owner and settings:get("changemarks") then
-			local changes = changelist.read_log(channel, owner)
-			local marks = changelist.marked_lines(changes, path)
-			if next(marks) then
-				local last
-				for _, c in ipairs(changes) do if c.path == path then last = c end end
-				local after = last and after_lines(owner, last)
-				if after then marks = changelist.remap(marks, after, editor.buffer_lines()) end
-				local count = editor.line_count()
-				for line, c in pairs(marks) do
-					if line <= count then want[line] = changelist.style_of(steps, c) end
-				end
-				runs = changelist.runs(marks)
+		if settings:get("changemarks") then
+			local marks = current()
+			local count = editor.line_count()
+			for line, c in pairs(marks) do
+				if line <= count then want[line] = changelist.style_of(steps, c) end
 			end
+			runs = changelist.runs(marks)
 		end
 		if gutter then gutter.draw(path, want) end
 		if not has_diag then return end
@@ -117,12 +134,51 @@ local function setup(app)
 		end)
 	end
 
+	-- ctrl+k /: the changes pi made in the open file are seen: the bars go.
+	local function seen_here()
+		local path = editor.file_path()
+		local owner = sessions.owner()
+		if not path or path == "" or not owner then return ttt.notify("symbiosis: no file, or no pi followed", "info") end
+		local changes = changelist.read_log(channel, owner)
+		local ids, seen = {}, changelist.read_seen(channel, owner)
+		for _, c in ipairs(changes) do
+			if c.path == path and not seen[c.id] then table.insert(ids, c.id) end
+		end
+		if #ids == 0 then return ttt.notify("symbiosis: no change of pi in " .. util.name(path) .. " waits to be seen", "info") end
+		changelist.mark_seen(channel, owner, ids, changes)
+		app:emit("seen")
+		ttt.notify("symbiosis: " .. #ids .. " change" .. (#ids == 1 and "" or "s") .. " of pi in " .. util.name(path) .. " marked seen", "info")
+	end
+
+	app:command({ id = "symbiosis.markSeen", title = "symbiosis: Mark pi's Changes in This File Seen", key = "ctrl+k /", run = seen_here })
+	app:command({
+		id = "symbiosis.markAllSeen", title = "symbiosis: Mark All of pi's Changes Seen",
+		run = function()
+			local owner = sessions.owner()
+			if not owner then return ttt.notify("symbiosis: no pi followed", "info") end
+			local changes = changelist.read_log(channel, owner)
+			local ids = {}
+			for _, c in ipairs(changes) do table.insert(ids, c.id) end
+			changelist.mark_seen(channel, owner, ids, changes)
+			app:emit("seen")
+			ttt.notify("symbiosis: all of pi's changes marked seen", "info")
+		end,
+	})
+	app:hint({ key = "ctrl+k /", text = "mark pi's changes in this file seen", order = 82 })
+
+	app:on("seen", draw_safe)
 	app:on("file", draw_safe)
 	app:on("ready", draw_safe)
 	app:on("second", draw_safe)
 	app:on("done", later)
 	app:on("change", later)
-	return {}
+	return {
+		-- The change that wrote `line` of the open file (not seen yet), and the owner.
+		at = function(line)
+			local marks, owner = current()
+			return marks[line], owner
+		end,
+	}
 end
 
 return { name = "changemarks", needs = { "sessions", "follow" }, setup = setup }
