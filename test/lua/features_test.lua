@@ -66,6 +66,50 @@ return {
 		t.eq(plan.plan_line({ { state = "done", text = "a" } }), "✓ 1 done")
 		t.eq(plan.plan_line({ { state = "done", text = "a" }, { state = "now", text = "b" }, { state = "next", text = "c" } }), "✓ 1 › ▶ b › c")
 	end },
+	{ "changelist: steps, their files, and what pi really changed", function()
+		local build = require("core.changelist").build
+		local steps = {
+			{ text = "Types", state = "done", files = { "/w/a.ts" } },
+			{ text = "Tests", state = "now", files = { "/w/a.test.ts", "/w/b.test.ts" } },
+			{ text = "Docs", state = "next" },
+		}
+		local function change(id, path, step, text, extra)
+			local c = { id = id, seq = tonumber(id), path = path, step = step, stepText = text, created = false, hunks = { { newStart = 12, newLines = 3 } } }
+			for k, v in pairs(extra or {}) do c[k] = v end
+			return c
+		end
+		local changes = {
+			change("1", "/w/a.ts", 0, "Types", { created = true }),
+			change("2", "/w/a.test.ts", 1, "Tests"),
+			change("3", "/w/a.test.ts", 1, "Tests"),
+			change("4", "/w/helper.ts", 1, "Tests", { hunks = { { newStart = 0, newLines = 0 } } }),
+			change("5", "/w/old.ts", 4, "A step that is gone"),
+		}
+		local nodes, actions = build(steps, changes, { cwd = "/w", editing = function(p) return p == "/w/a.test.ts" end })
+		local function labels(list)
+			local out = {}
+			for _, n in ipairs(list or {}) do table.insert(out, n.label) end
+			return out
+		end
+		t.eq(labels(nodes), { "✓ Types", "▶ Tests", "· Docs", "Other changes" })
+		t.eq(labels(nodes[1].children), { "● a.ts · new" })
+		t.eq(labels(nodes[2].children), { "✎ a.test.ts · 2 changes", "● helper.ts · 1 change · unplanned", "· b.test.ts · planned" }, "changed first, in pi's order, then the planned ones")
+		t.eq(nodes[3].children, nil, "no file, no children")
+		t.eq(labels(nodes[4].children), { "● old.ts · 1 change" }, "a step that is gone: no unplanned tag, the step names no files")
+		t.ok(nodes[1].muted and nodes[1].expanded == false, "a done step is muted and collapsed")
+		t.eq(nodes[2].expanded, true)
+		t.eq(actions["step:2:1"], { path = "/w/a.test.ts", line = 12 })
+		t.eq(actions["step:2:2"], { path = "/w/helper.ts", line = 1 }, "line 0 (a delete at the top) is line 1")
+		t.eq(actions["step:2:3"], { path = "/w/b.test.ts", line = 1 })
+	end },
+	{ "changelist: a rewritten plan keeps the change with its step", function()
+		local index = require("core.changelist").step_index
+		local steps = { { text = "New first", state = "done" }, { text = "Tests", state = "now" } }
+		t.eq(index(steps, { step = 0, stepText = "Tests" }), 2, "the step moved: found by its text")
+		t.eq(index(steps, { step = 1, stepText = "Tests" }), 2)
+		t.eq(index(steps, { step = 0, stepText = "Gone" }), nil)
+		t.eq(index(steps, { step = nil, stepText = nil }), nil)
+	end },
 	{ "sessions: which one the editor follows", function()
 		local pick = require("features.sessions").pick
 		local a = { id = "a", cwd = "/w", active = 1 }

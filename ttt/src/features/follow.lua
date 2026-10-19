@@ -76,6 +76,8 @@ return {
 		local function start(ev)
 			open[ev.path] = (open[ev.path] or 0) + 1
 			writing = ev.path
+			-- The features that want to know (the change list marks the file).
+			app:emit("start", ev)
 			show()
 		end
 
@@ -162,6 +164,8 @@ return {
 			now_path = function() return writing or (here and here.path) end,
 			-- pi has a call open in some file.
 			running = function() return next(open) ~= nil end,
+			-- pi has a call open in this file.
+			editing = function(path) return open[path] ~= nil end,
 			-- pi has no call open in `path`, and no feature writes in the buffer.
 			quiet = function(path)
 				return not open[path] and not held_by_others()

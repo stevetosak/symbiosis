@@ -179,6 +179,22 @@ the keys while it is open, so a plugin key cannot close it: Esc does, as in
 every ttt drawer. When the editor moved after the drawer opened (a stop),
 `ctrl+k v` gives the drawer the focus again.
 
+The drawer is also the change list. Under each step it lists files
+(`ttt/src/core/changelist.lua`, pure, with the tests): first the files pi
+changed in that step, in the order it first changed them (`●`; `✎` while a
+call of pi is open in it; "new" for a file pi created; the number of
+changes), then the files the step named that pi has not reached (`·`,
+"planned"). When a step names files, a changed file it did not name says
+"unplanned"; a step that names none tags nothing, so a plan without `files`
+is not full of tags. A change belongs to the step it was logged under: the
+same place in the plan with the same text, else the first step with that
+text (pi rewrote the plan); a change with no step left goes under "Other
+changes". Done steps are muted and collapsed. The drawer reads the owner's
+`log/<session>/index.json` and redraws when the plan or the log changes (the
+`start` and `done` hooks of follow). Enter on a file opens it at the first
+line of its first change in that step; that line is as the change left it, and
+it is not moved for later changes yet.
+
 ## The gutter marks
 
 ttt's gutter (`ttt.bookmarks`, the column left of the line numbers) holds the

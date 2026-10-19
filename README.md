@@ -150,7 +150,10 @@ argument, else the git root, else this folder.
 - Status bar `✓ 3 › ▶ Run the tests › Update the README +1`: pi's plan as a
   timeline, done › now › next. pi sends it with its `plan` tool for a task
   with several steps. `ctrl+k v` (or a click) shows the whole plan in a
-  drawer; Esc closes it.
+  drawer: under each step, the files pi named for it and the files it
+  changed in it (`●` changed, `✎` pi writes it now, `·` planned, "unplanned"
+  when no step named it). Tab goes into the list, Enter opens a file; Esc
+  closes the drawer.
 - `ctrl+k w`: what pi changed in its last turn, as a diff: the open file, or
   the last file pi changed if pi did not touch the open one. A notice lists
   the reasons pi gave for those changes (`why`).
@@ -326,6 +329,7 @@ bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the work
 bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel shows a file outside the folder
 bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, tab names, no multiplexer, already open, symbiosis close
 bash test/e2e/close.sh     # ctrl+k n detaches; ctrl+k z asks, runs `symbiosis close`, quits ttt only when it worked (asks about unsaved files); quit.json
+bash test/e2e/changelist.sh # the plan drawer: steps with the files pi named and changed, unplanned, Enter opens a file
 bash test/e2e/stop.sh      # "? waits for you" while pi shows a dialog; ctrl+k q stops pi's turn
 bash test/e2e/ask.sh       # ctrl+k d and why!: the drawer, a term asked about, the note file, the gutter mark and its click, .gitignore
 bash test/e2e/review.sh    # a filled body: the drawer opens by itself, the gutter mark and status item, Esc hides, ctrl+k x shows, a acks

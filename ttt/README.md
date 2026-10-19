@@ -27,7 +27,7 @@ ttt/
       folder.lua        the workspace folder of a file
     features/
       sessions.lua      the pi sessions; the one the editor follows
-      plan.lua          pi's plan in the status bar, ctrl+k v
+      plan.lua          pi's plan in the status bar, ctrl+k v: the steps with their files and changes
       tree.lua          the "pi files" sidebar
       follow.lua        which file pi writes; the editor follows it when you turn that on
       autosave.lua      saves the file a while after you type
