@@ -33,6 +33,7 @@ grep -q '● store.ts · new' "$OUT/drawer.txt" || fail "the file pi wrote under
 grep -q '● extra.ts · new · unplanned' "$OUT/drawer.txt" || fail "the file no step named is not marked unplanned"
 grep -q '· store.test.ts · planned' "$OUT/drawer.txt" || fail "a planned file pi has not reached is not listed"
 grep -q '· Document it' "$OUT/drawer.txt" || fail "the next step is not in the drawer"
+grep -q '    kept' "$OUT/drawer.txt" || fail "a long step title is cut at the drawer's edge, not wrapped"
 grep -q '│ store.ts x │' "$OUT/opened.txt" || fail "Enter on the file row did not open it"
 grep -q '▌ 1  export const store' "$OUT/opened.txt" || fail "no change bar on the line pi wrote"
 grep -q 'pi · Write the store · new file · the store is a Map' "$OUT/debug.json" || fail "no hover text (step and why) on the changed lines"

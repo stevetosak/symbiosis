@@ -16,6 +16,7 @@ local ttt = require("ttt")
 local editor = require("ttt.editor")
 local events = require("ttt.events")
 local util = require("core.util")
+local wrap = require("core.wrap")
 local review = require("core.review")
 
 local MARK = "●"
@@ -112,20 +113,20 @@ local function setup(app)
 
 	local function render(panel)
 		local l = current
-		if not l then return panel:label({ text = "Nothing to review.", style = "muted" }) end
+		if not l then return wrap.label(panel, { text = "Nothing to review.", style = "muted" }) end
 		panel:title({ text = "pi filled " .. (l.name ~= "" and l.name or "a function"), badge = util.name(l.path) })
 		panel:markdown({ text = "`" .. (l.signature or "") .. "`", padding_left = 1 })
-		if l.intent and l.intent ~= "" then panel:label({ text = l.intent, style = "muted" }) end
+		if l.intent and l.intent ~= "" then wrap.label(panel, { text = l.intent, style = "muted" }) end
 		panel:markdown({ text = "```" .. (l.path:match("%.(%w+)$") or "") .. "\n" .. (l.body or "") .. "\n```", padding_left = 1 })
 		for _, why in ipairs(type(l.whys) == "table" and l.whys or {}) do
-			panel:label({ text = "Why: " .. why, style = "muted", margin_top = 1 })
+			wrap.label(panel, { text = "Why: " .. why, style = "muted", margin_top = 1 })
 		end
 		panel:button({ label = "&Ack", on_click = function() ack(l) end })
 		panel:button({ label = "Go to it", on_click = function()
 			ttt.open_file(l.path, lines[l.id] or l.line)
 		end })
 		local more = #list - 1
-		panel:label({
+		wrap.label(panel, {
 			text = (more > 0 and (more .. " more to review · ") or "") .. "a: ack · Esc: later (ctrl+k x)",
 			style = "muted", margin_top = 1,
 		})

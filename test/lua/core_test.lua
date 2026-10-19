@@ -231,4 +231,65 @@ return {
 		require("core.buffer").editing = true
 		t.eq(stub.events["key.press"]({ rune = "x" }), false, "the plugin's own changes are not keys")
 	end },
+	{ "wrap: lines of at most the width, by words, a long word cut, newlines kept", function()
+		local wrap = require("core.wrap")
+		t.eq(wrap.lines("one two three four", 9), { "one two", "three", "four" })
+		t.eq(wrap.lines("abcdefghij", 4), { "abcd", "efgh", "ij" })
+		t.eq(wrap.lines("a\n\nb", 10), { "a", "", "b" }, "a blank line stays")
+		t.eq(wrap.lines("  - one two three", 10), { "  - one", "  two", "  three" }, "the indent stays")
+		t.eq(wrap.lines("Stub scope      body", 40), { "Stub scope      body" }, "a line that fits is not touched")
+		t.eq(wrap.lines("ñandú ñandú", 5), { "ñandú", "ñandú" }, "characters, not bytes")
+		t.eq(wrap.lines("", 5), { "" })
+	end },
+	{ "wrap: a label gives one widget row for each line, the margin and badge on the first", function()
+		local wrap = require("core.wrap")
+		local rows = {}
+		local panel = setmetatable({}, { __index = function(_, method)
+			return function(_, arg)
+				if method == "size" then return 11, 5 end
+				if method == "label" then table.insert(rows, arg) end
+			end
+		end })
+		wrap.label(panel, { text = "alpha beta gamma delta", style = "muted", margin_top = 1, badge = "b" })
+		t.eq(#rows, 3)
+		t.eq(rows[1].text, "alpha beta")
+		t.eq({ rows[1].margin_top, rows[1].badge, rows[1].style }, { 1, "b", "muted" })
+		t.eq({ rows[2].margin_top, rows[2].badge, rows[2].style }, { nil, nil, "muted" })
+	end },
+	{ "wrap: list rows wrap into rows that answer to the same id", function()
+		local wrap = require("core.wrap")
+		local items = wrap.items({
+			{ id = "a", label = "short" },
+			{ id = "b", label = "one two three four five six seven eight", muted = true, children = {
+				{ id = "b:1", label = "child one two three four five six seven eight" },
+			} },
+		}, 24)
+		t.eq(#items, 2, "a node's continuation rows are its children, not siblings")
+		t.eq(items[1].id, "a")
+		local node = items[2]
+		t.eq(node.id, "b")
+		t.ok(#node.children > 2, "continuation rows, then the child, wrapped")
+		t.eq(wrap.id(node.children[1].id), "b", "a continuation stands for its row")
+		t.eq(node.children[1].muted, true, "a continuation keeps the muting")
+		t.eq(node.children[#node.children].id:sub(1, 3), "b:1", "the real child comes last")
+		local util = require("core.util")
+		t.ok(util.runes(node.label) <= 24, "fits: " .. node.label)
+		for _, c in ipairs(node.children) do t.ok(util.runes(c.label) <= 24, "fits: " .. c.label) end
+		local flat = wrap.items({ { id = "c", label = "one two three four five six seven eight" } }, 24)
+		t.ok(#flat > 1 and wrap.id(flat[#flat].id) == "c", "a leaf's continuation rows follow it")
+	end },
+	{ "wrap: a pair that does not fit leaves the keyvalue", function()
+		local wrap = require("core.wrap")
+		local calls = {}
+		local panel = setmetatable({}, { __index = function(_, method)
+			return function(_, arg)
+				if method == "size" then return 20, 5 end
+				table.insert(calls, { method, arg })
+			end
+		end })
+		wrap.pairs(panel, { { key = "ctrl+k a", value = "short" }, { key = "ctrl+k b", value = "a value that is much too long to fit" } })
+		t.eq(calls[1][1], "keyvalue")
+		t.eq(#calls[1][2], 1)
+		t.eq(calls[2][1], "label")
+	end },
 }

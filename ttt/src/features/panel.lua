@@ -4,6 +4,7 @@
 -- frame: no file reads here. Up/Down move in a list, Tab to the next list,
 -- Esc closes.
 local ttt = require("ttt")
+local wrap = require("core.wrap")
 
 -- Settings labels are padded to this many characters, so the values line up.
 local LABEL_WIDTH = 16
@@ -25,10 +26,10 @@ return {
 					table.insert(items, { id = def.key, label = label .. settings:text(def.key) })
 				end
 				panel:list({
-					items = items,
+					items = wrap.items(items, wrap.width(panel)),
 					key_commands = { ["-"] = "slower", ["="] = "faster" },
 					on_command = function(command, node)
-						local def = settings.defs[node.id]
+						local def = settings.defs[wrap.id(node.id)]
 						if not def then return end
 						if def.steps and command == "slower" then settings:step(def.key, -1)
 						elseif def.steps and command == "faster" then settings:step(def.key, 1)
@@ -46,10 +47,10 @@ return {
 				panel:label({ text = "Keys", style = "bold", margin_top = 1 })
 				local keys = {}
 				for _, h in ipairs(app.hints) do table.insert(keys, { key = h.key, value = h.value }) end
-				panel:keyvalue(keys)
+				wrap.pairs(panel, keys)
 			end
 			for i, n in ipairs(app.notes) do
-				panel:label({ text = n.text, style = "muted", margin_top = i == 1 and 1 or nil })
+				wrap.label(panel, { text = n.text, style = "muted", margin_top = i == 1 and 1 or nil })
 			end
 		end
 

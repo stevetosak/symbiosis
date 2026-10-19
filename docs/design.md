@@ -98,6 +98,25 @@ so the new value was hidden. Now:
   title, else the folder, and adds the herdr pane (or pid) when two sessions
   would show the same name.
 
+## Panels wrap their text
+
+ttt's `label`, `list` and `tree` widgets draw one row and cut what does not
+fit (`internal/widgets/label.go`: height 1, text cut at the width), so a long
+step title, a question or a "why" lost its end at the drawer's edge. The
+plugin wraps its own text (`ttt/src/core/wrap.lua`): `wrap.label(panel, spec)`
+gives one label for each line, `wrap.items(items, panel width)` splits a
+list or tree row into the row and continuation rows, and `wrap.pairs` leaves
+the keyvalue for a pair that does not fit. The width is `panel:size()`; a
+row loses `ROW_CHROME` columns to ttt's own marks (measured: the drawer
+inner width is 46 for a 48 request, and a row has room for 40).
+A continuation row has the id of its row plus `\31` and a number, so a click
+on it is a click on the row: a handler asks `wrap.id(node.id)`. A tree node's
+continuation rows are its first children (children come right after their
+node, so a sibling would land after them). Not wrapped: `markdown` (ttt wraps
+prose itself; a fenced code line is not cut: it clips at the edge) and the
+run panel's raw cell rows (its output wraps by default; `w` cuts instead; the
+choice is saved as `nowrap` in its layout file).
+
 ## The other rules
 
 - pi runs the calls of one message in parallel; `start` and `done` count the
@@ -655,6 +674,15 @@ and dropped: the panel was a poorer copy of pi's own terminal.)
   symbiosis runs again there with `--here`, and this pane is free. The new
   tab's shell does not get this environment, so `SYMBIOSIS_PI` and
   `SYMBIOSIS_TTT` go along on the command line (`env ...`).
+- **Demo scenarios.** `demo/scenarios/` has one `Scenario` for each feature
+  (`kit.ts` is the shape: title, what to try, the scripted pi's `run`, and a
+  `check` for a headless ttt). `npm run demo -- <name>` writes the name into the
+  workspace's tag file, which the scripted pi reads (a pane has not the
+  launcher's environment; `DEMO_SCENARIO` overrides, as the e2e script uses it); `--list` names them; `--show <name>` prints
+  the check as JSON, which `test/e2e/scenarios.sh` runs. The task is data
+  (`task.ts`): a scenario plays it through the fake pi or puts its result on
+  disk. A scenario waits for pi by the plan drawer (it shows the last step),
+  not by the status bar: pi's notices cover the bar.
 - **The demo.** `npm run demo` runs the launcher on a fresh copy with
   `SYMBIOSIS_PI=demo/scripted-pi`: the scripted pi takes the place of pi and
   ends when the launcher's record goes (ttt quit). `--real` gives a real pi

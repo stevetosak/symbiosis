@@ -262,6 +262,7 @@ return {
 		local out = {}
 		local panel = setmetatable({}, { __index = function(_, method)
 			return function(_, arg)
+				if method == "size" then return 100, 40 end
 				if method == "list" and arg.items[1].id == "scope" then
 					for _, it in ipairs(arg.items) do table.insert(out, it.label) end
 				elseif method == "keyvalue" then
