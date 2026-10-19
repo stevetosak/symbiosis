@@ -655,6 +655,15 @@ and dropped: the panel was a poorer copy of pi's own terminal.)
   symbiosis runs again there with `--here`, and this pane is free. The new
   tab's shell does not get this environment, so `SYMBIOSIS_PI` and
   `SYMBIOSIS_TTT` go along on the command line (`env ...`).
+- **Demo scenarios.** `demo/scenarios/` has one `Scenario` for each feature
+  (`kit.ts` is the shape: title, what to try, the scripted pi's `run`, and a
+  `check` for a headless ttt). `npm run demo -- <name>` writes the name into the
+  workspace's tag file, which the scripted pi reads (a pane has not the
+  launcher's environment; `DEMO_SCENARIO` overrides, as the e2e script uses it); `--list` names them; `--show <name>` prints
+  the check as JSON, which `test/e2e/scenarios.sh` runs. The task is data
+  (`task.ts`): a scenario plays it through the fake pi or puts its result on
+  disk. A scenario waits for pi by the plan drawer (it shows the last step),
+  not by the status bar: pi's notices cover the bar.
 - **The demo.** `npm run demo` runs the launcher on a fresh copy with
   `SYMBIOSIS_PI=demo/scripted-pi`: the scripted pi takes the place of pi and
   ends when the launcher's record goes (ttt quit). `--real` gives a real pi

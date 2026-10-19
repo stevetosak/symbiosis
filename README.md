@@ -309,7 +309,9 @@ command: ttt here, a scripted pi in its own tab. The scripted pi does a small
 task while you watch in ttt, then answers your `helpi!` questions with set
 answers. No model, no tokens, the same every time. `npm run demo -- --real`
 gives the same task (`demo/PROMPT.md`) to a real pi, which costs tokens. See
-`demo/README.md`.
+`demo/README.md`. Each feature has a scenario of its own: `npm run demo -- --list`
+names them (`follow`, `plan`, `changes`, `marks`, `seen`, `diff`, `helpi`), and
+`npm run demo -- changes` runs one.
 
 `npm run demo -- --stubs` opens a shopping cart with functions left for pi
 to write, and a real pi that waits: `demo/STUBS.md` walks through each fill,
@@ -335,6 +337,7 @@ npm run e2e       # a fake pi against a headless ttt; prints the output folder
 PLAN_AT=26 PLAN_CLOSE_AT=34 HOLD_MS=4000 npm run e2e   # also opens the plan drawer
 DIFF_AT=30 HOLD_MS=4000 npm run e2e                     # also shows the diff (ctrl+k w)
 bash test/e2e/help.sh      # helpi!: code, note, ask, Esc; only the session the editor follows answers
+bash test/e2e/scenarios.sh # every demo scenario against a headless ttt (name one to run only it)
 bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the workspace tests must pass
 bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel shows a file outside the folder
 bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, tab names, no multiplexer, already open, symbiosis close

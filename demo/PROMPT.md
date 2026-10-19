@@ -1,4 +1,5 @@
-Use your plan tool for this task, and keep it up to date as you go.
+Use your plan tool for this task, and keep it up to date as you go. Name
+the files each step will change in the plan, with its `files` list.
 
 In this to-do app:
 
