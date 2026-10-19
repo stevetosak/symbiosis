@@ -21,6 +21,7 @@ local workspace = require("core.folder")
 local json = require("ttt.json")
 local system = require("ttt.system")
 local util = require("core.util")
+local panel_wrap = require("core.wrap") -- (`wrap` below is the output setting)
 
 local PANEL_ID = "plugin.symbiosis"
 local STALE_POLL = 5 -- ticks between reads of the runs while one runs (200 ms)
@@ -572,8 +573,8 @@ function M.setup(app)
 			for _, o in ipairs(a.ask.options) do if o.value == value then return o end end
 			return nil
 		end
-		panel:title("Run " .. util.cut(a.ask.name, 40))
-		panel:label({ text = "Pick the " .. a.ask.input.description, style = "bold" })
+		panel:title("Run " .. a.ask.name)
+		panel_wrap.label(panel, { text = "Pick the " .. a.ask.input.description, style = "bold" })
 		panel:input({
 			placeholder = "filter",
 			on_change = function(text)
@@ -583,14 +584,14 @@ function M.setup(app)
 			end,
 			on_submit = function() take(a.items[1]) end,
 		})
-		if #a.items == 0 then panel:label({ text = "None matches.", style = "muted" }) end
+		if #a.items == 0 then panel_wrap.label(panel, { text = "None matches.", style = "muted" }) end
 		panel:tree({
-			items = M.input_items(a.items, a.ask.current),
+			items = panel_wrap.items(M.input_items(a.items, a.ask.current), panel_wrap.width(panel)),
 			on_command = function(command, node)
-				if command == "activate" then take(by_value(node and node.id)) end
+				if command == "activate" then take(by_value(node and panel_wrap.id(node.id))) end
 			end,
 		})
-		panel:label({ text = "Enter picks the first · ↓ to the list: Enter or a click picks · ▶ picked last · ● up already · Esc", style = "muted", margin_top = 1 })
+		panel_wrap.label(panel, { text = "Enter picks the first · ↓ to the list: Enter or a click picks · ▶ picked last · ● up already · Esc", style = "muted", margin_top = 1 })
 	end
 
 	ask_input = function(config, ask, opts)
@@ -607,7 +608,7 @@ function M.setup(app)
 		if not picker then return end
 		local now = chosen()
 		panel:title("Run")
-		panel:label({ text = folder and util.short(folder) or "", style = "muted" })
+		panel_wrap.label(panel, { text = folder and util.short(folder) or "", style = "muted" })
 		panel:input({
 			placeholder = "filter: name, group or command",
 			on_change = function(text)
@@ -623,16 +624,16 @@ function M.setup(app)
 			end,
 		})
 		if #picker.items == 0 then
-			panel:label({ text = #configs == 0 and "Nothing to run found here." or "No configuration matches.", style = "muted" })
+			panel_wrap.label(panel, { text = #configs == 0 and "Nothing to run found here." or "No configuration matches.", style = "muted" })
 		end
 		panel:tree({
-			items = M.picker_items(picker.items, now and now.id),
+			items = panel_wrap.items(M.picker_items(picker.items, now and now.id), panel_wrap.width(panel)),
 			key_commands = { s = "save", e = "edit", i = "inputs" },
 			-- on_select comes with every move of the selection (the arrows);
 			-- Enter and a click are "activate".
 			on_command = function(command, node)
 				if command == "activate" then
-					local c = by_id(node and node.id)
+					local c = by_id(node and panel_wrap.id(node.id))
 					if not c then return end
 					close_picker()
 					return start(c)
@@ -642,20 +643,20 @@ function M.setup(app)
 					return edit_run_json()
 				end
 				if command == "save" then
-					local c = by_id(node and node.id)
+					local c = by_id(node and panel_wrap.id(node.id))
 					close_picker()
 					save(c)
 				end
 				if command == "inputs" then
-					local c = by_id(node and node.id)
+					local c = by_id(node and panel_wrap.id(node.id))
 					if not c then return end
 					close_picker()
 					start(c, { again = true })
 				end
 			end,
 		})
-		for _, p in ipairs(problems) do panel:label({ text = "⚠ " .. p, style = "warning" }) end
-		panel:label({ text = "Enter runs the first · ↓ to the list: Enter or a click runs one, i picks its inputs again, s saves it to run.json, e edits run.json · Esc", style = "muted", margin_top = 1 })
+		for _, p in ipairs(problems) do panel_wrap.label(panel, { text = "⚠ " .. p, style = "warning" }) end
+		panel_wrap.label(panel, { text = "Enter runs the first · ↓ to the list: Enter or a click runs one, i picks its inputs again, s saves it to run.json, e edits run.json · Esc", style = "muted", margin_top = 1 })
 	end
 
 	local function show_picker()
@@ -677,17 +678,17 @@ function M.setup(app)
 	-- The runs list's width: dragged at the │ between the panes, kept in run-layout.json.
 	local layout_file = app.dir .. "/run-layout.json"
 	local split = nil
-	local wrap = false -- long output lines: cut at the pane's edge, or wrapped (w)
+	local wrap = true -- long output lines: wrapped (default), or cut at the pane's edge (w)
 	local dragging = false
 	-- At "ready": ttt's fs answers a plugin only once it has loaded.
 	local function load_layout()
 		local ok, d = pcall(json.decode, fs.exists(layout_file) and fs.read(layout_file) or "")
 		if ok and type(d) == "table" then
 			if tonumber(d.left) then split = tonumber(d.left) end
-			wrap = d.wrap == true
+			wrap = d.nowrap ~= true -- (an older layout file saved "wrap" as false by default, so it is not read)
 		end
 	end
-	local function save_layout() pcall(fs.write, layout_file, json.encode({ left = split, wrap = wrap })) end
+	local function save_layout() pcall(fs.write, layout_file, json.encode({ left = split, nowrap = not wrap })) end
 	-- The output's rows, made again when the output, the width or wrap change.
 	local view = { key = nil, rows = {} }
 	local function output_rows(width)

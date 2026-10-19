@@ -8,6 +8,7 @@
 local ttt = require("ttt")
 local json = require("ttt.json")
 local util = require("core.util")
+local wrap = require("core.wrap")
 local changelist = require("core.changelist")
 
 local PLAN_WIDTH = 56 -- the timeline in the status bar, in characters
@@ -76,16 +77,16 @@ return {
 			local steps = plan_of(owner)
 			panel:title({ text = "pi plan", badge = owner and owner.name or "no session" })
 			if #steps == 0 then
-				panel:label({ text = "No plan yet. pi sends one for a task with several steps.", style = "muted" })
+				wrap.label(panel, { text = "No plan yet. pi sends one for a task with several steps.", style = "muted" })
 			end
 			local changes = log_of(owner)
 			if #steps > 0 or #changes > 0 then
 				local nodes
 				nodes, actions = changelist.build(steps, changes, { cwd = owner and owner.cwd, editing = follow.editing, seen = changelist.read_seen(app.channel, owner) })
 				panel:list({
-					items = nodes, truncate_left = false, key_commands = { s = "seen", d = "diff" },
+					items = wrap.items(nodes, wrap.width(panel)), truncate_left = false, key_commands = { s = "seen", d = "diff" },
 					on_command = function(command, node)
-						local a = actions[node.id]
+						local a = actions[wrap.id(node.id)]
 						if not a then return end
 						if command == "activate" and a.kind == "file" then return ttt.open_file(a.path, a.line) end
 						if command == "seen" then return mark_seen(a.changes) end
@@ -96,7 +97,7 @@ return {
 					end,
 				})
 			end
-			panel:label({ text = "Tab, then: Enter opens · d diff · s seen (a step: all its files) · Esc closes", style = "muted", margin_top = 1 })
+			wrap.label(panel, { text = "Tab, then: Enter opens · d diff · s seen (a step: all its files) · Esc closes", style = "muted", margin_top = 1 })
 		end
 
 		-- Shows the owner's plan; only when it changed, so the drawer does not flicker.

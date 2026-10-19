@@ -10,7 +10,7 @@ const pi = new FakePi({ cwd: dir, log: (line) => console.log(line) });
 await pi.start();
 console.log(`owner: ${(await pi.waitOwner(4000)) ? 'this' : 'none'}`);
 await pi.beginTurn();
-await pi.plan(['Write the store', 'now', ['store.ts', 'store.test.ts']], ['Document it', 'next', ['README.md']]);
+await pi.plan(['Write the store', 'now', ['store.ts', 'store.test.ts']], ['Document it: say in the README what the store keeps and why the order is kept', 'next', ['README.md']]);
 await pi.write(join(dir, 'store.ts'), 'export const store = new Map();\n', 'the store is a Map');
 await pi.write(join(dir, 'extra.ts'), 'export const extra = 1;\n');
 console.log('written');
