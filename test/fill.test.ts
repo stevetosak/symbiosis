@@ -25,7 +25,7 @@ let pi: InstanceType<typeof FakePi>;
 let id = '';
 
 function editor(state: Record<string, unknown>): void {
-	writeFileSync(join(plugin, 'ttt.json'), JSON.stringify({ t: Date.now() / 1000 + 3600, owner: id, lag: -1, ...state }));
+	writeFileSync(join(plugin, 'ttt.json'), JSON.stringify({ t: Date.now() / 1000 + 3600, owner: id, ...state }));
 }
 
 const record = () => JSON.parse(readFileSync(join(plugin, 'sessions', `${id}.json`), 'utf-8'));

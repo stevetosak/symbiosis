@@ -26,6 +26,7 @@ open each file at the changed line.
 | Fill | `core/fill.ts` | One fill (a stub, or a new function under its description): starts it from a line, checks each call with the guard, keeps the accepted proposals, knows when the work is done. |
 | Tools | `pi/tools.ts` | pi's own `edit` and `write` again, with a `why` argument and one call at a time; a probe that tells what an edit would leave in the file. |
 | Filling | `pi/fill.ts` | The pi side of a fill: the fill request, the guard before each call, the `propose` tool that waits for the editor's answer. |
+| Hunks | `core/hunks.ts` | Pure: the lines a change touched (a line diff, by the `diff` package), and where an old line stands after a later change. |
 | Launcher | `launcher/main.ts` (`bin/symbiosis`) | Starts a real pi in its own herdr or tmux pane, runs ttt here as its child, ends when ttt quits. One record per folder in `~/.local/state/symbiosis/`. |
 | Layout | `launcher/layout.ts` | Pure: the herdr and tmux command lines for a pi tab, a split, or a new tab for symbiosis itself. |
 | ttt plugin | `ttt/src` (bundled into `ttt/symbiosis/plugin.lua`) | Polls every 40 ms. Shows which file pi writes. Follows the result when you ask. Sends helpi! questions and writes the answers. A host (`ttt/src/core`) and one module per feature (`ttt/src/features`); see `ttt/README.md`. |
@@ -196,6 +197,29 @@ Only the owner keeps these, in `changes/` in the plugin folder
 (`pi/changes.ts`): ttt.fs cannot read outside the workspace, so the
 extension writes both texts there. A new turn of the owner drops the last
 one. Files over 1 MB are not kept.
+
+## The change log
+
+`pi/changelog.ts` keeps every `write` and `edit` of the session, in the order
+pi made them (`log/<session>/index.json`, oldest first). The diff key keeps
+the last turn only; this log is for the change list and keeps its entries
+across turns, up to 300 (the oldest go first). An entry: `seq`, time, call,
+tool, file, the plan step, the hunks, pi's `why`, and `created`. The texts
+before and after are in `log/<session>/<id>.json`, for the exact diff of one
+change; a file over 256 KB keeps its hunks and no texts.
+
+- The step is the plan step that is `now` when the call ends; with no `now`,
+  the last `done` one; with no plan, none. The entry keeps the step's index
+  and its text, so a plan that pi rewrites later does not lose it.
+- The hunks are in the file as it was after that change. A later change moves
+  them: `moveLine` in `core/hunks.ts` gives the line again, or `null` when a
+  later change replaced it.
+- Every session logs, not only the one the editor follows: the owner may
+  change, and the log of the other is there when it does. A log folder of a
+  session that nobody has touched for 7 days is removed when a new session
+  starts.
+- A call that fails, is blocked by the guard, or changes nothing, is not
+  logged. Changes by `bash` are not logged yet.
 
 ## The file tree
 

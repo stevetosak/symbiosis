@@ -56,6 +56,40 @@ export interface Step {
 }
 
 /** What a pi session tells the plugin about itself. Times are Unix seconds. */
+/** One hunk of a change: the lines it replaced and the lines it put in (1-based; a count of 0 is an insert or a delete at that line). */
+export interface Hunk {
+	oldStart: number;
+	oldLines: number;
+	newStart: number;
+	newLines: number;
+}
+
+/**
+ * One write or edit pi made, as the change log keeps it (pi/changelog.ts):
+ * `log/<session>/index.json` lists them, oldest first; the texts before and
+ * after are in `log/<session>/<id>.json` ({before, after}) when `texts` is true.
+ */
+export interface LoggedChange {
+	id: string;
+	/** 1, 2, 3 ... in the order pi made them. */
+	seq: number;
+	/** Seconds since the epoch. */
+	t: number;
+	call: string;
+	tool: 'write' | 'edit';
+	path: string;
+	/** The plan step pi worked on (its place in the plan then), else null. */
+	step: number | null;
+	stepText: string | null;
+	/** The file did not exist before. */
+	created: boolean;
+	/** The lines of this change, in the file as it was after it. */
+	hunks: Hunk[];
+	why?: string;
+	/** The texts before and after are kept (a file over 256 KB is not). */
+	texts: boolean;
+}
+
 export interface Session {
 	id: string;
 	/** The channel protocol of this extension; the plugin flags an older one. */

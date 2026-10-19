@@ -21,6 +21,7 @@ import { type HelpRequest, type PluginState, PROTOCOL, type Session, type Tool }
 import { paneOf } from '../core/session.ts';
 import { absolutePath, firstLine } from '../core/call.ts';
 import { Changes } from './changes.ts';
+import { ChangeLog } from './changelog.ts';
 import { Filling, PROPOSE_DESCRIPTION, PROPOSE_PARAMETERS, type ProposeParams } from './fill.ts';
 import { cleanSteps, PLAN_DESCRIPTION, prepareArguments, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
 import { syncTttPlugin } from './setup.ts';
@@ -51,6 +52,8 @@ export default function symbiosis(pi: ExtensionAPI) {
 	let poll: ReturnType<typeof setInterval> | undefined;
 	let ticks = 0;
 	const id = `${process.pid}-${Date.now().toString(36)}`;
+	// Every write and edit of this session, with its plan step (the change list in ttt).
+	const changeLog = new ChangeLog(join(pluginDir(), 'log'), id);
 	const record: Session = {
 		id,
 		version: PROTOCOL,
@@ -379,6 +382,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		const path = absolutePath(target, ctx.cwd);
 		wrote(path);
 		keepBefore(event.input, ctx.cwd);
+		safely(() => changeLog.before(event.toolCallId, path));
 		if (owner()) channel.emit({ op: 'start', call: event.toolCallId, tool: event.toolName, path });
 		return undefined;
 	});
@@ -393,6 +397,8 @@ export default function symbiosis(pi: ExtensionAPI) {
 		const path = (event.input as { path?: unknown }).path;
 		if (typeof path !== 'string' || path === '') return undefined;
 		const why = whyOf(event.input);
+		if (event.isError) changeLog.drop(event.toolCallId);
+		else safely(() => changeLog.after(event.toolCallId, event.toolName as 'write' | 'edit', absolutePath(path, ctx.cwd), record.plan, why));
 		if (changesRun === run) safely(() => changes.after(absolutePath(path, ctx.cwd), why));
 		if (!owner()) return undefined;
 		const done = { op: 'done' as const, call: event.toolCallId, tool: event.toolName, path: absolutePath(path, ctx.cwd), line: firstLine(event.toolName, event.details), ok: !event.isError, ...(why ? { why } : {}) };
