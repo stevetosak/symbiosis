@@ -60,3 +60,29 @@ test('arguments as models really send them become {steps}', () => {
 	assert.deepEqual(prepared({ steps: [{ text: 'a', status: 'completed' }, { text: 'b', status: 'in_progress' }, { text: 'c', status: 'pending' }] }), want);
 	assert.deepEqual(prepared('not json'), []);
 });
+
+test('files: each step may name the files pi expects to change', () => {
+	const at = (path: string) => (path.startsWith('/') ? path : `/w/${path}`);
+	const steps = cleanSteps(
+		{
+			steps: [
+				{ text: 'a', state: 'now', files: ['src/a.ts', ' src/a.ts ', '/abs/b.ts', '', 7, null] },
+				{ text: 'b', state: 'next', files: '["c.ts"]' },
+				{ text: 'c', state: 'next', files: 'not a list' },
+				{ text: 'd', state: 'next', files: [] },
+			],
+		},
+		at,
+	);
+	assert.deepEqual(steps[0].files, ['/w/src/a.ts', '/abs/b.ts']);
+	assert.deepEqual(steps[1].files, ['/w/c.ts']);
+	assert.equal('files' in steps[2], false, 'no list, no key');
+	assert.equal('files' in steps[3], false);
+});
+
+test('files: at most 12 per step, and they survive the argument repair', () => {
+	const many = Array.from({ length: 20 }, (_, i) => `f${i}.ts`);
+	assert.equal(cleanSteps({ steps: [{ text: 'a', state: 'now', files: many }] })[0].files?.length, 12);
+	const repaired = prepareArguments({ steps: '[{"label": "a", "status": "now", "files": ["x.ts"]}]' }).steps;
+	assert.deepEqual(repaired, [{ text: 'a', state: 'now', files: ['x.ts'] }]);
+});

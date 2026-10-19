@@ -64,3 +64,10 @@ test('an edit that fails is not logged', async () => {
 	assert.ok(result.error, 'pi says the edit failed');
 	assert.equal(log().changes.length, count);
 });
+
+test('a plan step names its files; the session record keeps them as absolute paths', async () => {
+	await pi.plan(['Write a.ts', 'now', ['a.ts', join(ws, 'sub', 'b.ts')]], ['Ship', 'next']);
+	const record = JSON.parse(readFileSync(join(plugin, 'sessions', `${id}.json`), 'utf-8'));
+	assert.deepEqual(record.plan[0].files, [join(ws, 'a.ts'), join(ws, 'sub', 'b.ts')]);
+	assert.equal('files' in record.plan[1], false);
+});

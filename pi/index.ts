@@ -135,7 +135,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		parameters: PLAN_PARAMETERS as any,
 		prepareArguments,
 		async execute(_id: string, params: unknown) {
-			record.plan = cleanSteps(params);
+			record.plan = cleanSteps(params, (path) => absolutePath(path, record.cwd));
 			beat();
 			return { content: [{ type: 'text' as const, text: planSummary(record.plan) }], details: { steps: record.plan } };
 		},

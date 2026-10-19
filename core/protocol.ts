@@ -53,6 +53,8 @@ export type StepState = 'done' | 'now' | 'next';
 export interface Step {
 	text: string;
 	state: StepState;
+	/** The files pi expects to create or change in this step, absolute paths (pi's guess: the change list also shows the files it really changed). */
+	files?: string[];
 }
 
 /** What a pi session tells the plugin about itself. Times are Unix seconds. */

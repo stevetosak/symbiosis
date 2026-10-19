@@ -165,6 +165,13 @@ the next heartbeat (at most 1 s). After `/reload` or a resume, the last
 `todo` list (no extra tokens, but pi makes one only when it wants to) and
 over a list built from tool calls (it has no "next").
 
+A step may also name `files`: the files pi expects to create or change in it
+(at most 12, each once; paths are made absolute against pi's folder when the
+tool runs). It is pi's guess. The change list shows the files pi really
+changed beside it, and a changed file that no step named is marked as not
+planned. A call of `plan` sends the whole list again, so pi repeats the
+`files` it still wants; the tool description and the guideline say so.
+
 The plugin shows the owner's plan in the status bar, cut to about 56
 characters: done steps become a count, later next steps drop off as `+k`.
 `ctrl+k v` or a click opens a drawer with the whole list. The drawer takes
@@ -254,7 +261,7 @@ the same code).
 Diff key: no model tokens; each file pi touches is copied twice per turn.
 Timeline: the `plan` tool is in every request, about 150 tokens (schema,
 one-line snippet, one guideline). Each call costs the steps it sends, about
-10 tokens a step, plus a one-line result.
+10 tokens a step (more with `files`: about 8 a path), plus a one-line result.
 
 ## helpi!: ask where you write
 

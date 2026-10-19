@@ -185,8 +185,8 @@ export class FakePi {
 	}
 
 	/** The model calls the plan tool. */
-	async plan(...steps: [string, StepState][]): Promise<void> {
-		await this.tools.get('plan')?.execute(`plan-${++this.calls}`, { steps: steps.map(([text, state]) => ({ text, state })) });
+	async plan(...steps: [string, StepState, string[]?][]): Promise<void> {
+		await this.tools.get('plan')?.execute(`plan-${++this.calls}`, { steps: steps.map(([text, state, files]) => ({ text, state, ...(files ? { files } : {}) })) });
 	}
 
 	/** The model writes a whole file. */
