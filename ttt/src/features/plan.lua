@@ -57,12 +57,7 @@ return {
 		local open
 		local actions = {} -- node id -> {path, line}, of the list as last drawn
 
-		-- The owner's change log: the changes, oldest first.
-		local function log_of(owner)
-			if not owner then return {} end
-			local index = app.channel:read_json("log/" .. owner.id .. "/index.json")
-			return type(index) == "table" and type(index.changes) == "table" and index.changes or {}
-		end
+		local function log_of(owner) return changelist.read_log(app.channel, owner) end
 
 		local function render(panel)
 			drawer = panel

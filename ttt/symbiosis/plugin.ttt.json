@@ -24,6 +24,7 @@
     "system.env": true,
     "panel.sidebar": true,
     "editor.bookmarks": true,
+    "editor.diagnostics": true,
     "panel.bottom": true
   }
 }

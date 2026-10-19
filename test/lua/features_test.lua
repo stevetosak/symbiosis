@@ -110,6 +110,39 @@ return {
 		t.eq(index(steps, { step = 0, stepText = "Gone" }), nil)
 		t.eq(index(steps, { step = nil, stepText = nil }), nil)
 	end },
+	{ "changelist: the lines pi changed, moved by later changes", function()
+		local cl = require("core.changelist")
+		t.eq(cl.move_line(5, { { oldStart = 2, oldLines = 1, newStart = 2, newLines = 3 } }), 7, "two lines added above")
+		t.eq(cl.move_line(2, { { oldStart = 2, oldLines = 1, newStart = 2, newLines = 3 } }), nil, "replaced")
+		t.eq(cl.move_line(1, { { oldStart = 2, oldLines = 0, newStart = 2, newLines = 2 } }), 1, "an insert before line 2 leaves line 1")
+		t.eq(cl.move_line(2, { { oldStart = 2, oldLines = 0, newStart = 2, newLines = 2 } }), 4, "and moves line 2")
+		local first = { id = "1", path = "/w/a.ts", hunks = { { oldStart = 1, oldLines = 0, newStart = 1, newLines = 4 } } }
+		local second = { id = "2", path = "/w/a.ts", hunks = { { oldStart = 2, oldLines = 1, newStart = 2, newLines = 1 } } }
+		local other = { id = "3", path = "/w/b.ts", hunks = { { oldStart = 1, oldLines = 0, newStart = 1, newLines = 1 } } }
+		local marks = cl.marked_lines({ first, second, other }, "/w/a.ts")
+		t.eq({ marks[1], marks[2], marks[3], marks[4], marks[5] }, { first, second, first, first, nil }, "the later change owns its line")
+		t.eq(cl.marked_lines({ { id = "d", path = "/w/a.ts", hunks = { { oldStart = 3, oldLines = 2, newStart = 2, newLines = 0 } } } }, "/w/a.ts"), {}, "a delete marks nothing")
+		local runs = cl.runs(marks)
+		t.eq({ #runs, runs[1].first, runs[1].last, runs[2].first, runs[3].first, runs[3].last }, { 3, 1, 1, 2, 3, 4 })
+	end },
+	{ "changelist: your edit after pi's keeps the other marks", function()
+		local cl = require("core.changelist")
+		local a, b = { id = "a" }, { id = "b" }
+		local marks = { [2] = a, [5] = b, [8] = a }
+		local after = { "1", "2", "3", "4", "5", "6", "7", "8" }
+		t.eq(cl.remap(marks, after, after), marks, "the file is as pi left it")
+		-- you changed line 4 and added a line below it
+		local buffer = { "1", "2", "3", "four", "four b", "5", "6", "7", "8" }
+		t.eq(cl.remap(marks, after, buffer), { [2] = a, [6] = b, [9] = a }, "above the edit stays, below it shifts")
+		t.eq(cl.remap({ [4] = a }, after, buffer), {}, "the edited line loses its mark")
+	end },
+	{ "changelist: a colour for each plan step", function()
+		local cl = require("core.changelist")
+		local steps = { { text = "A", state = "done" }, { text = "B", state = "now" } }
+		local x, y = cl.style_of(steps, { step = 0, stepText = "A" }), cl.style_of(steps, { step = 1, stepText = "B" })
+		t.ok(x ~= y, "two steps, two colours")
+		t.eq(cl.style_of(steps, { step = nil }), "muted", "no step")
+	end },
 	{ "sessions: which one the editor follows", function()
 		local pick = require("features.sessions").pick
 		local a = { id = "a", cwd = "/w", active = 1 }
@@ -231,7 +264,7 @@ return {
 		end })
 		stub.drawer.render(panel)
 		t.eq(out, {
-			"Stub scope      the stub's body", "Autosave        1 s after you type", "Editor          stays",
+			"Stub scope      the stub's body", "Autosave        1 s after you type", "Editor          stays", "Changed lines   marked in the gutter",
 			"ctrl+k h", "ctrl+k q", "ctrl+k z", "ctrl+k a", "ctrl+k v", "ctrl+k d", "ctrl+k w",
 			"// … helpi!", "// … why!", "// TODO(pi) helpi!", "ctrl+k p", "ctrl+k x", "F5 · shift+F5", "ctrl+k F5", "Esc", "ctrl+k n", "ctrl+k g",
 		})

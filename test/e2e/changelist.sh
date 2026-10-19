@@ -17,7 +17,7 @@ echo 'export const x = 1;' > "$OUT/ws/a.ts"
 
 # The drawer opens after pi wrote (about 3 s); Tab goes into the list, Enter
 # opens the file under the cursor.
-steps="wait 4000; key ctrl+k v; wait 1200; screenshot $OUT/drawer.txt; key tab; key down; key enter; wait 1500; screenshot $OUT/opened.txt; quit"
+steps="wait 4000; key ctrl+k v; wait 1200; screenshot $OUT/drawer.txt; key tab; key down; key enter; wait 1500; screenshot $OUT/opened.txt; debug $OUT/debug.json; quit"
 (cd "$OUT/ws" && ttt --size 140x30 a.ts --exec "$steps" > /dev/null 2>&1) &
 ttt=$!
 sleep 0.4
@@ -34,4 +34,6 @@ grep -q '● extra.ts · new · unplanned' "$OUT/drawer.txt" || fail "the file n
 grep -q '· store.test.ts · planned' "$OUT/drawer.txt" || fail "a planned file pi has not reached is not listed"
 grep -q '· Document it' "$OUT/drawer.txt" || fail "the next step is not in the drawer"
 grep -q '│ store.ts x │' "$OUT/opened.txt" || fail "Enter on the file row did not open it"
+grep -q '▌ 1  export const store' "$OUT/opened.txt" || fail "no change bar on the line pi wrote"
+grep -q 'pi · Write the store · new file · the store is a Map' "$OUT/debug.json" || fail "no hover text (step and why) on the changed lines"
 echo "all passed ($OUT)"

@@ -9,6 +9,7 @@
 --   plan      pi's plan in the status bar, ctrl+k v
 --   tree      the "pi files" sidebar
 --   follow    which file pi writes; the editor follows it, when you turn that on
+--   changemarks  the lines pi changed: a bar in the gutter, a colour per plan step, hover text
 --   autosave  saves your file a while after you type
 --   helpi     a comment that ends in `helpi!` asks pi; on a stub, pi fills it
 --   fill      a fill: a stub's body, or a new function under its description;
@@ -27,6 +28,7 @@ app:use("features.sessions")
 app:use("features.plan")
 app:use("features.tree")
 app:use("features.follow")
+app:use("features.changemarks")
 app:use("features.autosave")
 app:use("features.helpi")
 app:use("features.fill")

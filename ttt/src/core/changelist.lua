@@ -12,6 +12,13 @@ local util = require("core.util")
 
 local M = {}
 
+-- The owner's change log (pi/changelog.ts): the changes, oldest first.
+function M.read_log(channel, owner)
+	if not owner then return {} end
+	local index = channel:read_json("log/" .. owner.id .. "/index.json")
+	return type(index) == "table" and type(index.changes) == "table" and index.changes or {}
+end
+
 -- The index of the plan step a change belongs to. The plan may have been
 -- rewritten since: the same place with the same text, else the first step with
 -- that text, else none (the change is listed under "Other changes").
@@ -121,6 +128,88 @@ function M.build(steps, changes, opts)
 	end
 	if #other > 0 then group("other", "Other changes", entries({}, other), false, "now") end
 	return nodes, actions
+end
+
+-- The lines pi changed ------------------------------------------------------------
+
+-- Where a line of the file stands after a later change (the hunks of that
+-- change, as core/hunks.ts `moveLine`); nil when the later change replaced it.
+function M.move_line(line, later)
+	local shift = 0
+	for _, h in ipairs(later or {}) do
+		if line < h.oldStart then break end
+		if line < h.oldStart + h.oldLines then return nil end
+		shift = shift + h.newLines - h.oldLines
+	end
+	return line + shift
+end
+
+-- The lines pi changed in `path`, as the file is after pi's last change in it:
+-- line -> the change that wrote it last. A pure delete leaves no line to mark.
+function M.marked_lines(changes, path)
+	local mine = {}
+	for _, c in ipairs(changes or {}) do
+		if c.path == path then table.insert(mine, c) end
+	end
+	local marks = {}
+	for i, c in ipairs(mine) do
+		for _, h in ipairs(c.hunks or {}) do
+			for n = h.newStart, h.newStart + h.newLines - 1 do
+				local line = n
+				for j = i + 1, #mine do
+					line = line and M.move_line(line, mine[j].hunks)
+				end
+				if line then marks[line] = c end
+			end
+		end
+	end
+	return marks
+end
+
+-- The same marks in the buffer as it is now, when you edited the file after
+-- pi did. `after` and `buffer` are lists of lines. The lines both texts share
+-- at the top and at the bottom keep their marks (the bottom ones shifted); the
+-- lines in between are the ones you edited, and lose theirs.
+function M.remap(marks, after, buffer)
+	local a, b = #after, #buffer
+	local top = 0
+	while top < a and top < b and after[top + 1] == buffer[top + 1] do top = top + 1 end
+	local bottom = 0
+	while bottom < a - top and bottom < b - top and after[a - bottom] == buffer[b - bottom] do bottom = bottom + 1 end
+	local out = {}
+	for line, change in pairs(marks) do
+		if line <= top then
+			out[line] = change
+		elseif line > a - bottom and line <= a then
+			out[line + (b - a)] = change
+		end
+	end
+	return out
+end
+
+-- The colour of a plan step: a named ttt style, the step's place in a short palette.
+local PALETTE = { "success", "warning", "syntax_function", "syntax_keyword", "syntax_number", "syntax_type" }
+function M.style_of(steps, change)
+	local i = M.step_index(steps or {}, change)
+	if not i then return "muted" end
+	return PALETTE[(i - 1) % #PALETTE + 1]
+end
+
+-- Runs of marked lines written by the same change: {first, last, change}, by line.
+function M.runs(marks)
+	local lines = {}
+	for line in pairs(marks) do table.insert(lines, line) end
+	table.sort(lines)
+	local out = {}
+	for _, line in ipairs(lines) do
+		local last = out[#out]
+		if last and last.last == line - 1 and last.change == marks[line] then
+			last.last = line
+		else
+			table.insert(out, { first = line, last = line, change = marks[line] })
+		end
+	end
+	return out
 end
 
 return M

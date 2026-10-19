@@ -154,6 +154,11 @@ argument, else the git root, else this folder.
   changed in it (`●` changed, `✎` pi writes it now, `·` planned, "unplanned"
   when no step named it). Tab goes into the list, Enter opens a file; Esc
   closes the drawer.
+- The lines pi changed show in the open file: a coloured bar `▌` in the gutter
+  (one colour for each plan step; a line with a note or a review mark keeps that
+  mark), and a hint underline over each run with a hover text: the step and
+  pi's `why`. If you edit the file after pi, the lines you edited lose their
+  bar and the others keep it. Panel setting "Changed lines" turns it off.
 - `ctrl+k w`: what pi changed in its last turn, as a diff: the open file, or
   the last file pi changed if pi did not touch the open one. A notice lists
   the reasons pi gave for those changes (`why`).

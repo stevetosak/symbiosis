@@ -195,6 +195,24 @@ changes". Done steps are muted and collapsed. The drawer reads the owner's
 line of its first change in that step; that line is as the change left it, and
 it is not moved for later changes yet.
 
+**Changed lines** (`ttt/src/features/changemarks.lua`). ttt gives a plugin
+no line background, so the open file shows pi's changes two ways: a bar `▌` on
+each changed line in the gutter (`ttt.bookmarks`, through `core/gutter.lua`,
+which now takes a style for each line), and a hint diagnostic over each run
+of lines (`ttt.diagnostics`, permission `editor.diagnostics`) with the hover
+text "pi · <step> · changed|new file · <why>". The colour is the plan step's
+place in a palette of six named ttt styles (`core/changelist.lua`
+`style_of`); a change with no step is muted. The lines are where the log's
+hunks put them, moved by the later changes of that file (`marked_lines`,
+the Lua twin of `moveLine`; the later change owns a line it wrote again). When
+the buffer is not what pi left (you edited it), `remap` compares the lines at the top
+and at the bottom of pi's last text and the buffer: the lines they share keep
+their mark, shifted at the bottom; the lines between, which you edited, lose
+it. Texts over 256 KB are not kept, so such a file is marked as pi left it. A
+line with another feature's bookmark (a note, a review mark) keeps that one.
+It redraws on a file change, 300 ms after pi's call or your typing, and each
+second; the setting "Changed lines" turns it off.
+
 ## The gutter marks
 
 ttt's gutter (`ttt.bookmarks`, the column left of the line numbers) holds the

@@ -6,6 +6,9 @@
 --
 --   local gutter = require("core.gutter").new(bookmarks, "●", "warning")
 --   gutter.draw(path, { [12] = true })   -- the open file and the lines to mark
+--
+-- A line may name its own style instead of true: { [12] = "success" } (the
+-- change marks use one colour for each plan step).
 local M = {}
 
 function M.new(bookmarks, icon, style)
@@ -15,14 +18,18 @@ function M.new(bookmarks, icon, style)
 	-- `want`: line -> true, for the file `path`, which is the open one.
 	function self.draw(path, want)
 		if path ~= marked_path then marked, marked_path, key = {}, path, "" end
+		local function style_at(line)
+			return type(want[line]) == "string" and want[line] or style
+		end
 		local parts = {}
 		for line in pairs(want) do table.insert(parts, line) end
 		table.sort(parts)
+		for i, line in ipairs(parts) do parts[i] = line .. style_at(line) end
 		local now = table.concat(parts, ",")
 		local lost = false
 		for line in pairs(want) do
 			local b = bookmarks.get(line)
-			if not b or b.icon ~= icon then lost = true end
+			if not b or b.icon ~= icon or b.style ~= style_at(line) then lost = true end
 		end
 		if now == key and not lost then return end
 		key = now
@@ -36,7 +43,7 @@ function M.new(bookmarks, icon, style)
 		for line in pairs(want) do
 			local b = bookmarks.get(line)
 			if not b or b.icon == icon then
-				if not b then bookmarks.set(line, icon, style) end
+				if not b or b.style ~= style_at(line) then bookmarks.set(line, icon, style_at(line)) end
 				marked[line] = true
 			end
 		end
