@@ -11,6 +11,7 @@ local ttt = require("ttt")
 local editor = require("ttt.editor")
 local fs = require("ttt.fs")
 local util = require("core.util")
+local wrap = require("core.wrap")
 local review = require("core.review")
 
 -- Adds `node` under `dir` (a node), in the folder named by `parts`.
@@ -122,13 +123,13 @@ return {
 			render = function(panel)
 				seen = app.ticks
 				if #items == 0 then
-					panel:label({ text = "No pi session is running.", style = "muted" })
+					wrap.label(panel, { text = "No pi session is running.", style = "muted" })
 					return
 				end
 				panel:tree({
-					items = items,
+					items = wrap.items(items, wrap.width(panel)),
 					on_select = function(node)
-						local path = paths[node.id]
+						local path = paths[wrap.id(node.id)]
 						if path then ttt.open_file(path) end
 					end,
 				})

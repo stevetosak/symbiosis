@@ -22,6 +22,7 @@ local ttt = require("ttt")
 local editor = require("ttt.editor")
 local fs = require("ttt.fs")
 local util = require("core.util")
+local wrap = require("core.wrap")
 
 local SAVE_TICKS = 30 -- how long a fill waits for the save (poll ticks)
 local SCOPES = { "stub", "file", "off" }
@@ -135,11 +136,11 @@ local function setup(app)
 
 	local function render(panel)
 		local p = proposal
-		if not p then return panel:label({ text = "pi waits for no answer.", style = "muted" }) end
+		if not p then return wrap.label(panel, { text = "pi waits for no answer.", style = "muted" }) end
 		panel:title({ text = "pi proposes", badge = KIND_TEXT[p.kind] or p.kind })
-		panel:keyvalue({ { key = "target", value = util.short(p.target) } })
-		panel:label({ text = p.what, margin_top = 1 })
-		panel:label({ text = "Why: " .. p.why, style = "muted", margin_top = 1 })
+		wrap.pairs(panel, { { key = "target", value = util.short(p.target) } })
+		wrap.label(panel, { text = p.what, margin_top = 1 })
+		wrap.label(panel, { text = "Why: " .. p.why, style = "muted", margin_top = 1 })
 		panel:input({
 			prefix = "note: ", placeholder = "optional, for pi",
 			on_change = function(text) note = text end,
@@ -147,7 +148,7 @@ local function setup(app)
 		})
 		panel:button({ label = "&Accept", on_click = function() answer(true) end })
 		panel:button({ label = "&Reject", on_click = function() answer(false) end })
-		panel:label({ text = "Enter accepts · Tab: the buttons · Esc: later (ctrl+k p)", style = "muted", margin_top = 1 })
+		wrap.label(panel, { text = "Enter accepts · Tab: the buttons · Esc: later (ctrl+k p)", style = "muted", margin_top = 1 })
 	end
 
 	function show_proposal()

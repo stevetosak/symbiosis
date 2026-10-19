@@ -234,7 +234,7 @@ Run a project from ttt, as in Rider or VS Code (debugging comes later).
 - The Run tab of the bottom panel: the runs, newest at the top, and the
   output of one. A click in it, or `ctrl+k shift+F5`, gives it the keys (Esc
   gives them back to the editor). Drag the `│` between its panes to resize
-  them; the panel's height drags at its top edge, as in ttt. `w` wraps long output lines (again: cuts them). Up/Down or a click choose a run, PgUp/PgDn/Home/End scroll (End
+  them; the panel's height drags at its top edge, as in ttt. long output lines wrap; `w` cuts them instead (again: wraps). Up/Down or a click choose a run, PgUp/PgDn/Home/End scroll (End
   follows the output again), `s` stops, `r` runs it again, `x` removes an
   ended run, `o` opens its whole log, Enter or a click opens a `file:line` from
   the output.

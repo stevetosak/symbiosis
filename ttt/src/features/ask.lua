@@ -22,6 +22,7 @@ local ttt = require("ttt")
 local editor = require("ttt.editor")
 local fs = require("ttt.fs")
 local util = require("core.util")
+local wrap = require("core.wrap")
 local buffer = require("core.buffer")
 local folder = require("core.folder")
 local marker = require("core.marker")
@@ -374,11 +375,11 @@ local function setup(app)
 
 	local function render(panel)
 		local c = cur
-		if not c then return panel:label({ text = "Nothing asked.", style = "muted" }) end
+		if not c then return wrap.label(panel, { text = "Nothing asked.", style = "muted" }) end
 		local where = c.target.startLine == c.target.endLine and ("line " .. c.target.startLine) or ("lines " .. c.target.startLine .. "-" .. c.target.endLine)
 		panel:title({ text = "pi · " .. util.name(c.path) .. " " .. where, badge = STATUS[c.status] ~= "" and STATUS[c.status] or nil })
-		panel:label({ text = util.cut((c.target.text or ""):match("[^\n]*"):gsub("^%s+", ""), 44), style = "muted" })
-		if c.question ~= "" then panel:label({ text = "? " .. c.question, style = "bold", margin_top = 1 }) end
+		wrap.label(panel, { text = ((c.target.text or ""):match("[^\n]*"):gsub("^%s+", "")), style = "muted" })
+		if c.question ~= "" then wrap.label(panel, { text = "? " .. c.question, style = "bold", margin_top = 1 }) end
 		-- The input comes first, so it has the focus when the answer opens: typing asks a
 		-- follow-up. (Buttons have no mnemonic: a letter typed here must not press one.)
 		panel:input({
@@ -389,9 +390,9 @@ local function setup(app)
 		})
 
 		if c.status == "error" then
-			panel:label({ text = c.error or "failed", style = "error", margin_top = 1 })
+			wrap.label(panel, { text = c.error or "failed", style = "error", margin_top = 1 })
 		elseif c.text == "" then
-			panel:label({ text = c.status == "stopped" and "Stopped before pi answered." or "pi thinks…", style = "muted", margin_top = 1 })
+			wrap.label(panel, { text = c.status == "stopped" and "Stopped before pi answered." or "pi thinks…", style = "muted", margin_top = 1 })
 		else
 			local text = c.text
 			local urls = {}
@@ -406,12 +407,12 @@ local function setup(app)
 			if l.kind == "file" then table.insert(files, { id = "link:" .. i, label = "↗ " .. l.title .. " · " .. l.target }) end
 		end
 		if #files > 0 then
-			panel:label({ text = "Open · Tab, then Enter", style = "muted", margin_top = 1 })
+			wrap.label(panel, { text = "Open · Tab, then Enter", style = "muted", margin_top = 1 })
 			panel:list({
-				items = files, truncate_left = false,
+				items = wrap.items(files, wrap.width(panel)), truncate_left = false,
 				on_command = function(command, node)
 					if command ~= "activate" then return end
-					local n = tonumber(tostring(node.id):match("^link:(%d+)"))
+					local n = tonumber(tostring(wrap.id(node.id)):match("^link:(%d+)"))
 					if n and c.links[n] then open_link(c.links[n]) end
 				end,
 			})
@@ -419,13 +420,13 @@ local function setup(app)
 		if #c.terms > 0 then
 			local items = {}
 			for i, term in ipairs(c.terms) do table.insert(items, { id = "term:" .. i, label = "? " .. term }) end
-			panel:label({ text = "Ask about · Tab, then Enter · + deeper", style = "muted", margin_top = 1 })
+			wrap.label(panel, { text = "Ask about · Tab, then Enter · + deeper", style = "muted", margin_top = 1 })
 			panel:list({
-				items = items, truncate_left = false, key_commands = { ["+"] = "deeper" },
+				items = wrap.items(items, wrap.width(panel)), truncate_left = false, key_commands = { ["+"] = "deeper" },
 				on_command = function(command, node)
 					if command == "deeper" then return drill(c.question, true) end
 					if command ~= "activate" then return end
-					local n = tonumber(tostring(node.id):match("^term:(%d+)"))
+					local n = tonumber(tostring(wrap.id(node.id)):match("^term:(%d+)"))
 					if n and c.terms[n] then drill('What is "' .. c.terms[n] .. '" here?', false) end
 				end,
 			})
@@ -446,26 +447,26 @@ local function setup(app)
 	-- The notes of a file: the lines that have them, and the ones that moved.
 	local function render_notes(panel)
 		local path = editor.file_path()
-		if not path or path == "" then return panel:label({ text = "No file open.", style = "muted" }) end
+		if not path or path == "" then return wrap.label(panel, { text = "No file open.", style = "muted" }) end
 		local list = notes.list(path)
 		panel:title({ text = "pi's notes · " .. util.name(path), badge = tostring(#list) })
-		if #list == 0 then return panel:label({ text = "None yet: ctrl+k d on some code.", style = "muted" }) end
+		if #list == 0 then return wrap.label(panel, { text = "None yet: ctrl+k d on some code.", style = "muted" }) end
 		local items = {}
 		for i, n in ipairs(list) do
 			local head = n.question ~= "" and n.question or (n.answer:match("[^\n]*") or "")
-			table.insert(items, { id = "note:" .. i, label = (n.moved and "moved · " or ("line " .. n.line .. " · ")) .. util.cut(head, 36), muted = n.moved })
+			table.insert(items, { id = "note:" .. i, label = (n.moved and "moved · " or ("line " .. n.line .. " · ")) .. head, muted = n.moved })
 		end
 		panel:list({
-			items = items, truncate_left = false,
+			items = wrap.items(items, wrap.width(panel)), truncate_left = false,
 			on_command = function(command, node)
 				if command ~= "activate" then return end
-				local n = list[tonumber(tostring(node.id):match("^note:(%d+)"))]
+				local n = list[tonumber(tostring(wrap.id(node.id)):match("^note:(%d+)"))]
 				if not n or n.moved then return end
 				editor.set_cursor(n.line, 1)
 				ask_here(n.line)
 			end,
 		})
-		panel:label({ text = "Enter: show the note on its line", style = "muted", margin_top = 1 })
+		wrap.label(panel, { text = "Enter: show the note on its line", style = "muted", margin_top = 1 })
 	end
 
 	local function show_notes()

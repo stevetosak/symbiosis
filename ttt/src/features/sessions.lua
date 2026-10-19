@@ -15,6 +15,7 @@ local fs = require("ttt.fs")
 local json = require("ttt.json")
 local system = require("ttt.system")
 local util = require("core.util")
+local wrap = require("core.wrap")
 local channel_mod = require("core.channel")
 
 local PROTOCOL = channel_mod.PROTOCOL
@@ -252,11 +253,12 @@ return {
 				end
 				table.insert(items, { id = DETACHED, label = (chosen == DETACHED and "✓ " or "  ") .. "detached: follow no pi" })
 				panel:list({
-					items = items,
+					items = wrap.items(items, wrap.width(panel)),
 					truncate_left = false,
 					on_command = function(command, node)
 						if command ~= "activate" then return end
-						chosen = node.id ~= "" and node.id or nil
+						local picked = wrap.id(node.id)
+						chosen = picked ~= "" and picked or nil
 						refresh()
 					end,
 				})
