@@ -2,7 +2,7 @@
 // demo/workspace, with ttt and pi opened by the symbiosis command.
 //
 //   npm run demo                the whole flow with the scripted pi: no model, no tokens, the same every time
-//   npm run demo -- <name>      one feature (follow, plan, changes, marks, seen, diff, helpi)
+//   npm run demo -- <name>      one feature (follow, plan, changes, marks, seen, diff, helpi); --<name> also works
 //   npm run demo -- --list      the scenarios (demo/scenarios/)
 //   npm run demo -- --real      a real pi, given demo/PROMPT.md at once (costs tokens)
 //   npm run demo -- --reset     only make a fresh copy
@@ -30,7 +30,8 @@ import { DEFAULT, find, listing } from './scenarios/index.ts';
 
 const TAG = '.symbiosis-demo';
 const OURS = ['--scripted', '--real', '--reset', '--stubs', '--list', '--show'];
-const argv = process.argv.slice(2);
+// `--plan` means the scenario `plan`: a flag is easy to type after `npm run demo --`.
+const argv = process.argv.slice(2).map((a) => (a.startsWith('--') && !OURS.includes(a) && find(a.slice(2)) ? a.slice(2) : a));
 
 // A word before `--` that is no flag names a scenario (the scripted pi reads it from the workspace tag file; DEMO_SCENARIO overrides, for tests).
 const words = argv.slice(0, argv.includes('--') ? argv.indexOf('--') : argv.length).filter((a) => !a.startsWith('-'));
