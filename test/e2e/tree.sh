@@ -12,7 +12,6 @@ export TTT_CONFIG_DIR="$OUT/cfg"
 mkdir -p "$OUT/cfg/plugins/symbiosis" "$OUT/ws/src" "$OUT/ws/docs"
 "$repo/bin/run-node" "$repo/ttt/build.ts" >/dev/null
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"
-echo '{"speed":0}' > "$OUT/cfg/plugins/symbiosis/settings.json"
 # A wide sidebar, so the "pi files" tab shows and a click reaches it.
 echo '{"sidebarWidth":70}' > "$OUT/cfg/state.json"
 perms=$(python3 -c "import json; print(json.dumps(json.load(open('$repo/ttt/symbiosis/plugin.ttt.json'))['permissions']))")
@@ -20,7 +19,7 @@ echo "[{\"name\":\"symbiosis\",\"displayName\":\"symbiosis\",\"version\":\"0.1.0
 echo "notes" > "$OUT/ws/docs/notes.md"
 
 # pi writes src/deep/a.ts at about 2 s and the outside file at about 6.5 s.
-steps="wait 5000; screenshot $OUT/explorer.txt; click 37 2; wait 4500; screenshot $OUT/panel.txt; quit"
+steps="key ctrl+k a; wait 5000; screenshot $OUT/explorer.txt; click 37 2; wait 4500; screenshot $OUT/panel.txt; quit"
 (cd "$OUT/ws" && ttt --size 150x24 . --exec "$steps" > /dev/null 2>&1) &
 ttt=$!
 sleep 1.2

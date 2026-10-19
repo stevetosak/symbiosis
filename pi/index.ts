@@ -1,5 +1,5 @@
-// symbiosis, the pi side: streams each write and edit into the ttt editor
-// while the model writes it, and follows the result.
+// symbiosis, the pi side: tells the ttt editor which files pi writes and edits,
+// and keeps the changes for it to show. pi never waits for the editor.
 //
 // Many pi sessions can run. Each writes a session record; the plugin picks the
 // one the editor follows (the owner) and only the owner writes events and
@@ -12,33 +12,26 @@
 //
 // This file wires core/ into pi. The rules live in core/, which knows nothing
 // of pi, so another agent or another channel can use them.
-import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import type { Channel } from '../core/channel/channel.ts';
 import { FileChannel, pluginDir } from '../core/channel/file.ts';
 import { askMessage, HELP_SYSTEM, helpPrompt, lastAssistantText, parseAnswer } from '../core/help.ts';
-import { type ChannelEvent, DEFAULT_LAG, type HelpRequest, type PluginState, PROTOCOL, type Session, type Tool } from '../core/protocol.ts';
+import { type HelpRequest, type PluginState, PROTOCOL, type Session, type Tool } from '../core/protocol.ts';
 import { paneOf } from '../core/session.ts';
-import { absolutePath, adler32, BEFORE_MAX, firstLine, Tracker } from '../core/stream.ts';
+import { absolutePath, firstLine } from '../core/call.ts';
 import { Changes } from './changes.ts';
+import { ChangeLog } from './changelog.ts';
 import { Filling, PROPOSE_DESCRIPTION, PROPOSE_PARAMETERS, type ProposeParams } from './fill.ts';
 import { cleanSteps, PLAN_DESCRIPTION, prepareArguments, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
 import { syncTttPlugin } from './setup.ts';
 import { Asking } from './ask.ts';
 import { Reviewing } from './review.ts';
-import { FLUSH_MS, Flush, streamText } from './side.ts';
+import { Flush, streamText } from './side.ts';
 import { tools, whyOf } from './tools.ts';
 
 /** The files a session record lists as written by it. */
 const MAX_FILES = 20;
-
-interface Live {
-	tracker: Tracker;
-	args: Record<string, unknown>;
-	timer?: ReturnType<typeof setTimeout>;
-	last: number;
-}
 
 function isTool(name: unknown): name is Tool {
 	return name === 'write' || name === 'edit';
@@ -50,9 +43,6 @@ export default function symbiosis(pi: ExtensionAPI) {
 	// The run (agent_start to agent_end) whose changes are kept, and the run now.
 	let changesRun = 0;
 	let run = 0;
-	const live = new Map<string, Live>();
-	/** The calls pi sent `ready` for that the editor has not shown yet. */
-	let behind: string[] = [];
 	let last: { path: string; line: number } | undefined;
 	let session: ExtensionContext | undefined;
 	let lastHelp: string | undefined;
@@ -62,6 +52,8 @@ export default function symbiosis(pi: ExtensionAPI) {
 	let poll: ReturnType<typeof setInterval> | undefined;
 	let ticks = 0;
 	const id = `${process.pid}-${Date.now().toString(36)}`;
+	// Every write and edit of this session, with its plan step (the change list in ttt).
+	const changeLog = new ChangeLog(join(pluginDir(), 'log'), id);
 	const record: Session = {
 		id,
 		version: PROTOCOL,
@@ -143,7 +135,7 @@ export default function symbiosis(pi: ExtensionAPI) {
 		parameters: PLAN_PARAMETERS as any,
 		prepareArguments,
 		async execute(_id: string, params: unknown) {
-			record.plan = cleanSteps(params);
+			record.plan = cleanSteps(params, (path) => absolutePath(path, record.cwd));
 			beat();
 			return { content: [{ type: 'text' as const, text: planSummary(record.plan) }], details: { steps: record.plan } };
 		},
@@ -158,8 +150,8 @@ export default function symbiosis(pi: ExtensionAPI) {
 		}
 	}
 
-	// The plugin's state, read at most every 200 ms: message_update comes often.
-	let state: PluginState = { alive: false, pinned: false, lag: DEFAULT_LAG, scope: 'stub' };
+	// The plugin's state, read at most every 200 ms: tool calls can come in bursts.
+	let state: PluginState = { alive: false, scope: 'stub' };
 	let stateAt = 0;
 	function plugin(): PluginState {
 		if (Date.now() - stateAt > 200) {
@@ -345,45 +337,6 @@ export default function symbiosis(pi: ExtensionAPI) {
 		channel.removeSession(id);
 	});
 
-	/** Sends what changed since the last flush, starting the call once its path is complete. */
-	function flush(entry: Live, cwd: string, final: boolean): void {
-		clearTimeout(entry.timer);
-		entry.timer = undefined;
-		entry.last = Date.now();
-		const t = entry.tracker;
-		const events: ChannelEvent[] = [];
-		if (!t.started) {
-			const path = t.pathOf(entry.args, final);
-			if (!path) return;
-			t.path = absolutePath(path, cwd);
-			t.started = true;
-			wrote(t.path);
-			events.push({ op: 'start', call: t.id, tool: t.tool, path: t.path, ...onDisk(t.path) });
-		}
-		events.push(...t.update(entry.args, final));
-		channel.emit(...events);
-	}
-
-	function sumOf(path: string): number | null {
-		return existsSync(path) ? adler32(readFileSync(path)) : null;
-	}
-
-	/** The file now: its sum, and its text when it is not too big. */
-	function onDisk(path: string): { sum: number | null; before?: string } {
-		if (!existsSync(path)) return { sum: null };
-		const bytes = readFileSync(path);
-		return bytes.length <= BEFORE_MAX ? { sum: adler32(bytes), before: bytes.toString('utf-8') } : { sum: adler32(bytes) };
-	}
-
-	/** Every call that started but will not run gets its preview undone. */
-	function abortOpen(): void {
-		for (const [id, entry] of live) {
-			clearTimeout(entry.timer);
-			if (entry.tracker.started && !entry.tracker.readied) channel.emit({ op: 'abort', call: id });
-		}
-		live.clear();
-	}
-
 	/** A failure to keep a diff must not fail the tool call. */
 	function safely(f: () => void): void {
 		try {
@@ -414,64 +367,23 @@ export default function symbiosis(pi: ExtensionAPI) {
 		if (owner()) channel.rotate();
 	});
 
-	pi.on('message_update', (event, ctx) => {
-		if (!channel.enabled()) return;
-		const e = event.assistantMessageEvent;
-		if (e.type !== 'toolcall_start' && e.type !== 'toolcall_delta' && e.type !== 'toolcall_end') return;
-		const block = e.type === 'toolcall_end' ? e.toolCall : e.partial.content[e.contentIndex];
-		if (!block || block.type !== 'toolCall' || !isTool(block.name)) return;
-		let entry = live.get(block.id);
-		if (!entry) {
-			if (!owner() || plugin().pinned) return;
-			entry = { tracker: new Tracker(block.id, block.name), args: {}, last: 0 };
-			live.set(block.id, entry);
-		}
-		entry.args = (block.arguments ?? {}) as Record<string, unknown>;
-		const due = Date.now() - entry.last >= FLUSH_MS;
-		if (e.type === 'toolcall_end' || due) flush(entry, ctx.cwd, e.type === 'toolcall_end');
-		else if (!entry.timer) {
-			const pending = entry;
-			pending.timer = setTimeout(() => flush(pending, ctx.cwd, false), FLUSH_MS);
-		}
-	});
-
-	// Just before the tool runs: the final text, then `ready`. The editor
-	// replays the changes at the operator's speed, behind pi: pi waits only
-	// when more changes than the operator's limit are not shown yet.
+	// Just before the tool runs. The guard comes first; a call it lets through
+	// is told to the editor and runs at once: pi never waits for the editor.
 	pi.on('tool_call', async (event, ctx) => {
 		if (!isTool(event.toolName)) {
 			filling.keep(event.toolCallId);
 			return undefined;
 		}
-		// The guard first: the editor must not wait to show a call that will not run.
 		const blocked = await filling.check(event.toolCallId, event.toolName, event.input, ctx.cwd);
-		if (blocked) {
-			const entry = live.get(event.toolCallId);
-			live.delete(event.toolCallId);
-			if (entry) clearTimeout(entry.timer);
-			if (entry?.tracker.started) channel.emit({ op: 'abort', call: event.toolCallId, reason: blocked.reason });
-			return blocked;
-		}
+		if (blocked) return blocked;
 		if (!channel.enabled()) return undefined;
 		const target = (event.input as { path?: unknown })?.path;
-		if (typeof target === 'string' && target !== '') wrote(absolutePath(target, ctx.cwd));
+		if (typeof target !== 'string' || target === '') return undefined;
+		const path = absolutePath(target, ctx.cwd);
+		wrote(path);
 		keepBefore(event.input, ctx.cwd);
-		const entry = live.get(event.toolCallId);
-		if (!entry) return undefined;
-		entry.args = event.input as Record<string, unknown>;
-		flush(entry, ctx.cwd, true);
-		if (!entry.tracker.started) return undefined;
-		entry.tracker.readied = true;
-		channel.emit({ op: 'ready', call: entry.tracker.id });
-		const state = plugin();
-		if (!state.alive) {
-			behind = [];
-			return undefined;
-		}
-		behind.push(entry.tracker.id);
-		// Calls of one message run at the same time: each waits on the shared list.
-		await channel.waitBehind(behind, state.lag, () => !ctx.signal?.aborted && owner() && plugin().alive);
-		behind = channel.unshown(behind);
+		safely(() => changeLog.before(event.toolCallId, path));
+		if (owner()) channel.emit({ op: 'start', call: event.toolCallId, tool: event.toolName, path });
 		return undefined;
 	});
 
@@ -485,17 +397,14 @@ export default function symbiosis(pi: ExtensionAPI) {
 		const path = (event.input as { path?: unknown }).path;
 		if (typeof path !== 'string' || path === '') return undefined;
 		const why = whyOf(event.input);
+		if (event.isError) changeLog.drop(event.toolCallId);
+		else safely(() => changeLog.after(event.toolCallId, event.toolName as 'write' | 'edit', absolutePath(path, ctx.cwd), record.plan, why));
 		if (changesRun === run) safely(() => changes.after(absolutePath(path, ctx.cwd), why));
-		const streamed = live.delete(event.toolCallId);
-		if (!streamed && !owner()) return undefined;
-		const done = { op: 'done' as const, call: event.toolCallId, tool: event.toolName, path: absolutePath(path, ctx.cwd), line: firstLine(event.toolName, event.details), ok: !event.isError, sum: sumOf(absolutePath(path, ctx.cwd)), ...(why ? { why } : {}) };
+		if (!owner()) return undefined;
+		const done = { op: 'done' as const, call: event.toolCallId, tool: event.toolName, path: absolutePath(path, ctx.cwd), line: firstLine(event.toolName, event.details), ok: !event.isError, ...(why ? { why } : {}) };
 		if (done.ok) last = { path: done.path, line: done.line };
 		channel.emit(done);
 		return undefined;
-	});
-
-	pi.on('turn_end', () => {
-		if (channel.enabled()) abortOpen();
 	});
 
 	pi.on('agent_end', async () => {
@@ -504,7 +413,6 @@ export default function symbiosis(pi: ExtensionAPI) {
 		if (landing) reviewing.land(landing, changes.whys(landing.path));
 		beat();
 		if (!channel.enabled()) return;
-		abortOpen();
 		if (last && owner()) channel.emit({ op: 'stop', ...last });
 	});
 }

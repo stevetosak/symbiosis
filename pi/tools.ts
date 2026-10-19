@@ -8,7 +8,7 @@ import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { createEditToolDefinition, createWriteToolDefinition } from '@earendil-works/pi-coding-agent';
-import { absolutePath } from '../core/stream.ts';
+import { absolutePath } from '../core/call.ts';
 
 export const WHY_DESCRIPTION =
 	'Optional. One or two sentences on each choice in this change that is not obvious (error handling, I/O, shared state, retries, caching). The developer reads it next to the change.';

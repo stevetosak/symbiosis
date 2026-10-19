@@ -66,6 +66,90 @@ return {
 		t.eq(plan.plan_line({ { state = "done", text = "a" } }), "✓ 1 done")
 		t.eq(plan.plan_line({ { state = "done", text = "a" }, { state = "now", text = "b" }, { state = "next", text = "c" } }), "✓ 1 › ▶ b › c")
 	end },
+	{ "changelist: steps, their files, and what pi really changed", function()
+		local build = require("core.changelist").build
+		local steps = {
+			{ text = "Types", state = "done", files = { "/w/a.ts" } },
+			{ text = "Tests", state = "now", files = { "/w/a.test.ts", "/w/b.test.ts" } },
+			{ text = "Docs", state = "next" },
+		}
+		local function change(id, path, step, text, extra)
+			local c = { id = id, seq = tonumber(id), path = path, step = step, stepText = text, created = false, hunks = { { newStart = 12, newLines = 3 } } }
+			for k, v in pairs(extra or {}) do c[k] = v end
+			return c
+		end
+		local changes = {
+			change("1", "/w/a.ts", 0, "Types", { created = true }),
+			change("2", "/w/a.test.ts", 1, "Tests"),
+			change("3", "/w/a.test.ts", 1, "Tests"),
+			change("4", "/w/helper.ts", 1, "Tests", { hunks = { { newStart = 0, newLines = 0 } } }),
+			change("5", "/w/old.ts", 4, "A step that is gone"),
+		}
+		local nodes, actions = build(steps, changes, { cwd = "/w", editing = function(p) return p == "/w/a.test.ts" end })
+		local function labels(list)
+			local out = {}
+			for _, n in ipairs(list or {}) do table.insert(out, n.label) end
+			return out
+		end
+		t.eq(labels(nodes), { "✓ Types", "▶ Tests", "· Docs", "Other changes" })
+		t.eq(labels(nodes[1].children), { "● a.ts · new" })
+		t.eq(labels(nodes[2].children), { "✎ a.test.ts · 2 changes", "● helper.ts · 1 change · unplanned", "· b.test.ts · planned" }, "changed first, in pi's order, then the planned ones")
+		t.eq(nodes[3].children, nil, "no file, no children")
+		t.eq(labels(nodes[4].children), { "● old.ts · 1 change" }, "a step that is gone: no unplanned tag, the step names no files")
+		t.ok(nodes[1].muted and nodes[1].expanded == false, "a done step is muted and collapsed")
+		t.eq(nodes[2].expanded, true)
+		t.eq({ actions["step:2:1"].path, actions["step:2:1"].line, #actions["step:2:1"].changes }, { "/w/a.test.ts", 12, 2 })
+		t.eq(actions["step:2:2"].line, 1, "line 0 (a delete at the top) is line 1")
+		t.eq({ actions["step:2:3"].path, actions["step:2:3"].line, #actions["step:2:3"].changes }, { "/w/b.test.ts", 1, 0 })
+		t.eq({ actions["step:2"].kind, #actions["step:2"].changes }, { "step", 3 }, "a step row: all of its changes")
+		local seen_nodes = build(steps, changes, { cwd = "/w", seen = { ["2"] = true, ["3"] = true } })
+		t.eq(seen_nodes[2].children[1].label, "✓ a.test.ts · 2 changes · seen")
+		t.eq(seen_nodes[2].children[1].muted, true)
+		t.eq(seen_nodes[2].children[2].label, "● helper.ts · 1 change · unplanned", "an unseen file stays")
+	end },
+	{ "changelist: a rewritten plan keeps the change with its step", function()
+		local index = require("core.changelist").step_index
+		local steps = { { text = "New first", state = "done" }, { text = "Tests", state = "now" } }
+		t.eq(index(steps, { step = 0, stepText = "Tests" }), 2, "the step moved: found by its text")
+		t.eq(index(steps, { step = 1, stepText = "Tests" }), 2)
+		t.eq(index(steps, { step = 0, stepText = "Gone" }), nil)
+		t.eq(index(steps, { step = nil, stepText = nil }), nil)
+	end },
+	{ "changelist: the lines pi changed, moved by later changes", function()
+		local cl = require("core.changelist")
+		t.eq(cl.move_line(5, { { oldStart = 2, oldLines = 1, newStart = 2, newLines = 3 } }), 7, "two lines added above")
+		t.eq(cl.move_line(2, { { oldStart = 2, oldLines = 1, newStart = 2, newLines = 3 } }), nil, "replaced")
+		t.eq(cl.move_line(1, { { oldStart = 2, oldLines = 0, newStart = 2, newLines = 2 } }), 1, "an insert before line 2 leaves line 1")
+		t.eq(cl.move_line(2, { { oldStart = 2, oldLines = 0, newStart = 2, newLines = 2 } }), 4, "and moves line 2")
+		local first = { id = "1", path = "/w/a.ts", hunks = { { oldStart = 1, oldLines = 0, newStart = 1, newLines = 4 } } }
+		local second = { id = "2", path = "/w/a.ts", hunks = { { oldStart = 2, oldLines = 1, newStart = 2, newLines = 1 } } }
+		local other = { id = "3", path = "/w/b.ts", hunks = { { oldStart = 1, oldLines = 0, newStart = 1, newLines = 1 } } }
+		local marks = cl.marked_lines({ first, second, other }, "/w/a.ts")
+		t.eq({ marks[1], marks[2], marks[3], marks[4], marks[5] }, { first, second, first, first, nil }, "the later change owns its line")
+		local hidden = cl.marked_lines({ first, second, other }, "/w/a.ts", { ["2"] = true })
+		t.eq({ hidden[1], hidden[2], hidden[3], hidden[4] }, { first, nil, first, first }, "a seen change leaves no mark; the line is not given back to the older one")
+		t.eq(cl.marked_lines({ { id = "d", path = "/w/a.ts", hunks = { { oldStart = 3, oldLines = 2, newStart = 2, newLines = 0 } } } }, "/w/a.ts"), {}, "a delete marks nothing")
+		local runs = cl.runs(marks)
+		t.eq({ #runs, runs[1].first, runs[1].last, runs[2].first, runs[3].first, runs[3].last }, { 3, 1, 1, 2, 3, 4 })
+	end },
+	{ "changelist: your edit after pi's keeps the other marks", function()
+		local cl = require("core.changelist")
+		local a, b = { id = "a" }, { id = "b" }
+		local marks = { [2] = a, [5] = b, [8] = a }
+		local after = { "1", "2", "3", "4", "5", "6", "7", "8" }
+		t.eq(cl.remap(marks, after, after), marks, "the file is as pi left it")
+		-- you changed line 4 and added a line below it
+		local buffer = { "1", "2", "3", "four", "four b", "5", "6", "7", "8" }
+		t.eq(cl.remap(marks, after, buffer), { [2] = a, [6] = b, [9] = a }, "above the edit stays, below it shifts")
+		t.eq(cl.remap({ [4] = a }, after, buffer), {}, "the edited line loses its mark")
+	end },
+	{ "changelist: a colour for each plan step", function()
+		local cl = require("core.changelist")
+		local steps = { { text = "A", state = "done" }, { text = "B", state = "now" } }
+		local x, y = cl.style_of(steps, { step = 0, stepText = "A" }), cl.style_of(steps, { step = 1, stepText = "B" })
+		t.ok(x ~= y, "two steps, two colours")
+		t.eq(cl.style_of(steps, { step = nil }), "muted", "no step")
+	end },
 	{ "sessions: which one the editor follows", function()
 		local pick = require("features.sessions").pick
 		local a = { id = "a", cwd = "/w", active = 1 }
@@ -93,22 +177,20 @@ return {
 		local ids, keys = {}, {}
 		for _, c in ipairs(reg.commands) do ids[c.id] = true end
 		for _, k in ipairs(reg.keybindings) do keys[k.key] = k.command end
-		for _, id in ipairs({ "togglePin", "goToAgent", "nextSession", "goToSession", "showPlan", "showChanges", "slower", "faster", "pause", "rush", "help", "stop", "fillStub", "releaseStub", "showProposal", "review", "ask", "notes", "run", "runStop", "runPick", "runPanel", "runWrap", "runEdit", "runAsk", "close", "detach" }) do
+		for _, id in ipairs({ "toggleFollow", "goToAgent", "nextSession", "goToSession", "showPlan", "showChanges", "help", "stop", "fillStub", "releaseStub", "showProposal", "review", "ask", "notes", "run", "runStop", "runPick", "runPanel", "runWrap", "runEdit", "runAsk", "close", "detach" }) do
 			t.ok(ids["symbiosis." .. id], id)
 		end
-		t.eq(#reg.commands, 27)
+		t.eq(#reg.commands, 26)
 		t.eq(keys, {
-			["ctrl+k a"] = "symbiosis.togglePin", ["ctrl+k n"] = "symbiosis.nextSession", ["ctrl+k g"] = "symbiosis.goToSession",
-			["ctrl+k v"] = "symbiosis.showPlan", ["ctrl+k w"] = "symbiosis.showChanges", ["ctrl+k -"] = "symbiosis.slower",
-			["ctrl+k ="] = "symbiosis.faster", ["ctrl+k space"] = "symbiosis.pause", ["ctrl+k ."] = "symbiosis.rush",
-			["ctrl+k h"] = "symbiosis.help", ["ctrl+k q"] = "symbiosis.stop", ["ctrl+k f"] = "symbiosis.fillStub", ["ctrl+k p"] = "symbiosis.showProposal", ["ctrl+k x"] = "symbiosis.review", ["ctrl+k d"] = "symbiosis.ask", ["ctrl+k z"] = "symbiosis.close",
+			["ctrl+k a"] = "symbiosis.toggleFollow", ["ctrl+k n"] = "symbiosis.nextSession", ["ctrl+k g"] = "symbiosis.goToSession",
+			["ctrl+k v"] = "symbiosis.showPlan", ["ctrl+k w"] = "symbiosis.showChanges",
+			["ctrl+k h"] = "symbiosis.help", ["ctrl+k q"] = "symbiosis.stop", ["ctrl+k f"] = "symbiosis.fillStub", ["ctrl+k p"] = "symbiosis.showProposal", ["ctrl+k x"] = "symbiosis.review", ["ctrl+k d"] = "symbiosis.ask", ["ctrl+k z"] = "symbiosis.close", ["ctrl+k ."] = "symbiosis.changeHere", ["ctrl+k /"] = "symbiosis.markSeen",
 			["f5"] = "symbiosis.run", ["shift+f5"] = "symbiosis.runStop", ["ctrl+k f5"] = "symbiosis.runPick", ["ctrl+k shift+f5"] = "symbiosis.runPanel",
 		})
 		t.eq(reg.bottom.title, "Run")
 		t.eq(reg.sidebar.title, "pi files")
 		t.eq(stub.notices, {}, "no feature is off")
-		t.eq(stub.status.symbiosis, "pi · following")
-		t.eq(stub.status["symbiosis.speed"], "▶ 160/s")
+		t.eq(stub.status.symbiosis, "pi · not following")
 	end },
 	{ "bundle: ctrl+k n goes through the sessions, then detached, then back; detached follows no pi", function()
 		load_bundle()
@@ -180,7 +262,7 @@ return {
 		local out = {}
 		local panel = setmetatable({}, { __index = function(_, method)
 			return function(_, arg)
-				if method == "list" and arg.items[1].id == "speed" then
+				if method == "list" and arg.items[1].id == "scope" then
 					for _, it in ipairs(arg.items) do table.insert(out, it.label) end
 				elseif method == "keyvalue" then
 					for _, kv in ipairs(arg) do table.insert(out, kv.key) end
@@ -189,49 +271,56 @@ return {
 		end })
 		stub.drawer.render(panel)
 		t.eq(out, {
-			"Replay speed    160/s", "pi ahead (max)  3 changes", "Stub scope      the stub's body", "Autosave        1 s after you type", "Editor          follows pi",
-			"ctrl+k h", "ctrl+k q", "ctrl+k z", "ctrl+k a", "ctrl+k - / =", "ctrl+k space", "ctrl+k .", "ctrl+k v", "ctrl+k d", "ctrl+k w",
+			"Stub scope      the stub's body", "Autosave        1 s after you type", "Editor          stays", "Changed lines   marked in the gutter",
+			"ctrl+k h", "ctrl+k q", "ctrl+k z", "ctrl+k a", "ctrl+k v", "ctrl+k d", "ctrl+k w", "ctrl+k .", "ctrl+k /",
 			"// … helpi!", "// … why!", "// TODO(pi) helpi!", "ctrl+k p", "ctrl+k x", "F5 · shift+F5", "ctrl+k F5", "Esc", "ctrl+k n", "ctrl+k g",
 		})
 	end },
-	{ "bundle: a write is typed at the speed, acknowledged, then the file comes from disk", function()
-		local util = require("core.util")
+	{ "bundle: pi writes: the editor stays where you are, and says which file pi writes", function()
 		load_bundle()
 		stub.run_timers() -- a tick with no log: what comes next is new
-		stub.set_text("/w/a.ts", "old")
-		send({
-			{ op = "start", call = "c1", tool = "write", path = "/w/a.ts", sum = util.adler32("old") },
-			{ op = "text", call = "c1", key = "content", from = 0, text = "brand new text here" },
-			{ op = "ready", call = "c1" },
-			{ op = "done", call = "c1", path = "/w/a.ts", line = 1, ok = true, sum = util.adler32("brand new text here") },
-		})
+		send({ { op = "start", call = "c1", tool = "write", path = "/w/a.ts" } })
 		stub.run_timers()
-		-- 160 characters a second, 40 ms a tick: 6.4 characters a tick, and
-		-- the tick before saved up its 6.4.
-		t.eq(stub.text(), "brand new te")
-		t.eq(stub.groups, 1, "one undo group")
-		t.eq(stub.files["/plugin/ack.json"], nil, "not acknowledged before it is shown")
+		t.eq(stub.status.symbiosis, "pi ✎ writing a.ts · not following")
+		send({ { op = "done", call = "c1", tool = "write", path = "/w/a.ts", line = 7, ok = true } })
 		stub.run_timers()
-		t.eq(stub.text(), "brand new text here")
-		local json = require("ttt.json")
-		t.eq(json.decode(stub.files["/plugin/ack.json"]), { "c1" })
-		t.eq(stub.groups, 0)
-		t.eq(stub.commands, { "editor.undo", "tab.close" }, "the preview goes, the file opens again")
-		t.eq(stub.status.symbiosis, "pi ✎ a.ts:1 · following")
+		t.eq(stub.status.symbiosis, "pi ✎ a.ts:7 · not following")
+		t.eq(stub.opened, {}, "the editor did not move")
+		t.eq(stub.groups, 0, "nothing typed in the buffer")
 	end },
-	{ "bundle: typing waits while the replay runs in the file", function()
-		local util = require("core.util")
+	{ "bundle: ctrl+k a: the editor follows pi to the file and the line it wrote", function()
+		load_bundle()
+		stub.run_timers()
+		send({ { op = "done", call = "c1", tool = "edit", path = "/w/a.ts", line = 7, ok = true } })
+		stub.run_timers()
+		t.eq(stub.opened, {})
+		for _, c in ipairs(stub.registered.commands) do
+			if c.id == "symbiosis.toggleFollow" then c.handler() end
+		end
+		t.eq(stub.opened, { "/w/a.ts" }, "turning it on goes to where pi is")
+		t.eq(stub.status.symbiosis, "pi ✎ a.ts:7 · following")
+		send({ { op = "done", call = "c2", tool = "write", path = "/w/b.ts", line = 1, ok = true } })
+		stub.run_timers()
+		t.eq(stub.opened, { "/w/a.ts", "/w/b.ts" }, "the next file too")
+		send({ { op = "done", call = "c3", tool = "write", path = "/w/c.ts", line = 1, ok = false } })
+		stub.run_timers()
+		t.eq(stub.opened, { "/w/a.ts", "/w/b.ts" }, "a failed call opens nothing")
+	end },
+	{ "bundle: autosave does not save a file while pi has a call open in it", function()
 		load_bundle()
 		stub.run_timers()
 		stub.set_text("/w/a.ts", "old")
-		send({
-			{ op = "start", call = "c1", tool = "write", path = "/w/a.ts", sum = util.adler32("old") },
-			{ op = "text", call = "c1", key = "content", from = 0, text = "a long text that takes a while" },
-		})
+		stub.buffer.path = "/w/a.ts"
+		send({ { op = "start", call = "c1", tool = "write", path = "/w/a.ts" } })
 		stub.run_timers()
-		t.eq(stub.events["key.press"]({ rune = "x" }), true, "your key waits")
-		t.eq(stub.events["key.press"]({ key = "Up" }), false, "a move goes")
-		t.ok(stub.status.symbiosis:find("your typing waits", 1, true), "the bar says so")
+		stub.events["key.press"]({ rune = "x" })
+		stub.run_timers()
+		t.ok(not has(stub.commands, "file.save"), "pi writes: no save over it")
+		send({ { op = "done", call = "c1", tool = "write", path = "/w/a.ts", line = 1, ok = true } })
+		stub.run_timers()
+		stub.events["key.press"]({ rune = "y" })
+		stub.run_timers()
+		t.ok(has(stub.commands, "file.save"), "pi is done: the save goes")
 	end },
 	{ "marker: fill! and helpi! at the end of a comment", function()
 		local marker = require("core.marker")
@@ -372,7 +461,7 @@ return {
 		stub.run_timers()
 		t.eq(stub.drawer, nil, "another session's proposal is not shown")
 	end },
-	{ "bundle: the why of a change shows when the replay shows it; pi's notices show", function()
+	{ "bundle: the why of a change shows when pi finishes it; pi's notices show", function()
 		local util = require("core.util")
 		load_bundle()
 		stub.run_timers()

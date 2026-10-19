@@ -11,9 +11,9 @@ local AUTOSAVES = { 0, 1000, 3000 }
 
 return {
 	name = "autosave",
-	needs = { "replay" },
+	needs = { "follow" },
 	setup = function(app)
-		local replay = app:need("replay")
+		local follow = app:need("follow")
 		local settings = app.settings
 		local timer = nil
 
@@ -30,7 +30,7 @@ return {
 			if timer then ttt.clear_timeout(timer) end
 			timer = ttt.set_timeout(soon and 10 or ms, function()
 				timer = nil
-				if editor.file_path() ~= path or not replay.quiet(path) then return end
+				if editor.file_path() ~= path or not follow.quiet(path) then return end
 				ttt.exec_command("file.save")
 			end)
 		end

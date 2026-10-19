@@ -27,15 +27,6 @@ export interface Channel {
 	/** Removes the records of sessions that stopped without saying so (a crash, a kill). */
 	pruneSessions(maxAgeSeconds?: number): void;
 
-	/** The calls of `calls` that the editor has not shown yet. */
-	unshown(calls: string[]): string[];
-
-	/**
-	 * Waits until at most `limit` of `calls` are not shown yet (-1: no limit,
-	 * no wait), or until `waiting()` is false. Returns the calls not shown yet.
-	 */
-	waitBehind(calls: string[], limit: number, waiting: () => boolean): Promise<string[]>;
-
 	/** The editor's last stop request, if any. */
 	stop(): StopRequest | undefined;
 

@@ -2,19 +2,21 @@
 
 ## The goal
 
-You watch the agent work in your editor, as it works. Each `write` and `edit`
-of the pi agent types itself into the ttt buffer while the model writes it.
-Then the editor shows the result at the changed line.
+You read the agent's work in your editor while it works. pi writes to disk
+at once and never waits for the editor. The editor stays where you are and
+tells you which file pi writes; what pi changed in its last turn is the
+diff key (`ctrl+k w`). When you want to follow pi, `ctrl+k a` makes the editor
+open each file at the changed line.
 
 ## The parts
 
 | Part | File | Job |
 |---|---|---|
-| pi extension | `pi/index.ts` | Reads the tool calls while they stream. Writes events. Wires `core/` into pi. |
+| pi extension | `pi/index.ts` | Reads the tool calls. Writes events. Wires `core/` into pi. |
 | Protocol | `core/protocol.ts` | Types only: every event and record that crosses the channel, and `PROTOCOL`. |
-| Events | `core/stream.ts` | Pure: turns growing arguments into small `text` events. |
+| Calls | `core/call.ts` | Pure: a call's absolute path, and the first line of a tool result. |
 | Channel | `core/channel/channel.ts` | The interface the agent side talks to: send events, publish the session, read the editor's state and requests. |
-| File channel | `core/channel/file.ts` | The one implementation: files in the plugin folder, `events.jsonl`, `head.json`, `ttt.json` (with the lag limit and the stub scope), `ack.json` (the changes shown), `fill.json` (a fill and its release), `answer.json` (the answer to a proposal). |
+| File channel | `core/channel/file.ts` | The one implementation: files in the plugin folder, `events.jsonl`, `head.json`, `ttt.json` (the stub scope), `fill.json` (a fill and its release), `answer.json` (the answer to a proposal). |
 | helpi! | `core/help.ts` | Pure: the request, the side call's prompt, the answer parser (kind, imports, body). |
 | Syntax | `core/syntax/` | tree-sitter (WASM): a file's outline (functions with signature, body, intent, stub flag; imports; declarations). One file per language in `languages/`. |
 | Stubs | `core/stubs.ts` | Pure: find a stub on a line, find it again after an edit, the fill message. |
@@ -24,15 +26,15 @@ Then the editor shows the result at the changed line.
 | Fill | `core/fill.ts` | One fill (a stub, or a new function under its description): starts it from a line, checks each call with the guard, keeps the accepted proposals, knows when the work is done. |
 | Tools | `pi/tools.ts` | pi's own `edit` and `write` again, with a `why` argument and one call at a time; a probe that tells what an edit would leave in the file. |
 | Filling | `pi/fill.ts` | The pi side of a fill: the fill request, the guard before each call, the `propose` tool that waits for the editor's answer. |
+| Hunks | `core/hunks.ts` | Pure: the lines a change touched (a line diff, by the `diff` package), and where an old line stands after a later change. |
 | Launcher | `launcher/main.ts` (`bin/symbiosis`) | Starts a real pi in its own herdr or tmux pane, runs ttt here as its child, ends when ttt quits. One record per folder in `~/.local/state/symbiosis/`. |
 | Layout | `launcher/layout.ts` | Pure: the herdr and tmux command lines for a pi tab, a split, or a new tab for symbiosis itself. |
-| ttt plugin | `ttt/src` (bundled into `ttt/symbiosis/plugin.lua`) | Polls every 40 ms. Shows the preview. Follows the result. Sends helpi! questions and writes the answers. A host (`ttt/src/core`) and one module per feature (`ttt/src/features`); see `ttt/README.md`. |
+| ttt plugin | `ttt/src` (bundled into `ttt/symbiosis/plugin.lua`) | Polls every 40 ms. Shows which file pi writes. Follows the result when you ask. Sends helpi! questions and writes the answers. A host (`ttt/src/core`) and one module per feature (`ttt/src/features`); see `ttt/README.md`. |
 
 A ttt plugin cannot open a socket and can read only its own folder and the
 workspace. Thus the channel is files in the plugin folder.
 
-`core/` holds what does not depend on pi: the protocol, the rules that turn
-a tool call into events, the channel, and the stub rules (syntax, imports,
+`core/` holds what does not depend on pi: the protocol, the channel, and the stub rules (syntax, imports,
 guard). It imports nothing from pi, so
 another agent harness, or a socket in place of the files, is a new adapter or
 a new `Channel` implementation, not a change to the rules. `pi/` holds only
@@ -41,80 +43,36 @@ the editor, and the setup.
 
 ## The buffer: one rule
 
-**The file on disk is the truth. The preview is never saved.** pi does not
-wait for the editor (up to a limit, see the replay below): the file on disk
-is where pi is now, and the buffer is a replay of pi's changes, behind it.
+**The file on disk is the truth. The buffer is never typed into.** pi does
+not wait for the editor. Each `write` and `edit` goes to disk at once; the
+extension sends three events:
 
-1. `start`: the plugin opens the file. It sends the file's Adler-32 (`sum`)
-   and its text (`before`, up to 256 KB). If the buffer is neither that text
-   nor the file as pi last wrote it (the `sum` of the last `done`), it has
-   unsaved changes: no preview for this call.
-2. A run starts: one undo group. If pi already changed the file again, the
-   plugin first sets the buffer to `before`, so the change shows from the
-   text pi started from. A write clears the buffer and types the new
-   content. An edit selects its `oldText` (only if it occurs once), then
-   types `newText` over it. The next call to the same file types on top, in
-   the same run, as pi did on disk.
-3. `ready`: the arguments are complete. When the replay has typed all of
-   them, the plugin writes the call id to `ack.json` (shown).
-4. The tool writes the file at once. ttt says the file changed on disk under
-   the replay; the plugin clears that notice.
-5. The run ends when the replay goes to another file, at the end of the turn,
-   or when it has shown all that pi sent. Then the plugin closes the undo
-   group, undoes it (the buffer is clean but old), closes the tab and opens
-   the file again: ttt reads it from disk.
-6. `done`: the editor goes to the changed line (after the run, when one is
-   open). `stop` (end of the turn) goes there even when you pinned the editor.
+1. `start`: pi starts a call on a file (`call`, `tool`, `path`). The plugin
+   notes that the file has a call open, so autosave does not save over it,
+   and the bar says `pi ✎ writing store.ts`.
+2. `done`: the call ended (`ok`, the first changed `line`, the `why`). The
+   bar says `pi ✎ store.ts:12`. ttt reloads the file when its buffer has no
+   unsaved changes. With "Editor: follows pi" on, the plugin opens the file at
+   that line.
+3. `stop`: the turn ended; the bar shows `pi ■ store.ts:12`.
+
+Why: the first design typed each change into the buffer at a speed you set,
+and made pi wait for it (then run ahead, then wait again). The operator found
+the editor hopped to the next file while he tried to read code. The
+typing was removed (2026-10): it tied the editor to pi's speed, not to your
+reading.
 
 Measured with headless ttt 1.7.1: a disk change under a dirty buffer gives a
 notice ("changed on disk; you have unsaved changes", about 4 s over the
-status bar) and no reload; a later undo leaves a clean but old buffer.
-Closing the tab and opening the file again reloads it. `ttt.notify("")`
-clears the notice. There is no revert command.
+status bar) and no reload. Autosave (below) keeps buffers clean, so ttt reloads.
 
-## The replay: pi runs ahead
+## Following
 
-Operator: "Because now we can stream the response being written in slower
-speeds, that should not stop the agent from actually doing other things
-proactively." Decision B: a limit. pi waits in `tool_call` only while more
-of its changes than the limit are not shown (`Channel.waitBehind`). The
-plugin puts the limit in `ttt.json` (`lag`): 0 (pi waits for each change, as
-before), 3 (the start value), 10, or no limit; Enter on "pi ahead (max)"
-in the panel cycles it.
-
-- No separate writer program: the disk must change at once, or pi's next
-  read or test would see old code. The plugin is the replayer.
-- While a file is replayed, your typing in it waits (characters, Enter, Tab,
-  Backspace, Delete, ctrl+v/x/z/y/s): the buffer is the replay, and pi has
-  already changed the file on disk. The bar says `your typing waits`. Moves
-  still work. Pin (`ctrl+k a`) ends the replay.
-- Pause stops only the replay; pi goes on up to the limit.
-- The bar shows the lag: `▶ 160/s · 2 behind` (the `ready` events queued).
-- Risk: pi can run its tests on code you have not seen yet. That is the
-  limit's job; 0 gives the old behaviour for guided work.
-
-## The speed
-
-The plugin does not apply the events as they come. It reads them into a
-queue and types the preview at a speed you set: `ctrl+k -` slower, `ctrl+k =`
-faster, in steps 10, 20, 40, 80, 160, 320, 640, 1280 characters per second,
-and max (as fast as pi sends). The speed is kept in `settings.json` in the
-plugin folder. 160/s is only the start value until you choose one.
-
-Only the text that the preview shows costs time: a write's content and an
-edit's new text. Every other event waits for the text before it, so the ack
-comes after the last character. A 3 KB write at 160/s takes about 19 s to
-show; pi waits for it only past the lag limit.
-
-- `ctrl+k space`: pause. The replay stops where it is; pi goes on up to the
-  limit. Press it again to go on.
-- `ctrl+k .`: the rest of this call's preview at once, also the text pi has
-  not sent yet. The next call is typed at your speed again.
-- The status bar shows the speed: `· ▶ 160/s`, `· ▶ max`, `· ⏸ paused`,
-  and the lag: `· 2 behind`.
-
-Operator's choice (A + C): pi waits for the preview, plus a pause key; the
-speed is adjustable, the start value not chosen yet.
+The setting "Editor" (`ctrl+k a`, or a click on the status item): `stays`
+(the start value) or `follows pi`. It is not kept in `settings.json`: each
+start of ttt stays. Turning it on goes to where pi is now. A failed call
+opens nothing. `stop` (the end of the turn) goes to the last file when
+following.
 
 ## The panel, autosave, names
 
@@ -122,20 +80,19 @@ Operator feedback: the keys were not visible anywhere, and each setting key
 showed a ttt notice that covers the whole status bar for about 4 s (measured),
 so the new value was hidden. Now:
 
-- `ctrl+k h` opens a drawer: Settings (a `list`; Enter cycles the value,
-  `-`/`=` step the speed), pi sessions (Enter follows one, or "automatic"),
+- `ctrl+k h` opens a drawer: Settings (a `list`; Enter cycles the value), pi sessions (Enter follows one, or "automatic"),
   and a key list. ttt calls a drawer's render on every frame, so render
   reads no files. Measured in ttt 1.7.1: a `button` keeps its first label
   after a redraw, a `list` item does not, so the settings are list items;
   Enter on a list item comes as `on_command("activate")`, `on_select` fires
   when the highlight moves.
 - No notice for a setting or a session change: the status bar shows it at
-  once. The speed has its own status item; a click cycles it.
+  once.
 - Autosave (ttt has none): after a key that changes text (a character,
   Enter, Tab, Backspace, Delete; no ctrl or alt), the plugin saves the file
   after 1 s (or 3 s, or off), only if the file is still open and pi has no
-  change to it under way (no preview, no queued event, no open call). A clean
-  buffer is what the preview and ttt's reload need.
+  call open in it. A clean
+  buffer is what ttt's reload needs.
 - Session names: the record carries pi's session name (`title`, from
   `pi.getSessionName()` and `session_info_changed`). The plugin shows the
   title, else the folder, and adds the herdr pane (or pid) when two sessions
@@ -143,23 +100,13 @@ so the new value was hidden. Now:
 
 ## The other rules
 
-- Pinned (`ctrl+k a`, or click the status item): no preview and no jumps.
-- One run at a time: a call to another file ends the run.
-- A call that will not run (the turn ended) gets `abort`: the run ends.
-- pi runs the calls of one message in parallel. Calls to one file follow each
-  other in one run; calls that alternate between two files of one message may
-  show no preview (`before` is the text before the message).
+- pi runs the calls of one message in parallel; `start` and `done` count the
+  calls open in each file, so the file counts as open until the last ends.
 
 ## Known weak points
 
-- When the replay catches up before pi writes, the old text shows between the
-  undo and the reload, for up to ~1.5 s.
-- ttt's "changed on disk" notice shows for up to 0.25 s before the plugin
-  clears it.
-- Past the limit pi waits with no time limit. If the plugin acks nothing
-  while it lives (a bug), Esc in pi ends the wait.
-- A new file: ttt shows "New file", and after the undo the plugin opens the
-  file again so ttt reads it from disk.
+- A file with unsaved changes is not reloaded: ttt shows its notice, and the
+  buffer stays old until you save or close it.
 - Two sessions in the same folder: the most recent one wins until you choose.
 - The reveal moves the sidebar to the explorer, also from Find or Changes.
 - The "pi files" tab is hidden behind `»` in a narrow sidebar.
@@ -200,8 +147,8 @@ message to pi. They were replaced by `helpi!`, below: "not smooth enough".
 
 Found in the spike, ttt 1.7.1: `gmatch("[^\n]*\n")` crashes with a nil
 pointer on text that has an empty line. The plugin splits lines with `find`.
-Keys `ctrl+k e t i j o r u` belong to ttt; plugin chords that work are
-`a d g h n q v w x z` (`d` asks, see "Ask" below). A `local ready` flag once hid the `ready` handler:
+Keys `ctrl+k e t i j o r s u y` belong to ttt (`s` is Save As, `y` the keybindings); plugin chords that work are
+`a d g h n q v w x z` and `.` `/` (`d` asks, see "Ask" below). A `local ready` flag once hid the `ready` handler:
 Lua locals shadow quietly.
 
 ## Slice 3: the timeline
@@ -218,6 +165,13 @@ the next heartbeat (at most 1 s). After `/reload` or a resume, the last
 `todo` list (no extra tokens, but pi makes one only when it wants to) and
 over a list built from tool calls (it has no "next").
 
+A step may also name `files`: the files pi expects to create or change in it
+(at most 12, each once; paths are made absolute against pi's folder when the
+tool runs). It is pi's guess. The change list shows the files pi really
+changed beside it, and a changed file that no step named is marked as not
+planned. A call of `plan` sends the whole list again, so pi repeats the
+`files` it still wants; the tool description and the guideline say so.
+
 The plugin shows the owner's plan in the status bar, cut to about 56
 characters: done steps become a count, later next steps drop off as `+k`.
 `ctrl+k v` or a click opens a drawer with the whole list. The drawer takes
@@ -225,26 +179,66 @@ the keys while it is open, so a plugin key cannot close it: Esc does, as in
 every ttt drawer. When the editor moved after the drawer opened (a stop),
 `ctrl+k v` gives the drawer the focus again.
 
+The drawer is also the change list. Under each step it lists files
+(`ttt/src/core/changelist.lua`, pure, with the tests): first the files pi
+changed in that step, in the order it first changed them (`●`; `✎` while a
+call of pi is open in it; "new" for a file pi created; the number of
+changes), then the files the step named that pi has not reached (`·`,
+"planned"). When a step names files, a changed file it did not name says
+"unplanned"; a step that names none tags nothing, so a plan without `files`
+is not full of tags. A change belongs to the step it was logged under: the
+same place in the plan with the same text, else the first step with that
+text (pi rewrote the plan); a change with no step left goes under "Other
+changes". Done steps are muted and collapsed. The drawer reads the owner's
+`log/<session>/index.json` and redraws when the plan or the log changes (the
+`start` and `done` hooks of follow). Enter on a file opens it at the first
+line of its first change in that step; that line is as the change left it, and
+it is not moved for later changes yet.
+
+**Changed lines** (`ttt/src/features/changemarks.lua`). ttt gives a plugin
+no line background, so the open file shows pi's changes two ways: a bar `▌` on
+each changed line in the gutter (`ttt.bookmarks`, through `core/gutter.lua`,
+which now takes a style for each line), and a hint diagnostic over each run
+of lines (`ttt.diagnostics`, permission `editor.diagnostics`) with the hover
+text "pi · <step> · changed|new file · <why>". The colour is the plan step's
+place in a palette of six named ttt styles (`core/changelist.lua`
+`style_of`); a change with no step is muted. The lines are where the log's
+hunks put them, moved by the later changes of that file (`marked_lines`,
+the Lua twin of `moveLine`; the later change owns a line it wrote again). When
+the buffer is not what pi left (you edited it), `remap` compares the lines at the top
+and at the bottom of pi's last text and the buffer: the lines they share keep
+their mark, shifted at the bottom; the lines between, which you edited, lose
+it. Texts over 256 KB are not kept, so such a file is marked as pi left it. A
+line with another feature's bookmark (a note, a review mark) keeps that one.
+It redraws on a file change, 300 ms after pi's call or your typing, and each
+second; the setting "Changed lines" turns it off.
+
+**Seen and the exact diff** (`changemarks.lua`, `changediff.lua`). A change
+the operator has seen leaves no bar and no hover text. The ids are in
+`log/<session>/seen.json` (`{ids: {<change id>: true}}`); the plugin writes it,
+and pi's clean-up of old log directories removes it with them
+(`changelist.mark_seen` drops ids that are no longer in the log).
+`ctrl+k /` marks the changes of the open file; in the plan drawer `s` marks a
+file row (its changes in that step) or a step row (all its changes). A file row
+whose changes are all seen reads `✓ file · N changes · seen`, muted.
+`ctrl+k .` opens ttt's own diff tab (`ttt.open_diff`) from the text before the
+change to the text after it, for the change that wrote the cursor line; `d` on a
+file row does the same for the first to the last change in that step. Neither
+blocks pi. The keys are `.` and `/` because the letters are all taken (see
+the key list in Slice 2): `s` is Save As and `y` the keybindings in ttt 1.7.1.
+
 ## The gutter marks
 
-While the editor replays a change, ttt's gutter (`ttt.bookmarks`, the column
-left of the line numbers) shows `▌` on each line of that change and `π` on
-the line being typed now. Only the change in the open file, only while it
-runs: when it ends, the marks go, and `ctrl+k w` shows the turn after.
+ttt's gutter (`ttt.bookmarks`, the column left of the line numbers) holds the
+marks of features: `◆` a note, `●` a body to review (`core/gutter.lua`).
 
-- Each call keeps its own line ranges (a write: one; an edit: one per
-  replaced text). When a range grows or shrinks, the ranges below it move by
-  the same number of lines.
 - Bookmarks stay on their line number when lines come in above them, so the
   plugin draws again each tick when the set changes (not at all when it is
   the same).
 - One mark per line. The plugin never draws on a line that has another
   plugin's mark, and removes only its own. A bookmarks plugin that sets all
   its marks again (on file open) clears ours; they come back on the next tick.
-- Not used: a selection trail (the selection already marks the old text of an
-  edit) and diagnostics (they show in the Problems panel as problems).
-- The marks stay on screen until the next tick after the change ends; a
-  failed draw turns the marks off until ttt starts again; the replay goes on.
+- A failed draw turns the marks off until ttt starts again.
 
 ## The diff key
 
@@ -258,6 +252,29 @@ Only the owner keeps these, in `changes/` in the plugin folder
 (`pi/changes.ts`): ttt.fs cannot read outside the workspace, so the
 extension writes both texts there. A new turn of the owner drops the last
 one. Files over 1 MB are not kept.
+
+## The change log
+
+`pi/changelog.ts` keeps every `write` and `edit` of the session, in the order
+pi made them (`log/<session>/index.json`, oldest first). The diff key keeps
+the last turn only; this log is for the change list and keeps its entries
+across turns, up to 300 (the oldest go first). An entry: `seq`, time, call,
+tool, file, the plan step, the hunks, pi's `why`, and `created`. The texts
+before and after are in `log/<session>/<id>.json`, for the exact diff of one
+change; a file over 256 KB keeps its hunks and no texts.
+
+- The step is the plan step that is `now` when the call ends; with no `now`,
+  the last `done` one; with no plan, none. The entry keeps the step's index
+  and its text, so a plan that pi rewrites later does not lose it.
+- The hunks are in the file as it was after that change. A later change moves
+  them: `moveLine` in `core/hunks.ts` gives the line again, or `null` when a
+  later change replaced it.
+- Every session logs, not only the one the editor follows: the owner may
+  change, and the log of the other is there when it does. A log folder of a
+  session that nobody has touched for 7 days is removed when a new session
+  starts.
+- A call that fails, is blocked by the guard, or changes nothing, is not
+  logged. Changes by `bash` are not logged yet.
 
 ## The file tree
 
@@ -282,9 +299,7 @@ no reveal. ttt has no command to show a plugin's sidebar tab: you choose it.
 
 ## The cost
 
-Streaming: no model tokens, the extension reads what pi streams anyway. The
-speed costs wall-clock time only, and only past the lag limit. Each `start`
-carries the file's text (up to 256 KB) in the channel log.
+Events: no model tokens; the channel log holds three small events for each call.
 helpi!: one side call per question to the session's model, outside pi's
 conversation: the prompt (~400 tokens), the file (up to 150 lines, else 20
 lines of the top and 60 around the question), pi's plan and up to 2000
@@ -294,7 +309,7 @@ the same code).
 Diff key: no model tokens; each file pi touches is copied twice per turn.
 Timeline: the `plan` tool is in every request, about 150 tokens (schema,
 one-line snippet, one guideline). Each call costs the steps it sends, about
-10 tokens a step, plus a one-line result.
+10 tokens a step (more with `files`: about 8 a path), plus a one-line result.
 
 ## helpi!: ask where you write
 
@@ -331,9 +346,8 @@ The extension streams `help` (taken), `help_start` (kind, imports),
 the question shows `// pi ⠋ thinking · Esc stops` (the spinner turns every
 120 ms); it opens the answer's undo group, the answer takes its place, and
 Esc or an error takes it away (and undoes the group, so no empty undo step is
-left). While it is there, keys in that file and the replay wait, and autosave
-does not save it. The plugin writes the help events at once, not through
-the replay queue: full speed. The answer is one undo group: one ctrl+z brings
+left). While it is there, keys that change that file wait, and autosave
+does not save it. The plugin writes the help events at once. The answer is one undo group: one ctrl+z brings
 the question back. While it writes, keys that change that file wait; Esc
 writes `cancel` to `help.json` and pi stops the call (what is written
 stays). When the answer is complete, autosave saves the file at once, as pi
@@ -436,7 +450,7 @@ The plugin (`ttt/src/features/review.lua`) reads that list from every session
 record:
 
 - **Drawer.** A body from the session the editor follows opens the drawer by
-  itself once the replay has typed pi's changes in. It shows the signature, the
+  itself once pi has no call open. It shows the signature, the
   intent, the body and the reasons; the button `Ack` (key `a`) acks it. Esc hides
   the drawer; `ctrl+k x`, a click on the gutter mark or on the status item
   "● n to review" shows it again. After an ack the next body of that session
@@ -465,7 +479,7 @@ Weak points:
 - A line holds one bookmark: where a note `◆` and a review `●` meet, the one
   drawn first stays.
 - The drawer takes the focus when it opens by itself: a letter typed in that
-  moment goes to it (`a` acks). The wait for the replay makes this rare, but it
+  moment goes to it (`a` acks). The wait for pi's call makes this rare, but it
   can happen.
 - `whys` is per file, not per function: a file filled in several places sends
   all its reasons with each body (as in "Ask").
@@ -572,18 +586,17 @@ body, is refused when the fill starts. The status bar shows
 name. The fill ends at the end of a run once the declaration is there and no
 function in it is a stub.
 
-The guard runs in pi's `tool_call`, before the replay's own handling, so the
-editor never waits to show a call that will not run. A `write` brings its
+The guard runs in pi's `tool_call`, before the call starts, so the
+editor never hears of a call that will not run. A `write` brings its
 new text. An `edit` does not: pi matches its old texts against the file
 itself. Thus `pi/tools.ts` runs pi's own edit code with a `writeFile` that
 throws the text it was given, and that text is what the edit would leave.
 The same probe runs pi's write code, so the path is pi's too (`@`, `~`,
 unicode spaces); then symlinks are resolved, as the editor sends real paths.
 Matching, line endings and the BOM stay pi's. A call the guard blocks gets
-the reason as its result; a preview that has started is undone with
-`abort` and that reason. A call the guard lets through spends nothing yet:
+the reason as its result; the editor gets no `start` for it. A call the guard lets through spends nothing yet:
 its allowances are spent, and the stub moves with it, only in `tool_result`
-of a call that ran. The editor's lag wait or Esc can still stop it.
+of a call that ran. Esc in pi can still stop it.
 
 Every other tool (bash, another extension's tool) can change files too. The
 stub's file is kept before such a tool runs; if the tool changed it, the file
@@ -599,7 +612,7 @@ This holds in every session, with or without a fill or an editor: a message
 with an edit runs all its tool calls one after the other.
 The same registration adds `why`: an optional argument for the reason for a
 choice that is not obvious, taken off before pi's code runs. It travels in
-the `done` event (a notice when the replay shows the change) and in the
+the `done` event (a notice when the plugin gets it) and in the
 change log (`ctrl+k w`).
 
 `propose` emits a `propose` event and polls `answer.json` every 100 ms. The

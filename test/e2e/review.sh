@@ -20,7 +20,7 @@ echo "export const helper = (k: string, n: number) => k.length + n;" > "$OUT/ws/
 
 # Line 8 is the stub's marker. The body lands about 2 s after helpi!.
 steps="wait 2500; key down; key down; key down; key down; key down; key down; key down; key end; key space; type helpi!"
-steps="$steps; wait 6000; screenshot $OUT/landed.txt; key escape; wait 600; screenshot $OUT/hidden.txt"
+steps="$steps; wait 9000; screenshot $OUT/landed.txt; key escape; wait 600; screenshot $OUT/hidden.txt"
 steps="$steps; key ctrl+k; key x; wait 800; screenshot $OUT/shown.txt; key a; wait 2500; screenshot $OUT/acked.txt; quit"
 (cd "$OUT/ws" && ttt --size 140x30 sample.ts --exec "$steps" > /dev/null 2>&1) &
 ttt=$!

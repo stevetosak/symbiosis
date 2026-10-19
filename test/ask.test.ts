@@ -183,7 +183,7 @@ before(async () => {
 	await pi.start();
 	id = pi.sessionId() ?? '';
 	assert.ok(id);
-	writeFileSync(join(plugin, 'ttt.json'), JSON.stringify({ t: Date.now() / 1000 + 3600, owner: id, lag: -1 }));
+	writeFileSync(join(plugin, 'ttt.json'), JSON.stringify({ t: Date.now() / 1000 + 3600, owner: id }));
 });
 
 after(async () => {
@@ -214,7 +214,7 @@ test('an old ask.json is not answered again after a restart; cancel stops the an
 	pi = slow;
 	await pi.start();
 	id = pi.sessionId() ?? '';
-	writeFileSync(join(plugin, 'ttt.json'), JSON.stringify({ t: Date.now() / 1000 + 3600, owner: id, lag: -1 }));
+	writeFileSync(join(plugin, 'ttt.json'), JSON.stringify({ t: Date.now() / 1000 + 3600, owner: id }));
 	await sleep(400);
 	assert.equal(pi.asked.length, 0, 'the question from before is old');
 	const aid = ask();

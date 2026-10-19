@@ -1,11 +1,9 @@
 // A pi without a model, for the demo and the end-to-end tests. It loads the
-// real extension (pi/index.ts) and plays the events pi sends it: tool call
-// arguments arrive in small JSON chunks, parsed by pi's own partial parser,
+// real extension (pi/index.ts) and plays the events pi sends it: a tool call,
 // then the tool runs (the file changes on disk) and its result comes back.
 // The tools are the ones the extension registers: pi's own edit and write,
 // with symbiosis' `why` (pi/tools.ts), and propose.
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import symbiosis from '../pi/index.ts';
 import { pluginDir } from '../core/channel/file.ts';
@@ -42,28 +40,11 @@ interface Context {
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** pi's partial JSON parser, from the newest pi install. Without one: no text until the call is complete. */
-async function partialParser(): Promise<(s: string) => unknown> {
-	const releases = join(homedir(), '.pi/agent/install/releases');
-	const versions = existsSync(releases) ? readdirSync(releases).sort().reverse() : [];
-	for (const v of versions) {
-		const file = join(releases, v, 'node_modules/@earendil-works/pi-ai/dist/utils/json-parse.js');
-		if (existsSync(file)) return ((await import(file)) as { parseStreamingJson: (s: string) => unknown }).parseStreamingJson;
-	}
-	return (s) => {
-		try {
-			return JSON.parse(s);
-		} catch {
-			return {};
-		}
-	};
-}
-
 export interface FakePiOptions {
 	cwd: string;
 	/** pi's session name (`/name`): the name in ttt's session bar. */
 	name?: string;
-	/** Characters per JSON chunk, and the time between chunks: how fast the "model" streams. */
+	/** Characters per chunk, and the time between chunks: how fast the "model" streams a helpi! answer. */
 	chunk?: number;
 	stepMs?: number;
 	log?: (line: string) => void;
@@ -86,7 +67,6 @@ export class FakePi {
 	private readonly stepMs: number;
 	private readonly thinkMs: number;
 	private readonly log: (line: string) => void;
-	private parse: (s: string) => unknown = () => ({});
 	private calls = 0;
 	private idle = true;
 
@@ -138,7 +118,6 @@ export class FakePi {
 	}
 
 	async start(): Promise<void> {
-		this.parse = await partialParser();
 		await this.fire('session_start');
 	}
 
@@ -206,8 +185,8 @@ export class FakePi {
 	}
 
 	/** The model calls the plan tool. */
-	async plan(...steps: [string, StepState][]): Promise<void> {
-		await this.tools.get('plan')?.execute(`plan-${++this.calls}`, { steps: steps.map(([text, state]) => ({ text, state })) });
+	async plan(...steps: [string, StepState, string[]?][]): Promise<void> {
+		await this.tools.get('plan')?.execute(`plan-${++this.calls}`, { steps: steps.map(([text, state, files]) => ({ text, state, ...(files ? { files } : {}) })) });
 	}
 
 	/** The model writes a whole file. */
@@ -247,19 +226,9 @@ export class FakePi {
 		return text;
 	}
 
-	/** Streams one tool call, then runs it, like pi does. */
+	/** Runs one tool call, like pi does. */
 	private async call(name: 'write' | 'edit', args: { path: string } & Record<string, unknown>): Promise<CallResult> {
 		const id = `call-${++this.calls}`;
-		const json = JSON.stringify(args);
-		for (let i = this.chunk; i < json.length + this.chunk; i += this.chunk) {
-			const partial = { content: [{ type: 'toolCall', id, name, arguments: this.parse(json.slice(0, i)) }] };
-			await this.fire('message_update', { assistantMessageEvent: { type: 'toolcall_delta', contentIndex: 0, delta: '', partial } });
-			await sleep(this.stepMs);
-		}
-		const toolCall = { type: 'toolCall', id, name, arguments: args };
-		await this.fire('message_update', { assistantMessageEvent: { type: 'toolcall_end', contentIndex: 0, toolCall } });
-		const t = Date.now();
-		// The plugin types the preview at its own speed; pi waits here until it is all on screen.
 		const tool = this.tools.get(name);
 		if (!tool) throw new Error(`fake pi: the extension registers no ${name} tool`);
 		const input = tool.prepareArguments ? tool.prepareArguments(args) : args;
@@ -270,7 +239,6 @@ export class FakePi {
 			this.log(`${name} ${relative(this.cwd, file)}: blocked`);
 			return { blocked: blocked.reason ?? '' };
 		}
-		this.log(`${name} ${relative(this.cwd, file)}: pi waited ${((Date.now() - t) / 1000).toFixed(1)} s for the editor`);
 		let details: unknown;
 		let error: string | undefined;
 		try {

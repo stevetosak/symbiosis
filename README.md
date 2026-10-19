@@ -110,29 +110,19 @@ argument, else the git root, else this folder.
 ## Use
 
 - `ctrl+k h`: the symbiosis panel. Settings you change in place (Enter
-  cycles a value: preview speed, autosave, pin), the pi sessions (Enter
+  cycles a value: stub scope, autosave, the editor follows pi), the pi sessions (Enter
   follows one), and every key. Up/Down move, Tab goes to the next list, Esc
   closes.
 
-- Status bar: `pi ✎ writing store.ts +12 lines · following`.
-- `ctrl+k a` (or a click on the status item): pin the editor. Pinned, the
-  agent does not move it; at the end of the agent's turn it moves anyway.
+- Status bar: `pi ✎ writing store.ts · not following`, then `pi ✎ store.ts:12 · not following`.
+- `ctrl+k a` (or a click on the status item): the editor follows pi, or stays.
+  It stays at the start: pi writes to disk at once and never waits for the
+  editor, so you read your file while pi works, and the bar says which file pi
+  writes (`pi ✎ writing store.ts · not following`). Turn it on and the editor
+  opens each file pi wrote, at the changed line. It stays off at each start.
 - Command palette: `symbiosis: Go to the Agent's Last Edit`.
-- The editor replays pi's changes at a speed you set, behind pi: the file on
-  disk is where pi is now. pi waits only when more of its changes than your
-  limit are not shown (3 by default; 0 = pi waits for each change; 10; no
-  limit; in the panel). `ctrl+k -` slower, `ctrl+k =` faster (10 to 1280
-  characters per second, then max), `ctrl+k space` pause (the replay only),
-  `ctrl+k .` the rest of this change at once. The status bar shows
-  `▶ 160/s · 2 behind` or `⏸ paused`; a click on it cycles the speed.
-- The gutter marks the change being replayed: `▌` on each line of this
-  change, `π` on the line being typed now. The marks go when the change ends
-  (`ctrl+k w` shows it after). A line with another plugin's mark (a bookmark)
-  keeps that mark.
-- While a file is replayed, your typing in it waits (the bar says so); moves
-  work. At the end of the replay the file comes from disk again.
 - Autosave (on by default): a file is saved 1 s after you last typed in it,
-  so pi's next write gets a preview and a reload. Never while pi changes that
+  so pi's next write can reload it. Never while pi has a call open in that
   file. Off or 3 s in the panel.
 - Status bar `π symbiosis ● working`: the pi session the editor follows, by
   the open file: the session that wrote it, else the one whose folder holds
@@ -154,13 +144,26 @@ argument, else the git root, else this folder.
   brings your comment back), a **note** comes as `pi:` lines under it, or
   **ask**: the question goes to the session's agent, and its answer comes in
   pi. Until the answer starts, a line under the question shows
-  `// pi ⠋ thinking · Esc stops`. The answer streams in at full speed; your
+  `// pi ⠋ thinking · Esc stops`. Your
   keys in that file wait, Esc stops it. After ctrl+z, Enter at the end of the
   line asks again (the pause alone does not).
 - Status bar `✓ 3 › ▶ Run the tests › Update the README +1`: pi's plan as a
   timeline, done › now › next. pi sends it with its `plan` tool for a task
   with several steps. `ctrl+k v` (or a click) shows the whole plan in a
-  drawer; Esc closes it.
+  drawer: under each step, the files pi named for it and the files it
+  changed in it (`●` changed, `✎` pi writes it now, `·` planned, "unplanned"
+  when no step named it). Tab goes into the list, Enter opens a file; Esc
+  closes the drawer.
+- The lines pi changed show in the open file: a coloured bar `▌` in the gutter
+  (one colour for each plan step; a line with a note or a review mark keeps that
+  mark), and a hint underline over each run with a hover text: the step and
+  pi's `why`. If you edit the file after pi, the lines you edited lose their
+  bar and the others keep it. Panel setting "Changed lines" turns it off.
+  `ctrl+k .` opens the exact diff of the change that wrote the line under the
+  cursor (with pi's `why`); `ctrl+k /` marks pi's changes in the open file
+  seen, so their bars go. In the plan drawer (`ctrl+k v`), `d` on a file row
+  opens its diff for that step, and `s` marks a file row or a whole step seen
+  (`✓`). Seen marks are kept for the pi session, not for ever.
 - `ctrl+k w`: what pi changed in its last turn, as a diff: the open file, or
   the last file pi changed if pi did not touch the open one. A notice lists
   the reasons pi gave for those changes (`why`).
@@ -315,7 +318,7 @@ each kind of proposal and the guard's limits.
 ## The ttt plugin
 
 The plugin's sources are in `ttt/src`: a small host (`ttt/src/core`) and one
-file per feature (`ttt/src/features`: the replay, helpi!, the sessions, the
+file per feature (`ttt/src/features`: follow, helpi!, the sessions, the
 plan, ...). ttt runs one Lua file per plugin, so `npm run build` bundles them
 into `ttt/symbiosis/plugin.lua`. Git ignores the bundle, so it never causes a
 merge conflict and never goes stale: pi builds it when it starts and copies it
@@ -333,11 +336,10 @@ PLAN_AT=26 PLAN_CLOSE_AT=34 HOLD_MS=4000 npm run e2e   # also opens the plan dra
 DIFF_AT=30 HOLD_MS=4000 npm run e2e                     # also shows the diff (ctrl+k w)
 bash test/e2e/help.sh      # helpi!: code, note, ask, Esc; only the session the editor follows answers
 bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the workspace tests must pass
-bash test/e2e/lag.sh       # the replay behind pi (LAG=-1, SPEED=80); typing waits; buffer = disk at the end
 bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel shows a file outside the folder
 bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, tab names, no multiplexer, already open, symbiosis close
-bash test/e2e/marks.sh     # the gutter: ▌ on the change's lines and π on the line typed now, none after
 bash test/e2e/close.sh     # ctrl+k n detaches; ctrl+k z asks, runs `symbiosis close`, quits ttt only when it worked (asks about unsaved files); quit.json
+bash test/e2e/changelist.sh # the plan drawer: steps with the files pi named and changed, unplanned, Enter opens a file
 bash test/e2e/stop.sh      # "? waits for you" while pi shows a dialog; ctrl+k q stops pi's turn
 bash test/e2e/ask.sh       # ctrl+k d and why!: the drawer, a term asked about, the note file, the gutter mark and its click, .gitignore
 bash test/e2e/review.sh    # a filled body: the drawer opens by itself, the gutter mark and status item, Esc hides, ctrl+k x shows, a acks

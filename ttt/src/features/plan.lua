@@ -1,9 +1,14 @@
 -- The timeline: pi's plan (the `plan` tool, pi/plan.ts) comes in the owner's
 -- session record. The status bar shows it as "✓ 3 › ▶ now › next"; ctrl+k v
--- (or a click) shows the whole plan in a drawer.
+-- (or a click) shows the whole plan in a drawer, and under each step the
+-- files pi named for it and the files it changed in it (the change log,
+-- pi/changelog.ts; core/changelist.lua builds the list). Enter on a file opens it.
+--
+-- Hooks it takes: "sessions", "start" and "done" (pi's calls), to redraw.
 local ttt = require("ttt")
 local json = require("ttt.json")
 local util = require("core.util")
+local changelist = require("core.changelist")
 
 local PLAN_WIDTH = 56 -- the timeline in the status bar, in characters
 
@@ -42,13 +47,28 @@ end
 
 return {
 	name = "plan",
-	needs = { "sessions" },
+	needs = { "sessions", "follow", "changediff" },
 	plan_line = plan_line, -- for the unit tests
 	setup = function(app)
 		local sessions = app:need("sessions")
+		local follow = app:need("follow")
+		local diff = app:need("changediff")
 		local seen = nil   -- the plan as last shown, to redraw only on a change
 		local drawer = nil -- the plan drawer's panel, once opened: redrawn on a change
 		local open
+		local actions = {} -- node id -> {path, line}, of the list as last drawn
+
+		local function log_of(owner) return changelist.read_log(app.channel, owner) end
+
+		-- `s` in the drawer: these changes are seen; their bars and tags go.
+		local function mark_seen(list)
+			local owner = sessions.owner()
+			local ids = {}
+			for _, c in ipairs(list) do table.insert(ids, c.id) end
+			if not owner or #ids == 0 then return ttt.notify("symbiosis: nothing to mark seen here", "info") end
+			changelist.mark_seen(app.channel, owner, ids, log_of(owner))
+			app:emit("seen")
+		end
 
 		local function render(panel)
 			drawer = panel
@@ -58,23 +78,34 @@ return {
 			if #steps == 0 then
 				panel:label({ text = "No plan yet. pi sends one for a task with several steps.", style = "muted" })
 			end
-			for _, s in ipairs(steps) do
-				if s.state == "done" then
-					panel:label({ text = "✓ " .. s.text, style = "muted" })
-				elseif s.state == "now" then
-					panel:label({ text = "▶ " .. s.text, style = "bold" })
-				else
-					panel:label({ text = "· " .. s.text })
-				end
+			local changes = log_of(owner)
+			if #steps > 0 or #changes > 0 then
+				local nodes
+				nodes, actions = changelist.build(steps, changes, { cwd = owner and owner.cwd, editing = follow.editing, seen = changelist.read_seen(app.channel, owner) })
+				panel:list({
+					items = nodes, truncate_left = false, key_commands = { s = "seen", d = "diff" },
+					on_command = function(command, node)
+						local a = actions[node.id]
+						if not a then return end
+						if command == "activate" and a.kind == "file" then return ttt.open_file(a.path, a.line) end
+						if command == "seen" then return mark_seen(a.changes) end
+						if command == "diff" then
+							if a.kind ~= "file" or #a.changes == 0 then return ttt.notify("symbiosis: d shows a file row's changes as a diff", "info") end
+							diff.open(owner, a.changes)
+						end
+					end,
+				})
 			end
-			panel:label({ text = "Esc closes", style = "muted", margin_top = 1 })
+			panel:label({ text = "Tab, then: Enter opens · d diff · s seen (a step: all its files) · Esc closes", style = "muted", margin_top = 1 })
 		end
 
 		-- Shows the owner's plan; only when it changed, so the drawer does not flicker.
 		local function show()
 			local owner = sessions.owner()
 			local steps = plan_of(owner)
-			local now = (owner and owner.id or "") .. json.encode(steps)
+			local changes = log_of(owner)
+			local last = changes[#changes]
+			local now = (owner and owner.id or "") .. json.encode(steps) .. #changes .. (last and last.id or "")
 			if now == seen then return end
 			seen = now
 			local line = plan_line(steps)
@@ -94,6 +125,14 @@ return {
 		end
 
 		app:on("sessions", show)
+		-- A file pi starts to change, or has changed: the drawer shows it at once.
+		local function touch()
+			seen = nil
+			show()
+		end
+		app:on("seen", touch)
+		app:on("start", touch)
+		app:on("done", touch)
 		app:command({ id = "symbiosis.showPlan", title = "symbiosis: Show pi's Plan", key = "ctrl+k v", run = function() open() end })
 		app:hint({ key = "ctrl+k v", text = "pi's plan", order = 70 })
 		return { open = open, plan_of = plan_of }

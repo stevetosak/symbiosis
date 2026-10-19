@@ -1,10 +1,10 @@
 -- Settings: each one a list of values; the features define them, the panel
 -- (ctrl+k h) shows them, settings.json keeps them.
 --
---   settings:define("speed", {
---     values = { 10, 20, 0 },  -- the values, in the order Enter cycles them
+--   settings:define("autosave", {
+--     values = { 0, 1000, 3000 }, -- the values, in the order Enter cycles them
 --     default = 2,             -- the index before you choose one
---     label = "Replay speed",  -- in the panel; nil: not in the panel
+--     label = "Autosave",      -- in the panel; nil: not in the panel
 --     order = 10,              -- the place in the panel
 --     text = function(v) ... end, -- the value as the panel shows it
 --     steps = true,            -- "-" and "=" in the panel step it (no wrap)

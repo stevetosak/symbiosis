@@ -5,31 +5,17 @@
 import type { Landed } from './review.ts';
 
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 15;
+export const PROTOCOL = 16;
 
-/** The tools whose calls stream into the editor. */
+/** The tools whose calls the editor lists. */
 export type Tool = 'write' | 'edit';
 
 export type ChannelEvent =
-	/**
-	 * A call starts streaming. `sum` is the Adler-32 of the file on disk, null
-	 * when it does not exist. `before` is that text, when it is not too big:
-	 * the editor may replay this call after pi has changed the file again, so
-	 * it shows the change from this text.
-	 */
-	| { op: 'start'; call: string; tool: Tool; path: string; sum: number | null; before?: string }
-	/** `key` is `content`, `edits.<i>.old` (sent once, complete) or `edits.<i>.new`. `from` counts UTF-8 bytes. */
-	| { op: 'text'; call: string; key: string; from: number; text: string }
-	/** The tool is about to run: the arguments are complete. The plugin acknowledges once it has shown them. */
-	| { op: 'ready'; call: string }
-	/** The call will not run (the turn ended without it, or the guard blocked it: `reason`): undo the preview. */
-	| { op: 'abort'; call: string; reason?: string }
-	/**
-	 * The tool ran. `line` is the first changed line; `sum` is the Adler-32 of
-	 * the file now; `why` is the agent's reason for a choice that is not obvious.
-	 */
-	| { op: 'done'; call: string; tool: Tool; path: string; line: number; ok: boolean; sum: number | null; why?: string }
-	/** The agent's turn ended; the editor goes to the last edit even when pinned. */
+	/** A write or edit call is about to run (the guard let it through). */
+	| { op: 'start'; call: string; tool: Tool; path: string }
+	/** The tool ran. `line` is the first changed line; `why` is the agent's reason for a choice that is not obvious. */
+	| { op: 'done'; call: string; tool: Tool; path: string; line: number; ok: boolean; why?: string }
+	/** The agent's turn ended; `path` and `line` are its last change. */
 	| { op: 'stop'; path: string; line: number }
 	/** helpi!: session `session` got the question `id` and asks its model. */
 	| { op: 'help'; id: string; session: string }
@@ -55,17 +41,11 @@ export type ChannelEvent =
 /** What the editor tells the agent side about itself. */
 export interface PluginState {
 	alive: boolean;
-	pinned: boolean;
 	/** The session the editor follows, if any. */
 	owner?: string;
-	/** How many changes pi may make that the editor has not shown yet; -1 = no limit. */
-	lag: number;
 	/** How far the guard lets a fill reach (core/guard.ts). */
 	scope: Scope;
 }
-
-/** The lag limit before the operator sets one. */
-export const DEFAULT_LAG = 3;
 
 export type StepState = 'done' | 'now' | 'next';
 
@@ -73,9 +53,45 @@ export type StepState = 'done' | 'now' | 'next';
 export interface Step {
 	text: string;
 	state: StepState;
+	/** The files pi expects to create or change in this step, absolute paths (pi's guess: the change list also shows the files it really changed). */
+	files?: string[];
 }
 
 /** What a pi session tells the plugin about itself. Times are Unix seconds. */
+/** One hunk of a change: the lines it replaced and the lines it put in (1-based; a count of 0 is an insert or a delete at that line). */
+export interface Hunk {
+	oldStart: number;
+	oldLines: number;
+	newStart: number;
+	newLines: number;
+}
+
+/**
+ * One write or edit pi made, as the change log keeps it (pi/changelog.ts):
+ * `log/<session>/index.json` lists them, oldest first; the texts before and
+ * after are in `log/<session>/<id>.json` ({before, after}) when `texts` is true.
+ */
+export interface LoggedChange {
+	id: string;
+	/** 1, 2, 3 ... in the order pi made them. */
+	seq: number;
+	/** Seconds since the epoch. */
+	t: number;
+	call: string;
+	tool: 'write' | 'edit';
+	path: string;
+	/** The plan step pi worked on (its place in the plan then), else null. */
+	step: number | null;
+	stepText: string | null;
+	/** The file did not exist before. */
+	created: boolean;
+	/** The lines of this change, in the file as it was after it. */
+	hunks: Hunk[];
+	why?: string;
+	/** The texts before and after are kept (a file over 256 KB is not). */
+	texts: boolean;
+}
+
 export interface Session {
 	id: string;
 	/** The channel protocol of this extension; the plugin flags an older one. */

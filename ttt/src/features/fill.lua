@@ -14,7 +14,7 @@
 --   drawer with an optional note: Enter accepts, the Reject button rejects,
 --   both send the note. ctrl+k p shows it again.
 --
---   The `why` pi gives a change shows as a notice when the replay shows the
+--   The `why` pi gives a change shows as a notice when the editor shows the
 --   change; ctrl+k w lists them again (features/changes.lua).
 --
 --   The setting "Stub scope" (the panel): how far the guard lets a fill reach.
@@ -202,6 +202,6 @@ end
 
 return {
 	name = "fill",
-	needs = { "sessions", "replay" },
+	needs = { "sessions", "follow" },
 	setup = setup,
 }

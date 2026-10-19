@@ -27,9 +27,11 @@ ttt/
       folder.lua        the workspace folder of a file
     features/
       sessions.lua      the pi sessions; the one the editor follows
-      plan.lua          pi's plan in the status bar, ctrl+k v
+      changemarks.lua   the lines pi changed: a gutter bar by plan step, hover text; seen marks (ctrl+k /)
+      changediff.lua    the exact diff of one change (ctrl+k . and `d` in the plan drawer)
+      plan.lua          pi's plan in the status bar, ctrl+k v: the steps with their files and changes
       tree.lua          the "pi files" sidebar
-      replay.lua        pi's writes and edits typed in the buffer
+      follow.lua        which file pi writes; the editor follows it when you turn that on
       autosave.lua      saves the file a while after you type
       helpi.lua         `// ... helpi!` asks pi
       ask.lua           ctrl+k d and `why!`: ask pi about code, in a drawer
@@ -105,8 +107,8 @@ opened or the tab changed), `change` (the buffer changed). The features add
 `sessions` (after each refresh) and `follow` (the editor followed pi into a
 file).
 
-The order of the `key` handlers: helpi! (10: Esc, Enter), the replay (50:
-your typing waits while it writes in the file), autosave (90).
+The order of the `key` handlers: helpi! (10: Esc, Enter), follow (50:
+your typing waits while helpi! writes in the file), autosave (90).
 
 ## Rules
 
