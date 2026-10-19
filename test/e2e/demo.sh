@@ -12,7 +12,6 @@ export DEMO_DIR="$OUT/ws" XDG_STATE_HOME="$OUT/state" TTT_CONFIG_DIR="$OUT/cfg" 
 mkdir -p "$OUT/cfg/plugins/symbiosis"
 "$repo/bin/run-node" "$repo/ttt/build.ts" >/dev/null
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"
-echo "{\"speed\":${SPEED:-1280},\"lag\":${LAG:-3}}" > "$OUT/cfg/plugins/symbiosis/settings.json"
 perms=$(python3 -c "import json; print(json.dumps(json.load(open('$repo/ttt/symbiosis/plugin.ttt.json'))['permissions']))")
 echo "[{\"name\":\"symbiosis\",\"displayName\":\"symbiosis\",\"version\":\"0.1.0\",\"enabled\":true,\"permissions\":$perms}]" > "$OUT/cfg/plugins.ttt.json"
 
@@ -22,7 +21,7 @@ echo "[{\"name\":\"symbiosis\",\"displayName\":\"symbiosis\",\"version\":\"0.1.0
 (cd "$DEMO_DIR" && exec "$repo/demo/scripted-pi" > "$OUT/demo.log" 2>&1) &
 demo=$!
 
-steps="wait-for store.done(7) timeout=30000; screenshot $OUT/turn1.txt; quit"
+steps="key ctrl+k a; wait-for store.done(7) timeout=30000; screenshot $OUT/turn1.txt; quit"
 (cd "$DEMO_DIR" && ttt --size 100x32 store.ts --exec "$steps" > /dev/null 2>&1) || true
 until grep -q 'turn 1 done' "$OUT/demo.log"; do
 	kill -0 $demo 2> /dev/null || { cat "$OUT/demo.log"; exit 1; }

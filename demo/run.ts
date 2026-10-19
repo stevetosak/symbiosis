@@ -131,7 +131,7 @@ if (findOpen(stateDir(), DIR)) {
 say('waiting until ttt follows this session ("π demo" in its status bar) ...');
 say(`  (no ttt yet? open it: ttt ${DIR})`);
 await pi.waitOwner();
-say('the editor follows "demo". Start in 3 s. Try ctrl+k h (the panel), ctrl+k - / = (speed), ctrl+k space (pause).');
+say('the editor follows "demo". Start in 3 s. Try ctrl+k h (the panel), ctrl+k a (the editor follows pi), ctrl+k v (the plan).');
 await sleep(3000);
 
 // ---- Turn 1: one task with a plan, a new file and edits ----
@@ -143,7 +143,7 @@ say('turn 1: the plan (the timeline in the status bar; ctrl+k v shows all of it)
 await pi.plan(...steps(0));
 await pause();
 
-say('write format.ts: a new file, typed into the editor');
+say('write format.ts: a new file');
 await pi.write(
 	'format.ts',
 	`// One to-do as one line: "[x] 2 call mum".

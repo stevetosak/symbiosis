@@ -145,7 +145,7 @@ function App:drop(name)
 	if self.low and self.low.owner == name then self.low = nil end
 	self.settings:drop(name)
 	self.channel:drop(name)
-	-- The other features drop what they keep for it (see replay.hold).
+	-- The other features drop what they keep for it (see follow.hold).
 	self:emit("drop", name)
 end
 

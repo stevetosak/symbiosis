@@ -13,25 +13,25 @@ const temp = () => mkdtempSync(join(tmpdir(), 'symbiosis-'));
 test('without the plugin folder the channel writes nothing', () => {
 	const dir = join(temp(), 'missing');
 	const c = new FileChannel(dir);
-	c.emit({ op: 'abort', call: 'c1' });
+	c.emit({ op: 'stop', path: '/w/a.ts', line: 1 });
 	assert.equal(c.enabled(), false);
 });
 
 test('events are appended and head.json tracks the size', () => {
 	const dir = temp();
 	const c = new FileChannel(dir, () => 1000);
-	c.emit({ op: 'ready', call: 'c1' }, { op: 'abort', call: 'c2' });
+	c.emit({ op: 'start', call: 'c1', tool: 'edit', path: '/w/a.ts' }, { op: 'start', call: 'c2', tool: 'write', path: '/w/b.ts' });
 	const log = readFileSync(join(dir, 'events.jsonl'), 'utf-8');
 	assert.deepEqual(log.trim().split('\n').map((l) => JSON.parse(l).call), ['c1', 'c2']);
 	assert.deepEqual(JSON.parse(readFileSync(join(dir, 'head.json'), 'utf-8')), { gen: 1000, size: Buffer.byteLength(log) });
 });
 
-test('the heartbeat says if ttt is alive and pinned', () => {
+test('the heartbeat says if ttt is alive', () => {
 	const dir = temp();
 	const c = new FileChannel(dir, () => 10_000);
-	assert.deepEqual(c.plugin(), { alive: false, pinned: false, lag: 3, scope: 'stub' });
-	writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 9, pinned: true }));
-	assert.deepEqual(c.plugin(), { alive: true, pinned: true, lag: 3, scope: 'stub' });
+	assert.deepEqual(c.plugin(), { alive: false, scope: 'stub' });
+	writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 9 }));
+	assert.deepEqual(c.plugin(), { alive: true, scope: 'stub' });
 	writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 6 }));
 	assert.equal(c.plugin().alive, false);
 });
@@ -40,16 +40,7 @@ test('the heartbeat names the owner: the session the editor follows', () => {
 	const dir = temp();
 	const c = new FileChannel(dir, () => 10_000);
 	writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 9, owner: 's1' }));
-	assert.deepEqual(c.plugin(), { alive: true, pinned: false, lag: 3, scope: 'stub', owner: 's1' });
-});
-
-test('the heartbeat says how far pi may run ahead; a bad value is the default', () => {
-	const dir = temp();
-	const c = new FileChannel(dir, () => 10_000);
-	for (const [lag, want] of [[0, 0], [10, 10], [-1, -1], [-2, 3], [1.5, 3], ['x', 3]] as const) {
-		writeFileSync(join(dir, 'ttt.json'), JSON.stringify({ t: 9, lag }));
-		assert.equal(c.plugin().lag, want, String(lag));
-	}
+	assert.deepEqual(c.plugin(), { alive: true, scope: 'stub', owner: 's1' });
 });
 
 test('the heartbeat carries the scope; a bad value, or an editor that is gone, is stub', () => {
@@ -131,41 +122,14 @@ test('when another session wrote the log, the next emit starts it again', () => 
 	let now = 1000;
 	const one = new FileChannel(dir, () => now);
 	const two = new FileChannel(dir, () => now);
-	one.emit({ op: 'ready', call: 'c1' });
+	one.emit({ op: 'start', call: 'c1', tool: 'edit', path: '/w/a.ts' });
 	now = 2000;
-	two.emit({ op: 'ready', call: 'c2' });
+	two.emit({ op: 'start', call: 'c2', tool: 'edit', path: '/w/a.ts' });
 	now = 3000;
-	one.emit({ op: 'ready', call: 'c3' });
+	one.emit({ op: 'start', call: 'c3', tool: 'edit', path: '/w/a.ts' });
 	const log = readFileSync(join(dir, 'events.jsonl'), 'utf-8');
 	assert.deepEqual(log.trim().split('\n').map((l) => JSON.parse(l).call), ['c3']);
 	assert.deepEqual(JSON.parse(readFileSync(join(dir, 'head.json'), 'utf-8')), { gen: 3000, size: Buffer.byteLength(log) });
-});
-
-test('waitAck waits as long as it may, with no time limit', async () => {
-	const dir = temp();
-	const c = new FileChannel(dir);
-	assert.equal(await c.waitAck('c1', () => false, 10), false);
-	// A slow preview: the ack comes after 300 ms, and nothing cuts the wait short.
-	setTimeout(() => writeFileSync(join(dir, 'ack.json'), JSON.stringify(['c0', 'c1'])), 300);
-	assert.equal(await c.waitAck('c1', () => true, 10), true);
-	// The wait ends when the caller says so: the plugin stopped, or the turn was aborted.
-	let left = 3;
-	assert.equal(await c.waitAck('c2', () => left-- > 0, 10), false);
-});
-
-test('pi waits only while more changes than the limit are not shown', async () => {
-	const dir = temp();
-	const c = new FileChannel(dir);
-	writeFileSync(join(dir, 'ack.json'), JSON.stringify(['c1']));
-	// c2..c4 not shown: with a limit of 3, no wait.
-	assert.deepEqual(await c.waitBehind(['c1', 'c2', 'c3', 'c4'], 3, () => true, 10), ['c2', 'c3', 'c4']);
-	// No limit: no wait, even far behind.
-	assert.equal((await c.waitBehind(['a', 'b', 'c', 'd', 'e'], -1, () => true, 10)).length, 5);
-	// A limit of 1 with c2, c3 not shown: the wait ends when the editor shows c2.
-	setTimeout(() => writeFileSync(join(dir, 'ack.json'), JSON.stringify(['c1', 'c2'])), 200);
-	const t = Date.now();
-	assert.deepEqual(await c.waitBehind(['c2', 'c3'], 1, () => true, 10), ['c3']);
-	assert.ok(Date.now() - t >= 150);
 });
 
 test('install removes only its own old link', () => {

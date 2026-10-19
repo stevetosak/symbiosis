@@ -94,9 +94,9 @@ return {
 		local revealed = nil -- the file last shown in ttt's file tree
 
 		local function rebuild()
-			-- The file pi changes now: the replay's, when there is a replay.
-			local replay = app:get("replay")
-			local now = replay and replay.now_path() or nil
+			-- The file pi changes now.
+			local follower = app:get("follow")
+			local now = follower and follower.now_path() or nil
 			items, paths = build(sessions.list(), sessions.owner(), now)
 		end
 

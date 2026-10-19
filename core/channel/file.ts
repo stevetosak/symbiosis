@@ -6,12 +6,10 @@
 //   head.json     {gen, size}: the plugin reads this small file on every tick
 //                 and reads events.jsonl only when it grew. A new `gen` means
 //                 pi started the log again from empty.
-//   ttt.json      {t, pinned, owner, lag, scope}: the plugin's heartbeat,
-//                 every second. `owner` is the id of the session the editor
-//                 follows; only that session writes events. `lag` is how many
-//                 changes pi may make before the editor has shown them.
-//                 `scope` is how far the guard lets a fill reach.
-//   ack.json      [call ids]: the changes the editor has shown (replayed).
+//   ttt.json      {t, owner, scope}: the plugin's heartbeat, every second.
+//                 `owner` is the id of the session the editor follows; only
+//                 that session writes events. `scope` is how far the guard
+//                 lets a fill reach.
 //   ask.json      AskRequest: the plugin asks session `to` about code
 //                 (core/ask.ts), or to stop the answer (`cancel`).
 //   review.json   {id, to, ack}: the plugin acks filled body `ack` of session
@@ -31,7 +29,7 @@ import { join } from 'node:path';
 import { parseAskRequest } from '../ask.ts';
 import { parseRequest } from '../help.ts';
 import { parseReviewRequest, type ReviewRequest } from '../review.ts';
-import { type AskRequest, type ChannelEvent, type CloseRequest, DEFAULT_LAG, FILL_MODES, type FillRequest, type HelpRequest, type PluginState, type ProposalAnswer, SCOPES, type Scope, type Session, type StopRequest } from '../protocol.ts';
+import { type AskRequest, type ChannelEvent, type CloseRequest, FILL_MODES, type FillRequest, type HelpRequest, type PluginState, type ProposalAnswer, SCOPES, type Scope, type Session, type StopRequest } from '../protocol.ts';
 import type { Channel } from './channel.ts';
 
 /** The log starts again from empty at the start of a turn once it is this big. */
@@ -84,14 +82,13 @@ export class FileChannel implements Channel {
 	}
 
 	plugin(): PluginState {
-		const state = readJson<{ t?: unknown; pinned?: unknown; owner?: unknown; lag?: unknown; scope?: unknown }>(join(this.dir, 'ttt.json'));
+		const state = readJson<{ t?: unknown; owner?: unknown; scope?: unknown }>(join(this.dir, 'ttt.json'));
 		const t = typeof state?.t === 'number' ? state.t : 0;
 		const owner = typeof state?.owner === 'string' ? state.owner : undefined;
-		const lag = typeof state?.lag === 'number' && Number.isInteger(state.lag) && state.lag >= -1 ? state.lag : DEFAULT_LAG;
 		const alive = this.now() / 1000 - t < 3;
 		// A scope from an editor that is gone does not hold: the strict default does.
 		const scope: Scope = alive && SCOPES.includes(state?.scope as Scope) ? (state?.scope as Scope) : 'stub';
-		return { alive, pinned: state?.pinned === true, lag, scope, ...(owner ? { owner } : {}) };
+		return { alive, scope, ...(owner ? { owner } : {}) };
 	}
 
 	/** Writes this session's record: the heartbeat the plugin reads. */
@@ -115,17 +112,6 @@ export class FileChannel implements Channel {
 			const s = readJson<{ t?: unknown }>(join(dir, file));
 			if (typeof s?.t !== 'number' || this.now() / 1000 - s.t > maxAgeSeconds) rmSync(join(dir, file), { force: true });
 		}
-	}
-
-	acked(call: string): boolean {
-		return this.unshown([call]).length === 0;
-	}
-
-	/** The calls of `calls` that the editor has not shown yet. */
-	unshown(calls: string[]): string[] {
-		const acks = readJson<unknown[]>(join(this.dir, 'ack.json'));
-		const shown = new Set(Array.isArray(acks) ? acks : []);
-		return calls.filter((c) => !shown.has(c));
 	}
 
 	/** The plugin's last stop request, if any. */
@@ -193,29 +179,6 @@ export class FileChannel implements Channel {
 		const raw = readJson<Record<string, unknown>>(join(this.dir, 'answer.json'));
 		if (typeof raw?.id !== 'string' || typeof raw.accept !== 'boolean') return undefined;
 		return { id: raw.id, accept: raw.accept, note: typeof raw.note === 'string' ? raw.note.trim() : '' };
-	}
-
-	/**
-	 * Waits until the editor has shown `call` (the plugin typed it at the
-	 * operator's speed). There is no time limit: it waits as long as
-	 * `waiting()` is true, which is the caller's check that the plugin still
-	 * lives, still follows this session, and the turn was not aborted.
-	 */
-	async waitAck(call: string, waiting: () => boolean, stepMs = 20): Promise<boolean> {
-		return (await this.waitBehind([call], 0, waiting, stepMs)).length === 0;
-	}
-
-	/**
-	 * Waits until at most `limit` of `calls` are not shown yet (-1: no limit,
-	 * no wait), or until `waiting()` is false. Returns the calls not shown yet.
-	 */
-	async waitBehind(calls: string[], limit: number, waiting: () => boolean, stepMs = 20): Promise<string[]> {
-		let left = this.unshown(calls);
-		while (limit >= 0 && left.length > limit && waiting()) {
-			await new Promise((r) => setTimeout(r, stepMs));
-			left = this.unshown(left);
-		}
-		return left;
 	}
 
 	private headGen(): number | undefined {

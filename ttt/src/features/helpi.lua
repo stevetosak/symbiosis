@@ -15,12 +15,11 @@
 -- helpi! on a stub's marker line (// TODO(pi) helpi!) asks no model: the
 -- editor knows it is a stub, and pi fills it at once. All in one undo group: one ctrl+z takes
 -- it back. While the answer is written, your typing in that file waits, and
--- the replay too. Esc stops it; what is written stays. Until the answer
+-- autosave too. Esc stops it; what is written stays. Until the answer
 -- starts, a line under the question shows that pi thinks (a spinner); it is
 -- in the same undo group, and the answer takes its place.
 --
--- The help events skip the replay's queue: they apply at once, and only for
--- the question under way.
+-- The help events apply at once, and only for the question under way.
 local ttt = require("ttt")
 local editor = require("ttt.editor")
 local util = require("core.util")
@@ -80,7 +79,7 @@ local function import_at(all)
 end
 
 local function setup(app)
-	local replay = app:need("replay")
+	local follow = app:need("follow")
 	local sessions = app:need("sessions")
 	local fill = app:need("fill")
 	local channel = app.channel
@@ -90,7 +89,7 @@ local function setup(app)
 	local asked = {}       -- path:line:text -> true: the pause does not ask again (Enter does)
 	local quiet = 0        -- poll tick: changes before it are the plugin's own (the waiting line)
 
-	local function show(text) replay.show(text) end
+	local function show(text) follow.show(text) end
 
 	-- The waiting line: a comment under the question, with the question's indent.
 	local function loader_text(h)
@@ -194,7 +193,7 @@ local function setup(app)
 
 	-- `again`: Enter asks also a line that was asked before (after ctrl+z, say).
 	local function ask_help(again)
-		if not app.loaded or help or buffer.editing or replay.running() then return end
+		if not app.loaded or help or buffer.editing or follow.running() then return end
 		local path = editor.file_path()
 		if not path or path == "" then return end
 		local pos = editor.cursor()
@@ -295,7 +294,6 @@ local function setup(app)
 
 	local function help_start(ev)
 		help.kind = ev.kind
-		if replay.running() then replay.finish() end
 		if not buffer.on_buffer(help.path) then return help_end("helpi!: the file did not open", "warning") end
 		-- The question may have moved: find its line again.
 		local line = help.line
@@ -352,7 +350,7 @@ local function setup(app)
 
 	local handlers = { help = help_taken, help_start = help_start, help_text = help_text, help_done = help_done }
 
-	-- A help event, at once (not through the replay queue): only for the question under way.
+	-- A help event, at once: only for the question under way.
 	local function apply_help(ev)
 		if not help or help.stopped or ev.id ~= help.id then return end
 		if ev.op ~= "help" and not help.taken then help_taken(ev) end
@@ -365,9 +363,9 @@ local function setup(app)
 	end
 	for op in pairs(handlers) do channel:on(op, apply_help) end
 
-	-- While an answer is written, the replay waits, and your typing in its file too.
-	replay.hold(function() return help ~= nil and help.group == true end)
-	replay.lock(function(path) return help ~= nil and help.group == true and path == help.path end)
+	-- While an answer is written, autosave waits, and your typing in its file too.
+	follow.hold(function() return help ~= nil and help.group == true end)
+	follow.lock(function(path) return help ~= nil and help.group == true and path == help.path end)
 
 	-- The pause or Enter at the end of a helpi! line asks (core/trigger.lua).
 	trigger.new(app, {
@@ -400,7 +398,7 @@ end
 
 return {
 	name = "helpi",
-	needs = { "replay", "sessions", "fill" },
+	needs = { "follow", "sessions", "fill" },
 	setup = setup,
 	-- For the tests.
 	helpi = helpi,

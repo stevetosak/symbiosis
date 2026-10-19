@@ -1,7 +1,7 @@
 # The demo
 
 A small to-do app (`workspace/`) and one task in it. It shows the whole flow:
-the plan, a new file typed into the editor, edits, the diff of the turn, and
+the plan, a new file, edits, the diff of the turn, and
 your `helpi!` questions answered where you write them. Use it to try symbiosis, and to test it
 after a change.
 
@@ -26,14 +26,11 @@ npm run demo                 # or: npm run demo -- --split
    status bar shows `π demo`, the editor follows it, and it starts. Outside
    herdr and tmux, ttt opens alone and the command prints how to start the
    scripted pi in a second terminal.
-2. Turn 1: the plan in the status bar, `format.ts` typed in as a new file,
+2. Turn 1: the plan in the status bar, `format.ts` written as a new file,
    then edits in `store.ts`, `cli.ts` (three in one call) and
-   `store.test.ts`. Try the keys while it types: `ctrl+k -` / `ctrl+k =`
-   (speed), `ctrl+k space` (pause the replay), `ctrl+k .` (the rest of this change at
-   once), `ctrl+k v` (the plan), `ctrl+k h` (the panel). The script runs
-   ahead of the editor: the bar shows `· 2 behind`, and its log says how
-   long pi waited. "pi ahead (max)" in the panel sets the limit (0 = pi
-   waits for each change). Typing in the replayed file waits.
+   `store.test.ts`. The editor stays where you are; the bar says which file
+   pi writes. Try `ctrl+k a` (the editor follows pi), `ctrl+k v` (the plan),
+   `ctrl+k h` (the panel).
 3. At the end of the turn: `ctrl+k w` shows the diff of the turn.
 4. Then you: in `store.ts`, on a new line above `list()`, write a comment
    that ends in `helpi!` and stop typing (or press Enter). The script's

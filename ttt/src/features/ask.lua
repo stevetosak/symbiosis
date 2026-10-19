@@ -80,7 +80,7 @@ end
 
 local function setup(app)
 	local sessions = app:need("sessions")
-	local replay = app:need("replay")
+	local follow = app:need("follow")
 	local notes = app:need("notes")
 	local channel = app.channel
 	local cur = nil          -- the answer in the drawer
@@ -218,7 +218,7 @@ local function setup(app)
 	-- why! ----------------------------------------------------------------------------
 
 	local function fire_why(again)
-		if not app.loaded or pending or buffer.editing or replay.running() then return end
+		if not app.loaded or pending or buffer.editing or follow.running() then return end
 		local path = editor.file_path()
 		if not path or path == "" then return end
 		local pos = editor.cursor()
@@ -489,7 +489,7 @@ end
 
 return {
 	name = "ask",
-	needs = { "sessions", "replay", "notes" },
+	needs = { "sessions", "follow", "notes" },
 	setup = setup,
 	-- For the tests.
 	parse_why = parse_why,

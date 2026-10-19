@@ -25,13 +25,13 @@ local function setup(app)
 	local has_marks, bookmarks = pcall(require, "ttt.bookmarks")
 	local gutter = has_marks and require("core.gutter").new(bookmarks, MARK, "warning") or nil
 	local sessions = app:need("sessions")
-	local replay = app:need("replay")
+	local follow = app:need("follow")
 	local acked = {}       -- id -> true: acked here; pi's record drops it within a second
 	local seen = nil       -- id -> true: ids already looked at (nil until the first look)
 	local list = {}        -- the un-acked bodies of every session
 	local lines = {}       -- id -> the line of its function in the open file
 	local current = nil    -- the body the drawer shows
-	local waiting = nil    -- a body that landed and waits for the replay to end
+	local waiting = nil    -- a body that landed and waits until pi has no call open
 	local timer = nil
 
 	-- The open file's buffer, to find each body's function again.
@@ -156,9 +156,9 @@ local function setup(app)
 			if not fine then app.log("error", "symbiosis review: " .. tostring(err)) end
 		end)
 	end)
-	-- A body landed: the drawer opens once pi's changes are typed in.
+	-- A body landed: the drawer opens once pi has finished its call.
 	app:on("tick", function()
-		if not waiting or replay.running() then return end
+		if not waiting or follow.running() then return end
 		local l = waiting
 		waiting = nil
 		show(l)
@@ -187,6 +187,6 @@ end
 
 return {
 	name = "review",
-	needs = { "sessions", "replay" },
+	needs = { "sessions", "follow" },
 	setup = setup,
 }
