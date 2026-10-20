@@ -1,6 +1,6 @@
 id = "symbiosis"
 name = "symbiosis"
-version = "0.1.0"
+version = "0.2.0"
 min_herdr_version = "0.9.0"
 description = "The pi coding agent works inside the ttt editor: you watch every write as it happens"
 platforms = ["linux", "macos"]
