@@ -32,6 +32,15 @@ all three. Each time pi starts, it copies the ttt plugin into
 `~/.config/ttt/plugins/symbiosis` when ttt's copy differs, and says so; then
 run "Plugins: Reload" in ttt.
 
+**Versions and updates.** Releases are git tags (`v0.2.0`, ...) made by
+release-please; its `CHANGELOG.md` lists what each one changed.
+`symbiosis version` shows the version, the ttt plugin against the copy in
+ttt's plugin folder, and the pi sessions that run older code; `symbiosis
+version --check` also asks GitHub for the newest release. To update, run `pi
+update`, restart pi, and run "Plugins: Reload" in ttt. `pi update` follows the
+default branch; to stay on a release, install it pinned:
+`pi install git:github.com/stevetosak/symbiosis@v0.2.0`.
+
 Two steps the first time:
 
 - ttt asks you to allow the plugin's permissions.
@@ -105,6 +114,7 @@ argument, else the git root, else this folder.
   running programs (F5) and unsaved files as for `ctrl+q`. Only the pi that the
   command started in its own pane is closed; a pi you started yourself stays,
   and when pi does not quit in 8 s its pane stays and ttt stays too.
+- `symbiosis version [--check]` shows what runs and whether its parts agree (see Install).
 - Config: `~/.config/symbiosis/config.json`
   `{"open": "here" | "tab", "layout": "tabs" | "split", "piArgs": [...]}`.
   A flag wins over the config.
