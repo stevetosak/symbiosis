@@ -784,6 +784,25 @@ and dropped: the panel was a poorer copy of pi's own terminal.)
   package. So the launcher, the extension and the plugin come from one copy,
   and `pi update` updates all three. herdr is optional; install.sh does not
   install it.
+- **Versions.** One number, in `package.json`; the ttt plugin manifest and
+  `herdr-plugin/herdr-plugin.toml` carry the same one, and `test/version.test.ts`
+  fails when they differ. release-please (`.github/workflows/release-please.yml`,
+  `release-please-config.json`, `.release-please-manifest.json`) keeps a release
+  PR open from the commit subjects (`feat:` and `fix:`), writes the number into
+  the three files and `CHANGELOG.md`, and tags `vX.Y.Z` when the PR merges. Before
+  1.0 a `feat:` raises the minor number. The plugin's channel `PROTOCOL` is a
+  separate number: it changes when pi and the plugin can no longer talk, and
+  `symbiosis version` shows both.
+- **`symbiosis version`** (launcher/version.ts, core/version.ts). Offline by
+  default: the package version (and `git describe` when the copy is a clone),
+  the ttt plugin in the package against the copy in ttt's plugin folder, the
+  `PROTOCOL` of the package against the installed `plugin.lua`, and the
+  `PROTOCOL` of each open pi session (its record in `sessions/`), with the step
+  to take for each difference (start pi once, reload the plugin, restart that
+  pi). `--check` runs `git ls-remote --tags` on the repository and compares the
+  newest `vX.Y.Z` tag; a failed check exits 1 and says why. The plugin's
+  `version` is only stored by ttt, never compared, so the number may be set to
+  the package's.
 - **herdr.** With herdr there, install.sh adds the herdr plugin and a key.
   Its action **Open symbiosis** (`herdr-plugin/scripts/open.sh`) runs
   `symbiosis <folder> --tab` for the focused pane's folder; herdr runs

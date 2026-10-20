@@ -7,6 +7,7 @@
 // Outside herdr and tmux it runs ttt only and says how to start pi.
 //
 // `symbiosis close` ends all of it again (launcher/close.ts).
+// `symbiosis version [--check]` shows what runs (launcher/version.ts).
 //
 // Environment, for tests and unusual installs: SYMBIOSIS_PI and SYMBIOSIS_TTT
 // name the pi and ttt commands (default: pi, ttt from PATH).
@@ -22,6 +23,7 @@ import { pluginDir } from '../core/channel/file.ts';
 import { askStopRuns, runMain } from './run.ts';
 import { CLOSE_USAGE, closePi, parseCloseArgs, quitEditor, target } from './close.ts';
 import { FileChannel } from '../core/channel/file.ts';
+import { versionMain } from './version.ts';
 
 function fail(message: string, code = 1): never {
 	process.stderr.write(`${message}\n`);
@@ -122,6 +124,8 @@ async function main(): Promise<number> {
 	if (process.argv[2] === 'run') return runMain(process.argv.slice(3));
 	// `symbiosis close ...`: pi and ttt end together (launcher/close.ts).
 	if (process.argv[2] === 'close') return closeMain(process.argv.slice(3));
+	// `symbiosis version [--check]` (launcher/version.ts).
+	if (process.argv[2] === 'version') return versionMain(process.argv.slice(3));
 	let args;
 	try {
 		args = parseArgs(process.argv.slice(2));
