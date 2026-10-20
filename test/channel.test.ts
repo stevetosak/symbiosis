@@ -20,7 +20,7 @@ test('without the plugin folder the channel writes nothing', () => {
 test('events are appended and head.json tracks the size', () => {
 	const dir = temp();
 	const c = new FileChannel(dir, () => 1000);
-	c.emit({ op: 'start', call: 'c1', tool: 'edit', path: '/w/a.ts' }, { op: 'start', call: 'c2', tool: 'write', path: '/w/b.ts' });
+	c.emit({ op: 'start', call: 'c1', tool: 'edit', path: '/w/a.ts', sum: null }, { op: 'start', call: 'c2', tool: 'write', path: '/w/b.ts', sum: null });
 	const log = readFileSync(join(dir, 'events.jsonl'), 'utf-8');
 	assert.deepEqual(log.trim().split('\n').map((l) => JSON.parse(l).call), ['c1', 'c2']);
 	assert.deepEqual(JSON.parse(readFileSync(join(dir, 'head.json'), 'utf-8')), { gen: 1000, size: Buffer.byteLength(log) });
@@ -122,11 +122,11 @@ test('when another session wrote the log, the next emit starts it again', () => 
 	let now = 1000;
 	const one = new FileChannel(dir, () => now);
 	const two = new FileChannel(dir, () => now);
-	one.emit({ op: 'start', call: 'c1', tool: 'edit', path: '/w/a.ts' });
+	one.emit({ op: 'start', call: 'c1', tool: 'edit', path: '/w/a.ts', sum: null });
 	now = 2000;
-	two.emit({ op: 'start', call: 'c2', tool: 'edit', path: '/w/a.ts' });
+	two.emit({ op: 'start', call: 'c2', tool: 'edit', path: '/w/a.ts', sum: null });
 	now = 3000;
-	one.emit({ op: 'start', call: 'c3', tool: 'edit', path: '/w/a.ts' });
+	one.emit({ op: 'start', call: 'c3', tool: 'edit', path: '/w/a.ts', sum: null });
 	const log = readFileSync(join(dir, 'events.jsonl'), 'utf-8');
 	assert.deepEqual(log.trim().split('\n').map((l) => JSON.parse(l).call), ['c3']);
 	assert.deepEqual(JSON.parse(readFileSync(join(dir, 'head.json'), 'utf-8')), { gen: 3000, size: Buffer.byteLength(log) });
