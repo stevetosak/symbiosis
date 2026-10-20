@@ -71,7 +71,9 @@ and copies the ttt plugin and links the command; it needs Node 24).
 
 **From a checkout** (to work on symbiosis): `npm run install:local`
 (`--check` shows what it would do). It runs `pi install <checkout>`, so pi
-loads the code from the checkout, copies the ttt plugin, links
+loads the code from the checkout, and `pi remove` on a
+`git:github.com/stevetosak/symbiosis` entry (with it, pi loads the GitHub copy
+and puts its ttt plugin back at each start). It copies the ttt plugin, links
 `~/.local/bin/symbiosis` to the checkout, and removes the link
 `~/.pi/agent/extensions/symbiosis` that older versions made (with it, pi would
 load the extension twice). `/reload` in pi after a change.

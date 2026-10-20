@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, symlink
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { hasPackage, planCommandLink, planOldLink, planTttPlugin } from '../install.ts';
+import { githubSources, hasPackage, planCommandLink, planOldLink, planPiPackage, planTttPlugin } from '../install.ts';
 import { syncTttPlugin } from '../pi/setup.ts';
 import { FileChannel } from '../core/channel/file.ts';
 import { paneOf } from '../core/session.ts';
@@ -162,14 +162,57 @@ test('install links the symbiosis command, and leaves a file there alone', () =>
 	assert.equal(planCommandLink(own, '/repo/bin/symbiosis').state, 'skip');
 });
 
-test('install finds the pi package by path or GitHub URL', () => {
+test('install finds the pi package by path only', () => {
 	assert.equal(hasPackage({ packages: ['npm:x', '/repo'] }, '/repo'), true);
-	assert.equal(hasPackage({ packages: [{ source: 'git:github.com/stevetosak/symbiosis@v1' }] }, '/repo'), true);
-	assert.equal(hasPackage({ packages: ['https://github.com/stevetosak/symbiosis'] }, '/repo'), true);
+	assert.equal(hasPackage({ packages: [{ source: 'git:github.com/stevetosak/symbiosis@v1' }] }, '/repo'), false);
+	assert.equal(hasPackage({ packages: ['https://github.com/stevetosak/symbiosis'] }, '/repo'), false);
 	assert.equal(hasPackage({ packages: ['npm:symbiosis-other'] }, '/repo'), false);
 	assert.equal(hasPackage({}, '/repo'), false);
 	// As pi writes it: relative to ~/.pi/agent.
 	assert.equal(hasPackage({ packages: ['../../work/symbiosis'] }, '/home/u/work/symbiosis', '/home/u/.pi/agent'), true);
+});
+
+test('install finds the GitHub copies of the pi package', () => {
+	const settings = {
+		packages: ['npm:x', '/repo', { source: 'git:github.com/stevetosak/symbiosis@v1' }, 'https://github.com/stevetosak/symbiosis'],
+	};
+	assert.deepEqual(githubSources(settings), ['git:github.com/stevetosak/symbiosis@v1', 'https://github.com/stevetosak/symbiosis']);
+	assert.deepEqual(githubSources({}), []);
+});
+
+function fakePi(): { pi: string; calls: () => string[] } {
+	const dir = temp();
+	const log = join(dir, 'calls');
+	const pi = join(dir, 'pi');
+	writeFileSync(pi, `#!/bin/sh\necho "$*" >> '${log}'\n`, { mode: 0o755 });
+	return { pi, calls: () => (existsSync(log) ? readFileSync(log, 'utf-8').trim().split('\n') : []) };
+}
+
+function piDirWith(packages: unknown[]): string {
+	const dir = temp();
+	writeFileSync(join(dir, 'settings.json'), JSON.stringify({ packages }));
+	return dir;
+}
+
+test('install replaces the GitHub copy of the pi package with the checkout', () => {
+	const { pi, calls } = fakePi();
+	const step = planPiPackage(piDirWith(['git:github.com/stevetosak/symbiosis']), '/repo', pi);
+	assert.equal(step.state, 'update');
+	step.run?.();
+	assert.deepEqual(calls(), ['remove git:github.com/stevetosak/symbiosis', 'install /repo']);
+});
+
+test('install removes the GitHub copy when the checkout is already there', () => {
+	const { pi, calls } = fakePi();
+	const step = planPiPackage(piDirWith(['/repo', 'git:github.com/stevetosak/symbiosis']), '/repo', pi);
+	assert.equal(step.state, 'update');
+	step.run?.();
+	assert.deepEqual(calls(), ['remove git:github.com/stevetosak/symbiosis']);
+});
+
+test('install leaves the pi package alone when only the checkout is there', () => {
+	assert.equal(planPiPackage(piDirWith(['/repo']), '/repo').state, 'ok');
+	assert.equal(planPiPackage(piDirWith([]), '/repo').state, 'create');
 });
 
 test('pi copies the plugin when it starts, only when ttt is there', () => {

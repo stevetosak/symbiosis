@@ -1,5 +1,6 @@
 // Installs this checkout on this machine, for work on symbiosis itself:
-//   * the pi package: `pi install <this folder>` (pi loads it from here, no copy)
+//   * the pi package: `pi install <this folder>` (pi loads it from here, no copy),
+//     and `pi remove` for a GitHub entry of symbiosis, which pi would load instead
 //   * the ttt plugin: a COPY in ~/.config/ttt/plugins/symbiosis. pi also does
 //     this copy each time it starts, so this is only for the first time.
 //   * the command: ~/.local/bin/symbiosis -> <this folder>/bin/symbiosis
@@ -33,18 +34,22 @@ export function planOldLink(extensionsDir: string, repo: string): Step {
 	return { what, state: 'remove', run: () => unlinkSync(link) };
 }
 
-/**
- * True when pi's settings already list this package, by path or by the GitHub
- * URL. pi writes a local path relative to the settings file's folder (`base`).
- */
-export function hasPackage(settings: unknown, repo: string, base = '/'): boolean {
+function packageSources(settings: unknown): string[] {
 	const list = (settings as { packages?: unknown })?.packages;
-	if (!Array.isArray(list)) return false;
-	return list.some((p) => {
-		const source = typeof p === 'string' ? p : (p as { source?: unknown })?.source;
-		if (typeof source !== 'string') return false;
-		return resolve(base, source) === repo || /github\.com\/stevetosak\/symbiosis(\.git)?(@.*)?$/.test(source);
-	});
+	if (!Array.isArray(list)) return [];
+	return list
+		.map((p) => (typeof p === 'string' ? p : (p as { source?: unknown })?.source))
+		.filter((s): s is string => typeof s === 'string');
+}
+
+/** True when pi's settings list this checkout. pi writes a local path relative to the settings file's folder (`base`). */
+export function hasPackage(settings: unknown, repo: string, base = '/'): boolean {
+	return packageSources(settings).some((s) => resolve(base, s) === repo);
+}
+
+/** The entries that load symbiosis from GitHub; with the checkout also listed, pi would load the extension twice. */
+export function githubSources(settings: unknown): string[] {
+	return packageSources(settings).filter((s) => /github\.com\/stevetosak\/symbiosis(\.git)?(@.*)?$/.test(s));
 }
 
 /** The `symbiosis` command: a link in `binDir` to `target`. Anything else there is left alone. */
@@ -75,13 +80,20 @@ export function planPiPackage(piDir: string, repo: string, pi = 'pi'): Step {
 	try {
 		settings = JSON.parse(readFileSync(join(piDir, 'settings.json'), 'utf-8'));
 	} catch {}
-	if (hasPackage(settings, repo, piDir)) return { what, state: 'ok' };
+	const installed = hasPackage(settings, repo, piDir);
+	const github = githubSources(settings);
+	if (installed && github.length === 0) return { what, state: 'ok' };
+	const runPi = (...args: string[]) => {
+		const r = spawnSync(pi, args, { stdio: 'inherit' });
+		if (r.status !== 0) throw new Error(`${pi} ${args.join(' ')} failed`);
+	};
 	return {
 		what,
-		state: 'create',
+		state: github.length > 0 ? 'update' : 'create',
+		why: github.length > 0 ? `replaces ${github.join(', ')}` : undefined,
 		run: () => {
-			const r = spawnSync(pi, ['install', repo], { stdio: 'inherit' });
-			if (r.status !== 0) throw new Error(`${pi} install ${repo} failed`);
+			for (const source of github) runPi('remove', source);
+			if (!installed) runPi('install', repo);
 		},
 	};
 }
