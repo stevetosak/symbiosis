@@ -74,17 +74,17 @@ test('fill! sends the agent the fill message and the record names the stub', asy
 	assert.deepEqual(record().fill, { kind: 'stub', path: file, name: 'sumFile', line: 7 });
 });
 
-test('inside the body goes through; outside it is blocked and the editor hears nothing of it', async () => {
+test('inside the body goes through; outside it is blocked and the editor drops it', async () => {
 	await pi.beginTurn();
 	const outside = await pi.edit(file, [{ oldText: 'const LIMIT = 10;', newText: 'const LIMIT = 20;' }]);
 	assert.match(outside.blocked ?? '', /Blocked by symbiosis.*`sumFile`/s);
 	assert.match(outside.blocked ?? '', /kind "outside_edit"/);
 	assert.match(readFileSync(file, 'utf-8'), /LIMIT = 10/);
-	assert.ok(!events().some((e) => e.op === 'start'), 'a blocked call is not told to the editor');
+	assert.ok(events().some((e) => e.op === 'abort' && /Blocked/.test(e.reason ?? '')), 'an abort with the reason');
 
 	const inside = await pi.edit(file, [{ oldText: FILL_OLD, newText: FILL_NEW }], 'Reads the whole file: the files are small.');
 	assert.deepEqual(inside, {});
-	assert.equal(events().filter((e) => e.op === 'start').length, 1, 'the call that ran is told to the editor');
+	assert.equal(events().filter((e) => e.op === 'start').length, 2, 'both calls are told to the editor as pi streams them');
 	const done = events().filter((e) => e.op === 'done').at(-1);
 	assert.equal(done?.why, 'Reads the whole file: the files are small.');
 	await pi.endTurn();

@@ -50,10 +50,10 @@ export interface Scenario {
 
 /**
  * ttt steps that open the plan drawer and wait until pi reached its last plan
- * step: the drawer shows that step's text (the status bar is no sign: pi's
- * notices cover it). The extra wait lets pi's last change land.
+ * step: the drawer shows that step as the one under way (`▶`; the status bar
+ * is no sign: pi's notices cover it). The extra wait lets pi's last change land.
  */
-export const planReached = (lastStep: string): string => `key ctrl+k v; wait-for "${lastStep}" timeout=60000; wait 2500`;
+export const planReached = (lastStep: string): string => `key ctrl+k v; wait-for "▶ ${lastStep}" timeout=60000; wait 2500`;
 
 /** The same, then Esc: the focus goes back to the editor, so an editor key goes to it. */
 export const afterTurn = (lastStep: string): string => `${planReached(lastStep)}; key escape`;

@@ -29,7 +29,7 @@ and the editor show the rest. The same thing happens on every run.
 | Name | What it shows |
 |---|---|
 | `flow` (default) | The whole flow below: plan, new file, edits, the diff of the turn, helpi! |
-| `follow` | The editor stays on your file, or follows pi (`ctrl+k a`) |
+| `follow` | The editor stays on your file, or follows pi (`ctrl+k a`) and types its changes as a preview |
 | `plan` | The steps with the files pi named for each (`ctrl+k v`) |
 | `changes` | The files pi changed under each step: new, unplanned, planned (`ctrl+k v`) |
 | `marks` | The gutter bar on each line pi wrote, one colour for each step, and the hover text |
@@ -45,7 +45,8 @@ it), and list it in `demo/scenarios/index.ts`. The task itself (what pi
 writes and edits) is data in `demo/scenarios/task.ts`.
 
 `START_MS` is the time between "ttt follows" and the first step (default
-3000); `PAUSE_MS` is the time between steps.
+3000); `PAUSE_MS` is the time between steps. `CHUNK` and `STEP_MS` (default 12
+and 25) are how fast the scripted model streams a write or an edit.
 
 ## A scripted pi (no model, no tokens)
 

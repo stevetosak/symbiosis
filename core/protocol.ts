@@ -5,16 +5,27 @@
 import type { Landed } from './review.ts';
 
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 16;
+export const PROTOCOL = 17;
 
-/** The tools whose calls the editor lists. */
+/** The tools whose calls the editor lists and types as a preview. */
 export type Tool = 'write' | 'edit';
 
 export type ChannelEvent =
-	/** A write or edit call is about to run (the guard let it through). */
-	| { op: 'start'; call: string; tool: Tool; path: string }
-	/** The tool ran. `line` is the first changed line; `why` is the agent's reason for a choice that is not obvious. */
-	| { op: 'done'; call: string; tool: Tool; path: string; line: number; ok: boolean; why?: string }
+	/**
+	 * A write or edit call starts: the model streams it, or it is about to run.
+	 * `sum` is the Adler-32 of the file on disk, null when it does not exist;
+	 * `before` is that text when it is not too big, so the editor can type the
+	 * change from it after pi has changed the file again.
+	 */
+	| { op: 'start'; call: string; tool: Tool; path: string; sum: number | null; before?: string }
+	/** `key` is `content`, `edits.<i>.old` (sent once, complete) or `edits.<i>.new`. `from` counts UTF-8 bytes. */
+	| { op: 'text'; call: string; key: string; from: number; text: string }
+	/** The arguments are complete and the guard let the call through: it runs now. pi does not wait for the editor. */
+	| { op: 'ready'; call: string }
+	/** The call will not run (the turn ended without it, or the guard blocked it: `reason`). */
+	| { op: 'abort'; call: string; reason?: string }
+	/** The tool ran. `line` is the first changed line; `sum` is the Adler-32 of the file now; `why` is the agent's reason for a choice that is not obvious. */
+	| { op: 'done'; call: string; tool: Tool; path: string; line: number; ok: boolean; sum: number | null; why?: string }
 	/** The agent's turn ended; `path` and `line` are its last change. */
 	| { op: 'stop'; path: string; line: number }
 	/** helpi!: session `session` got the question `id` and asks its model. */

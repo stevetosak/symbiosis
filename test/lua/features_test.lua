@@ -36,6 +36,21 @@ local function has(list, value)
 	return false
 end
 
+local function command(id)
+	for _, c in ipairs(stub.registered.commands) do
+		if c.id == id then return c.handler() end
+	end
+	error("no command " .. id)
+end
+
+-- The bundle, following pi, with a.ts open as pi found it.
+local function following(text)
+	load_bundle()
+	stub.run_timers() -- a tick with no log: what comes next is new
+	command("symbiosis.toggleFollow")
+	stub.set_text("/w/a.ts", text or "old")
+end
+
 local function send(events)
 	local json = require("ttt.json")
 	local log = stub.files["/plugin/events.jsonl"] or ""
@@ -177,12 +192,12 @@ return {
 		local ids, keys = {}, {}
 		for _, c in ipairs(reg.commands) do ids[c.id] = true end
 		for _, k in ipairs(reg.keybindings) do keys[k.key] = k.command end
-		for _, id in ipairs({ "toggleFollow", "goToAgent", "nextSession", "goToSession", "showPlan", "showChanges", "help", "stop", "fillStub", "releaseStub", "showProposal", "review", "ask", "notes", "run", "runStop", "runPick", "runPanel", "runWrap", "runEdit", "runAsk", "close", "detach" }) do
+		for _, id in ipairs({ "toggleFollow", "goToAgent", "slower", "faster", "skipToNow", "nextSession", "goToSession", "showPlan", "showChanges", "help", "stop", "fillStub", "releaseStub", "showProposal", "review", "ask", "notes", "run", "runStop", "runPick", "runPanel", "runWrap", "runEdit", "runAsk", "close", "detach" }) do
 			t.ok(ids["symbiosis." .. id], id)
 		end
-		t.eq(#reg.commands, 26)
+		t.eq(#reg.commands, 29)
 		t.eq(keys, {
-			["ctrl+k a"] = "symbiosis.toggleFollow", ["ctrl+k n"] = "symbiosis.nextSession", ["ctrl+k g"] = "symbiosis.goToSession",
+			["ctrl+k a"] = "symbiosis.toggleFollow", ["ctrl+k -"] = "symbiosis.slower", ["ctrl+k ="] = "symbiosis.faster", ["ctrl+k space"] = "symbiosis.skipToNow", ["ctrl+k n"] = "symbiosis.nextSession", ["ctrl+k g"] = "symbiosis.goToSession",
 			["ctrl+k v"] = "symbiosis.showPlan", ["ctrl+k w"] = "symbiosis.showChanges",
 			["ctrl+k h"] = "symbiosis.help", ["ctrl+k q"] = "symbiosis.stop", ["ctrl+k f"] = "symbiosis.fillStub", ["ctrl+k p"] = "symbiosis.showProposal", ["ctrl+k x"] = "symbiosis.review", ["ctrl+k d"] = "symbiosis.ask", ["ctrl+k z"] = "symbiosis.close", ["ctrl+k ."] = "symbiosis.changeHere", ["ctrl+k /"] = "symbiosis.markSeen",
 			["f5"] = "symbiosis.run", ["shift+f5"] = "symbiosis.runStop", ["ctrl+k f5"] = "symbiosis.runPick", ["ctrl+k shift+f5"] = "symbiosis.runPanel",
@@ -263,7 +278,7 @@ return {
 		local panel = setmetatable({}, { __index = function(_, method)
 			return function(_, arg)
 				if method == "size" then return 100, 40 end
-				if method == "list" and arg.items[1].id == "scope" then
+				if method == "list" and arg.items[1].id == "speed" then
 					for _, it in ipairs(arg.items) do table.insert(out, it.label) end
 				elseif method == "keyvalue" then
 					for _, kv in ipairs(arg) do table.insert(out, kv.key) end
@@ -272,8 +287,8 @@ return {
 		end })
 		stub.drawer.render(panel)
 		t.eq(out, {
-			"Stub scope      the stub's body", "Autosave        1 s after you type", "Editor          stays", "Changed lines   marked in the gutter",
-			"ctrl+k h", "ctrl+k q", "ctrl+k z", "ctrl+k a", "ctrl+k v", "ctrl+k d", "ctrl+k w", "ctrl+k .", "ctrl+k /",
+			"Preview speed   medium (160/s)", "Stub scope      the stub's body", "Autosave        1 s after you type", "Editor          stays", "Changed lines   marked in the gutter",
+			"ctrl+k h", "ctrl+k q", "ctrl+k z", "ctrl+k a", "ctrl+k - / =", "ctrl+k space", "ctrl+k v", "ctrl+k d", "ctrl+k w", "ctrl+k .", "ctrl+k /",
 			"// … helpi!", "// … why!", "// TODO(pi) helpi!", "ctrl+k p", "ctrl+k x", "F5 · shift+F5", "ctrl+k F5", "Esc", "ctrl+k n", "ctrl+k g",
 		})
 	end },
@@ -306,6 +321,164 @@ return {
 		send({ { op = "done", call = "c3", tool = "write", path = "/w/c.ts", line = 1, ok = false } })
 		stub.run_timers()
 		t.eq(stub.opened, { "/w/a.ts", "/w/b.ts" }, "a failed call opens nothing")
+	end },
+	{ "bundle: following: a write is typed at the speed, then the file comes from disk", function()
+		local util = require("core.util")
+		following()
+		send({
+			{ op = "start", call = "c1", tool = "write", path = "/w/a.ts", sum = util.adler32("old") },
+			{ op = "text", call = "c1", key = "content", from = 0, text = "brand new text here" },
+			{ op = "ready", call = "c1" },
+			{ op = "done", call = "c1", path = "/w/a.ts", line = 1, ok = true, sum = util.adler32("brand new text here"), why = "a reason" },
+		})
+		stub.run_timers()
+		t.eq(stub.notices, {}, "the why waits for the preview")
+		local first = stub.text()
+		t.ok(#first > 0 and #first < 19 and ("brand new text here"):sub(1, #first) == first, "typed in part: " .. first)
+		t.eq(stub.groups, 1, "one undo group")
+		t.eq(stub.status["symbiosis.speed"], "▶ medium")
+		for _ = 1, 5 do stub.run_timers() end
+		t.eq(stub.groups, 0)
+		t.eq(stub.commands, { "editor.undo", "tab.close" }, "the preview goes, the file opens again")
+		t.eq(stub.status.symbiosis, "pi ✎ a.ts:1 · following")
+		t.eq(stub.notices[#stub.notices].text, "pi, why (a.ts): a reason", "the why shows when the preview ends")
+	end },
+	{ "bundle: following: uncapped types all that pi sent in one tick", function()
+		local util = require("core.util")
+		following()
+		command("symbiosis.faster")
+		command("symbiosis.faster")
+		t.eq(stub.status["symbiosis.speed"], "▶ uncapped")
+		send({
+			{ op = "start", call = "c1", tool = "write", path = "/w/a.ts", sum = util.adler32("old") },
+			{ op = "text", call = "c1", key = "content", from = 0, text = string.rep("x", 500) },
+		})
+		stub.run_timers()
+		t.eq(stub.text(), string.rep("x", 500))
+	end },
+	{ "bundle: following: the bar says the plan step and the lines the preview types", function()
+		local util = require("core.util")
+		following()
+		session({ plan = { { state = "done", text = "read" }, { state = "now", text = "add the store" }, { state = "next", text = "test" } } })
+		stub.run_timers()
+		send({
+			{ op = "start", call = "c1", tool = "write", path = "/w/a.ts", sum = util.adler32("old") },
+			{ op = "text", call = "c1", key = "content", from = 0, text = "a\nb\nc and a long line that takes a while to type out" },
+		})
+		stub.run_timers()
+		t.eq(stub.status.symbiosis, "pi ✎ writing a.ts +2 lines · step 2/3 add the store · following")
+	end },
+	{ "bundle: typing waits while the preview types in the file", function()
+		local util = require("core.util")
+		following()
+		send({
+			{ op = "start", call = "c1", tool = "write", path = "/w/a.ts", sum = util.adler32("old") },
+			{ op = "text", call = "c1", key = "content", from = 0, text = "a long text that takes a while" },
+		})
+		stub.run_timers()
+		t.eq(stub.events["key.press"]({ rune = "x" }), true, "your key waits")
+		t.eq(stub.events["key.press"]({ key = "Up" }), false, "a move goes")
+		t.ok(stub.status.symbiosis:find("your typing waits", 1, true), "the bar says so")
+	end },
+	{ "bundle: following: a file with unsaved changes is not typed in", function()
+		following("yours")
+		send({
+			{ op = "start", call = "c1", tool = "write", path = "/w/a.ts", sum = require("core.util").adler32("old") },
+			{ op = "text", call = "c1", key = "content", from = 0, text = "new" },
+		})
+		stub.run_timers()
+		t.eq(stub.text(), "yours")
+		t.eq(stub.groups, 0)
+		t.eq(stub.notices[#stub.notices].level, "warning")
+	end },
+	{ "bundle: follow off mid-preview: the preview goes, pi writes on; on again: the call pi writes now from its start", function()
+		local util = require("core.util")
+		following()
+		send({
+			{ op = "start", call = "c1", tool = "write", path = "/w/a.ts", sum = util.adler32("old") },
+			{ op = "text", call = "c1", key = "content", from = 0, text = "first part of a long text, " },
+		})
+		stub.run_timers()
+		t.eq(stub.groups, 1)
+		command("symbiosis.toggleFollow")
+		t.eq(stub.groups, 0, "the preview ends")
+		t.eq(stub.commands, { "editor.undo", "tab.close" })
+		t.eq(stub.status["symbiosis.speed"], nil, "no speed when not following")
+		send({
+			{ op = "text", call = "c1", key = "content", from = 27, text = "second part" },
+			{ op = "ready", call = "c1" },
+			{ op = "done", call = "c1", path = "/w/a.ts", line = 1, ok = true, sum = 1 },
+			{ op = "start", call = "c2", tool = "write", path = "/w/b.ts", sum = nil },
+			{ op = "text", call = "c2", key = "content", from = 0, text = "b so far" },
+		})
+		stub.run_timers()
+		t.eq(stub.groups, 0, "nothing typed while not following")
+		t.eq(stub.status.symbiosis, "pi ✎ writing b.ts · not following")
+		stub.set_text("/w/other.ts", "")
+		command("symbiosis.faster")
+		command("symbiosis.faster")
+		command("symbiosis.toggleFollow")
+		stub.run_timers()
+		t.eq(stub.buffer.path, "/w/b.ts", "c1 is done: it is skipped")
+		t.eq(stub.text(), "b so far", "c2 from its start")
+	end },
+	{ "bundle: the preview behind pi: the bar counts the changes, ctrl+k space skips to now", function()
+		local util = require("core.util")
+		following()
+		command("symbiosis.slower")
+		local events = {}
+		for i = 1, 3 do
+			local id = "c" .. i
+			local text = string.rep(tostring(i), 40)
+			table.insert(events, { op = "start", call = id, tool = "write", path = "/w/a.ts", sum = util.adler32(i == 1 and "old" or string.rep(tostring(i - 1), 40)) })
+			table.insert(events, { op = "text", call = id, key = "content", from = 0, text = text })
+			table.insert(events, { op = "ready", call = id })
+			table.insert(events, { op = "done", call = id, path = "/w/a.ts", line = 1, ok = true, sum = util.adler32(text) })
+		end
+		send(events)
+		stub.run_timers()
+		t.eq(stub.status["symbiosis.speed"], "▶ slow · 2 behind", "c1 types, c2 and c3 wait")
+		command("symbiosis.skipToNow")
+		stub.run_timers()
+		t.eq(stub.status["symbiosis.speed"], "▶ slow", "pi has no call open: nothing to type")
+		t.eq(stub.groups, 0)
+	end },
+	{ "bundle: follow off before the preview showed a change: its why shows then", function()
+		local util = require("core.util")
+		following()
+		command("symbiosis.slower")
+		send({
+			{ op = "start", call = "c1", tool = "write", path = "/w/a.ts", sum = util.adler32("old") },
+			{ op = "text", call = "c1", key = "content", from = 0, text = string.rep("x", 200) },
+			{ op = "ready", call = "c1" },
+			{ op = "done", call = "c1", path = "/w/a.ts", line = 1, ok = true, sum = 1, why = "a reason" },
+		})
+		stub.run_timers()
+		command("symbiosis.toggleFollow")
+		t.eq(stub.notices[#stub.notices].text, "pi, why (a.ts): a reason")
+	end },
+	{ "bundle: a done with no start leaves the open calls as they are", function()
+		load_bundle()
+		stub.run_timers()
+		send({
+			{ op = "start", call = "c1", tool = "write", path = "/w/a.ts" },
+			{ op = "done", call = "c0", tool = "write", path = "/w/a.ts", line = 1, ok = true },
+		})
+		stub.run_timers()
+		t.eq(stub.status.symbiosis, "pi ✎ writing a.ts · not following")
+	end },
+	{ "bundle: a call that will not run: its preview goes", function()
+		local util = require("core.util")
+		following()
+		send({
+			{ op = "start", call = "c1", tool = "write", path = "/w/a.ts", sum = util.adler32("old") },
+			{ op = "text", call = "c1", key = "content", from = 0, text = "x" },
+			{ op = "abort", call = "c1", reason = "blocked" },
+		})
+		stub.run_timers()
+		t.eq(stub.groups, 0)
+		t.eq(stub.commands, { "editor.undo", "tab.close" })
+		t.eq(stub.status.symbiosis, "pi · following")
 	end },
 	{ "bundle: autosave does not save a file while pi has a call open in it", function()
 		load_bundle()

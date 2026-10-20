@@ -13,7 +13,7 @@ local json = require("ttt.json")
 local util = require("core.util")
 
 local M = {
-	PROTOCOL = 16, -- the channel protocol of core/protocol.ts
+	PROTOCOL = 17, -- the channel protocol of core/protocol.ts
 }
 
 local Channel = {}

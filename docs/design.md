@@ -6,7 +6,7 @@ You read the agent's work in your editor while it works. pi writes to disk
 at once and never waits for the editor. The editor stays where you are and
 tells you which file pi writes; what pi changed in its last turn is the
 diff key (`ctrl+k w`). When you want to follow pi, `ctrl+k a` makes the editor
-open each file at the changed line.
+open each file and type pi's change in it as a preview, at a speed you set.
 
 ## The parts
 
@@ -15,6 +15,7 @@ open each file at the changed line.
 | pi extension | `pi/index.ts` | Reads the tool calls. Writes events. Wires `core/` into pi. |
 | Protocol | `core/protocol.ts` | Types only: every event and record that crosses the channel, and `PROTOCOL`. |
 | Calls | `core/call.ts` | Pure: a call's absolute path, and the first line of a tool result. |
+| Stream | `core/stream.ts` | Pure: a tool call's arguments as pi streams them, as `text` events (what grew since the last); Adler-32 of a file. |
 | Channel | `core/channel/channel.ts` | The interface the agent side talks to: send events, publish the session, read the editor's state and requests. |
 | File channel | `core/channel/file.ts` | The one implementation: files in the plugin folder, `events.jsonl`, `head.json`, `ttt.json` (the stub scope), `fill.json` (a fill and its release), `answer.json` (the answer to a proposal). |
 | helpi! | `core/help.ts` | Pure: the request, the side call's prompt, the answer parser (kind, imports, body). |
@@ -29,7 +30,7 @@ open each file at the changed line.
 | Hunks | `core/hunks.ts` | Pure: the lines a change touched (a line diff, by the `diff` package), and where an old line stands after a later change. |
 | Launcher | `launcher/main.ts` (`bin/symbiosis`) | Starts a real pi in its own herdr or tmux pane, runs ttt here as its child, ends when ttt quits. One record per folder in `~/.local/state/symbiosis/`. |
 | Layout | `launcher/layout.ts` | Pure: the herdr and tmux command lines for a pi tab, a split, or a new tab for symbiosis itself. |
-| ttt plugin | `ttt/src` (bundled into `ttt/symbiosis/plugin.lua`) | Polls every 40 ms. Shows which file pi writes. Follows the result when you ask. Sends helpi! questions and writes the answers. A host (`ttt/src/core`) and one module per feature (`ttt/src/features`); see `ttt/README.md`. |
+| ttt plugin | `ttt/src` (bundled into `ttt/symbiosis/plugin.lua`) | Polls every 40 ms. Shows which file pi writes. When you follow pi, types its changes as a preview. Sends helpi! questions and writes the answers. A host (`ttt/src/core`) and one module per feature (`ttt/src/features`); see `ttt/README.md`. |
 
 A ttt plugin cannot open a socket and can read only its own folder and the
 workspace. Thus the channel is files in the plugin folder.
@@ -43,36 +44,89 @@ the editor, and the setup.
 
 ## The buffer: one rule
 
-**The file on disk is the truth. The buffer is never typed into.** pi does
-not wait for the editor. Each `write` and `edit` goes to disk at once; the
-extension sends three events:
+**The file on disk is the truth. The preview is never saved.** pi does not
+wait for the editor. Each `write` and `edit` goes to disk at once; the
+extension sends what pi streams too, so the editor can show the change
+while the model writes it. The events of one call:
 
-1. `start`: pi starts a call on a file (`call`, `tool`, `path`). The plugin
+1. `start`: the model started a call on a file (`call`, `tool`, `path`, and
+   the file's Adler-32 `sum` and text `before`, up to 256 KB). The plugin
    notes that the file has a call open, so autosave does not save over it,
    and the bar says `pi ✎ writing store.ts`.
-2. `done`: the call ended (`ok`, the first changed `line`, the `why`). The
-   bar says `pi ✎ store.ts:12`. ttt reloads the file when its buffer has no
-   unsaved changes. With "Editor: follows pi" on, the plugin opens the file at
-   that line.
-3. `stop`: the turn ended; the bar shows `pi ■ store.ts:12`.
+2. `text`: a part of the arguments (`key`: `content`, `edits.0.oldText`,
+   `edits.0.newText`, ...; the value is its first `from` bytes, then `text`).
+   Only the session the editor follows streams.
+3. `ready`: the arguments are complete. `abort`: the call will not run (the
+   stub guard blocked it, or the turn ended first), with the `reason`.
+4. `done`: the call ended (`ok`, the first changed `line`, the `why`, the
+   `sum` of the file now). The bar says `pi ✎ store.ts:12`. ttt reloads the
+   file when its buffer has no unsaved changes.
+5. `stop`: the turn ended; the bar shows `pi ■ store.ts:12`.
 
-Why: the first design typed each change into the buffer at a speed you set,
-and made pi wait for it (then run ahead, then wait again). The operator found
-the editor hopped to the next file while he tried to read code. The
-typing was removed (2026-10): it tied the editor to pi's speed, not to your
-reading.
+When the editor does not follow pi, that is all: nothing is typed, nothing
+moves. When it follows (below), the plugin types the call in the buffer:
+
+- At `start` it opens the file. If the buffer is neither `before` nor the
+  file as pi last wrote it (the `sum` of the last `done`), it has unsaved
+  changes: no preview for this call, and a warning.
+- A run starts: one undo group. If pi already changed the file again, the
+  plugin first sets the buffer to `before`, so the change shows from the
+  text pi started from. A write clears the buffer and types the new
+  content. An edit selects its `oldText` (only if it occurs once), then
+  types `newText` over it. The next call to the same file types on top, in
+  the same run, as pi did on disk.
+- The tool writes the file at once. ttt says the file changed on disk under
+  the preview; the plugin clears that notice.
+- The run ends when the preview goes to another file, at the end of the
+  turn, at an `abort`, or when it has shown all that pi sent. Then the plugin
+  closes the undo group, undoes it (the buffer is clean but old), closes the
+  tab and opens the file again: ttt reads it from disk, at the changed line.
+- pi's `why` for a change shows when you see the change: at once when not
+  following, else at the end of the run (hook `shown`).
 
 Measured with headless ttt 1.7.1: a disk change under a dirty buffer gives a
 notice ("changed on disk; you have unsaved changes", about 4 s over the
-status bar) and no reload. Autosave (below) keeps buffers clean, so ttt reloads.
+status bar) and no reload; a later undo leaves a clean but old buffer.
+Closing the tab and opening the file again reloads it. `ttt.notify("")`
+clears the notice. There is no revert command.
 
-## Following
+History: the first preview made pi wait for it (later: up to a limit). The
+operator found the editor hopped to the next file while he tried to read
+code, and the typing tied the editor to pi's speed, so it was removed
+(2026-10) and the editor stayed put. It came back (2026-10) behind the
+follow switch: off, the editor is yours and pi writes in the background; on,
+you watch pi type. pi never waits for it.
+
+## Following and the preview
 
 The setting "Editor" (`ctrl+k a`, or a click on the status item): `stays`
 (the start value) or `follows pi`. It is not kept in `settings.json`: each
-start of ttt stays. Turning it on goes to where pi is now. A failed call
-opens nothing. `stop` (the end of the turn) goes to the last file when
-following.
+start of ttt stays.
+
+- On: the editor jumps to now. The calls pi has open are typed from their
+  start; the changes pi finished while you did not follow are not typed
+  (they are in the change list, `ctrl+k v`, and the diff, `ctrl+k w`). With
+  no call open, the editor goes to pi's last change.
+- Off: the preview ends at once (undone, the file from disk) and nothing is
+  queued. pi writes on in the background.
+- The preview is behind pi: the plugin reads the events into a queue and
+  types it at the speed you set. The bar shows the speed and how many
+  changes wait: `▶ medium · 2 behind`. `ctrl+k space` skips them: the
+  preview types what pi writes now (with follow off, it turns follow on).
+- While the preview types in a file, your typing in it waits (characters,
+  Enter, Tab, Backspace, Delete, ctrl+v/x/z/y/s): the buffer is the preview,
+  and pi has already changed the file on disk. The bar says
+  `your typing waits`. Moves still work. `ctrl+k a` ends the preview.
+- While it types, the bar names the file, the lines it adds and the step of
+  pi's plan under way: `pi ✎ writing store.ts +4 lines · step 2/5 Add done(id) · following`.
+- A failed call opens nothing.
+
+The speed (`ctrl+k -` slower, `ctrl+k =` faster, or "Preview speed" in the
+panel): slow (40 characters a second), medium (160, the start value), high
+(640), uncapped (as fast as pi sends). It is kept in `settings.json`. Only
+the text the preview shows costs time: a write's content and an edit's new
+text. Every other event waits for the text before it. At most 0.2 s of
+typing is saved up, so a quiet moment gives no burst.
 
 ## The panel, autosave, names
 
@@ -119,8 +173,9 @@ choice is saved as `nowrap` in its layout file).
 
 ## The other rules
 
-- pi runs the calls of one message in parallel; `start` and `done` count the
-  calls open in each file, so the file counts as open until the last ends.
+- pi runs the calls of one message in parallel; `start` and `done` (or
+  `abort`) count the calls open in each file, so the file counts as open
+  until the last ends.
 
 ## Known weak points
 

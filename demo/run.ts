@@ -18,7 +18,8 @@
 // DEMO_DIR (default /tmp/symbiosis-demo, /tmp/symbiosis-stubs with --stubs) is the workspace copy; the scripted
 // pi uses its working folder when that is a demo copy. PAUSE_MS is the time
 // between steps; START_MS the time between "ttt follows" and the first step;
-// SUGGEST_MS stops the wait for helpi! (0: until ctrl+c).
+// SUGGEST_MS stops the wait for helpi! (0: until ctrl+c). CHUNK and STEP_MS: how
+// fast the "model" streams a write or an edit (characters per chunk, ms between chunks).
 import { spawn } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -124,7 +125,15 @@ if (!scripted) {
 }
 
 const sc = scenario!;
-const pi = new FakePi({ cwd: DIR, name: 'demo', answer: helpiAnswer, thinkMs: 800, log: (line) => say(`  ${line}`) });
+const pi = new FakePi({
+	cwd: DIR,
+	name: 'demo',
+	chunk: Number(process.env.CHUNK ?? 12),
+	stepMs: Number(process.env.STEP_MS ?? 25),
+	answer: helpiAnswer,
+	thinkMs: 800,
+	log: (line) => say(`  ${line}`),
+});
 let stopping = false;
 process.on('SIGINT', async () => {
 	if (stopping) process.exit(130);

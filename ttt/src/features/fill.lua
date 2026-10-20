@@ -15,7 +15,8 @@
 --   both send the note. ctrl+k p shows it again.
 --
 --   The `why` pi gives a change shows as a notice when the editor shows the
---   change; ctrl+k w lists them again (features/changes.lua).
+--   change (at once, or at the end of the typed preview: hook "shown");
+--   ctrl+k w lists them again (features/changes.lua).
 --
 --   The setting "Stub scope" (the panel): how far the guard lets a fill reach.
 local ttt = require("ttt")
@@ -182,7 +183,7 @@ local function setup(app)
 
 	-- Why ------------------------------------------------------------------------
 
-	app:on("done", function(ev)
+	app:on("shown", function(ev)
 		if type(ev.why) == "string" and ev.why ~= "" then
 			ttt.notify("pi, why (" .. util.name(ev.path) .. "): " .. ev.why, "info")
 		end
