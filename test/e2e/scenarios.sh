@@ -21,7 +21,7 @@ for name in $names; do
 	mkdir -p "$S/cfg/plugins/symbiosis" "$S/state"
 	cp "$repo"/ttt/symbiosis/* "$S/cfg/plugins/symbiosis/"
 	echo "[{\"name\":\"symbiosis\",\"displayName\":\"symbiosis\",\"version\":\"0.1.0\",\"enabled\":true,\"permissions\":$perms}]" > "$S/cfg/plugins.ttt.json"
-	export DEMO_DIR="$S/ws" XDG_STATE_HOME="$S/state" TTT_CONFIG_DIR="$S/cfg" PAUSE_MS=300 START_MS=500
+	export DEMO_DIR="$S/ws" XDG_STATE_HOME="$S/state" TTT_CONFIG_DIR="$S/cfg" PAUSE_MS=300 START_MS=500 CHUNK=64 STEP_MS=5
 	"$repo/bin/run-node" "$repo/demo/run.ts" --reset "$name" > "$S/reset.log" 2>&1
 	open=$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('open',''))" "$check")
 	steps=$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['drive'].replace('\$SHOT', sys.argv[2]))" "$check" "$S/shot.txt")

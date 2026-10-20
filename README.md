@@ -110,7 +110,7 @@ argument, else the git root, else this folder.
 ## Use
 
 - `ctrl+k h`: the symbiosis panel. Settings you change in place (Enter
-  cycles a value: stub scope, autosave, the editor follows pi), the pi sessions (Enter
+  cycles a value: preview speed, stub scope, autosave, the editor follows pi), the pi sessions (Enter
   follows one), and every key. Up/Down move, Tab goes to the next list, Esc
   closes.
 
@@ -119,7 +119,19 @@ argument, else the git root, else this folder.
   It stays at the start: pi writes to disk at once and never waits for the
   editor, so you read your file while pi works, and the bar says which file pi
   writes (`pi ✎ writing store.ts · not following`). Turn it on and the editor
-  opens each file pi wrote, at the changed line. It stays off at each start.
+  opens each file pi writes and types the change in it as a preview, while the
+  model writes it (`pi ✎ writing store.ts +4 lines · step 2/5 Add done(id) · following`).
+  At the end of each run the preview is undone and the file comes from disk.
+  pi never waits: when the preview is behind, the bar says so
+  (`▶ medium · 2 behind`). Turn it off and pi writes on in the background; on
+  again, and the editor jumps to what pi writes now (the changes you missed
+  are in `ctrl+k v` and `ctrl+k w`). It stays off at each start.
+- `ctrl+k -` / `ctrl+k =`: the preview slower / faster: slow (40 characters a
+  second), medium (160, the start value), high (640), uncapped.
+- `ctrl+k space`: the preview skips the changes it has not shown yet and types
+  what pi writes now.
+- While the preview types in a file, your typing there waits (moves still
+  work); the bar says `your typing waits`.
 - Command palette: `symbiosis: Go to the Agent's Last Edit`.
 - Autosave (on by default): a file is saved 1 s after you last typed in it,
   so pi's next write can reload it. Never while pi has a call open in that
@@ -339,6 +351,7 @@ DIFF_AT=30 HOLD_MS=4000 npm run e2e                     # also shows the diff (c
 bash test/e2e/help.sh      # helpi!: code, note, ask, Esc; only the session the editor follows answers
 bash test/e2e/scenarios.sh # every demo scenario against a headless ttt (name one to run only it)
 bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the workspace tests must pass
+bash test/e2e/preview.sh   # following: the preview types behind pi, pi does not wait, your typing waits, follow off and on, the buffer ends as the disk
 bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel shows a file outside the folder
 bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, tab names, no multiplexer, already open, symbiosis close
 bash test/e2e/close.sh     # ctrl+k n detaches; ctrl+k z asks, runs `symbiosis close`, quits ttt only when it worked (asks about unsaved files); quit.json

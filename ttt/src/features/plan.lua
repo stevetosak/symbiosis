@@ -133,6 +133,7 @@ return {
 		end
 		app:on("seen", touch)
 		app:on("start", touch)
+		app:on("abort", touch)
 		app:on("done", touch)
 		app:command({ id = "symbiosis.showPlan", title = "symbiosis: Show pi's Plan", key = "ctrl+k v", run = function() open() end })
 		app:hint({ key = "ctrl+k v", text = "pi's plan", order = 70 })

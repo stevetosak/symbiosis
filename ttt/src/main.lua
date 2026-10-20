@@ -8,7 +8,7 @@
 --   sessions  the pi sessions; the one the editor follows (the owner)
 --   plan      pi's plan in the status bar, ctrl+k v
 --   tree      the "pi files" sidebar
---   follow    which file pi writes; the editor follows it, when you turn that on
+--   follow    which file pi writes; when you follow pi, types its changes as a preview
 --   changemarks  the lines pi changed: a bar in the gutter, a colour per plan step, hover text
 --   changediff   ctrl+k y: the diff of the change at the cursor line
 --   autosave  saves your file a while after you type

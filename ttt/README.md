@@ -31,7 +31,7 @@ ttt/
       changediff.lua    the exact diff of one change (ctrl+k . and `d` in the plan drawer)
       plan.lua          pi's plan in the status bar, ctrl+k v: the steps with their files and changes
       tree.lua          the "pi files" sidebar
-      follow.lua        which file pi writes; the editor follows it when you turn that on
+      follow.lua        which file pi writes; when you follow pi, types its changes as a preview
       autosave.lua      saves the file a while after you type
       helpi.lua         `// ... helpi!` asks pi
       ask.lua           ctrl+k d and `why!`: ask pi about code, in a drawer
@@ -104,11 +104,12 @@ The hooks of the host: `ready` (once, 100 ms after load: the file system and
 the status bar work then), `tick` (every 40 ms), `second`, `key` (a key
 press: the first handler that returns true takes the key), `file` (a file
 opened or the tab changed), `change` (the buffer changed). The features add
-`sessions` (after each refresh) and `follow` (the editor followed pi into a
-file).
+`sessions` (after each refresh), `follow` (the editor followed pi into a
+file), `start`, `abort` and `done` (pi started, dropped or finished a call)
+and `shown` (you saw a finished change: at once, or at the end of the preview).
 
 The order of the `key` handlers: helpi! (10: Esc, Enter), follow (50:
-your typing waits while helpi! writes in the file), autosave (90).
+your typing waits while the preview or helpi! writes in the file), autosave (90).
 
 ## Rules
 
