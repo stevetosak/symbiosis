@@ -25,10 +25,11 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { StringDecoder } from 'node:string_decoder';
 import { pluginDir } from '../core/channel/file.ts';
-import { parseJsonc, RunConfigError, toRunJson } from '../core/run/config.ts';
+import { type Compound, type InputDef, parseJsonc, type RunConfig, RunConfigError, toRunJson } from '../core/run/config.ts';
 import { InputMemory, pickedLabels, pickInputs } from '../core/run/inputs.ts';
-import { listConfigs, listed, listedCompound, resolveConfig, RUN_JSON, workspaceFolder } from '../core/run/list.ts';
+import { type Launch, listConfigs, listed, listedCompound, resolveConfig, RUN_JSON, workspaceFolder } from '../core/run/list.ts';
 import { readSmall } from '../core/run/providers/provider.ts';
+import type { VariableContext } from '../core/run/variables.ts';
 import { alive, groupAlive, HEARTBEAT_MS, isLive, killGroup, type RunState, Runs, Tail, writeAtomic } from '../core/run/runs.ts';
 
 export function runsDir(env: NodeJS.ProcessEnv = process.env): string {
@@ -102,6 +103,7 @@ export async function stopRun(runs: Runs, id: string, graceMs = 4000): Promise<R
 	let state = runs.read(id);
 	if (!state || (!isLive(state.status) && state.status !== 'lost')) return state;
 	runs.mark(id, 'stop');
+	if (runs.launch(id)?.steps) await stopAll(runs, runs.list(state.folder).filter((r) => r.compound === id), graceMs);
 	const began = Date.now();
 	if (state.status === 'lost') {
 		// No supervisor: its program may run on, but a pid this old may be
@@ -143,11 +145,163 @@ function launchSupervisor(runs: Runs, id: string): void {
 /** output.log stops here; tail.txt goes on. */
 const LOG_MAX = 64 * 1024 * 1024;
 
+/** One run per configuration, as in Rider: a new one stops the one that runs. */
+async function stopAll(runs: Runs, list: readonly (RunState | undefined)[], graceMs?: number): Promise<void> {
+	await Promise.all(list.filter((r): r is RunState => r !== undefined && isLive(r.status)).map((r) => stopRun(runs, r.id, graceMs)));
+}
+
+async function stopLive(runs: Runs, folder: string, configId: string): Promise<void> {
+	for (const r of runs.list(folder)) {
+		if (r.configId === configId && isLive(r.status)) await stopRun(runs, r.id);
+	}
+}
+
+async function startCompound(
+	runs: Runs, configs: readonly RunConfig[], compound: Compound, ctx: VariableContext, args: RunArgs,
+): Promise<{ ask: unknown } | { run: RunState }> {
+	const configOf = (id: string) => configs.find((c) => c.id === id)!;
+	const unset: InputDef[] = [];
+	for (const step of compound.steps) {
+		for (const def of configOf(step.configId).inputs ?? []) {
+			if (!(def.id in (step.inputs ?? {})) && !unset.some((d) => d.id === def.id)) unset.push(def);
+		}
+	}
+	const memory = inputMemory(runs);
+	const asking = { id: compound.id, name: compound.name, group: compound.group, command: '', inputs: unset };
+	const picked = await pickInputs(asking, ctx, memory, args.inputs, args.labels, args.ask);
+	if ('ask' in picked) return { ask: picked.ask };
+	const steps = compound.steps.map((step) => ({
+		launch: resolveConfig(configOf(step.configId), { ...ctx, inputs: { ...picked.values, ...step.inputs } }),
+		...(step.after ? { after: step.after } : {}),
+	}));
+	const launch: Launch = {
+		name: compound.name, configId: compound.id, folder: ctx.folder, command: '', cwd: ctx.folder, env: {},
+		line: steps.map((s) => s.launch.name).join(' → '), steps,
+	};
+	await stopLive(runs, ctx.folder, compound.id);
+	mkdirSync(runs.dir, { recursive: true });
+	const state = runs.create(launch, undefined, session());
+	launchSupervisor(runs, state.id);
+	try {
+		memory.set(ctx.folder, picked.picks);
+	} catch {
+		// next time it decides or asks again
+	}
+	return { run: state };
+}
+
+const POLL_MS = 200;
+
+type Step = NonNullable<Launch['steps']>[number];
+
+function stepRuns(runs: Runs, launch: Launch, id: string): (RunState | undefined)[] {
+	const members = runs.list(launch.folder).filter((r) => r.compound === id);
+	return (launch.steps ?? []).map((s) => members.filter((r) => r.configId === s.launch.configId).at(-1));
+}
+
+function ready(steps: readonly Step[], i: number, now: readonly (RunState | undefined)[]): boolean {
+	if (steps[i].after === 'started') return now[i - 1]?.status !== 'starting';
+	if (steps[i].after === 'finished') return now.slice(0, i).every((r) => !r || !isLive(r.status));
+	return true;
+}
+
+function waitText(steps: readonly Step[], i: number): string {
+	const name = steps[i].launch.name;
+	if (steps[i].after === 'started') return `${name} waits for ${steps[i - 1].launch.name} to start`;
+	return `${name} waits for ${steps.slice(0, i).map((s) => s.launch.name).join(', ')} to finish`;
+}
+
+function failure(r: RunState): string | undefined {
+	if (r.status === 'failed') return `${r.name}: ${r.error ?? 'failed'}`;
+	if (r.status === 'lost') return `${r.name} is lost`;
+	if (r.status === 'exited' && r.code !== 0) return r.signal ? `${r.name} exited on ${r.signal}` : `${r.name} exited ${r.code}`;
+	return undefined;
+}
+
+function clock(now = new Date()): string {
+	return now.toTimeString().slice(0, 8);
+}
+
+async function superviseCompound(runs: Runs, id: string, launch: Launch, first: RunState): Promise<number> {
+	const steps = launch.steps ?? [];
+	const { kept: _kept, session: owner, ...own } = first;
+	let state: RunState = { ...own, status: 'running', supervisor: process.pid, t: Date.now() };
+	const write = (patch: Partial<RunState>) => {
+		state = { ...state, ...patch };
+		runs.write(state);
+	};
+	write({});
+	const log = openSync(runs.path(id, 'output.log'), 'a');
+	const tail = new Tail();
+	const say = (text: string) => {
+		const line = `${clock()} ${text}\n`;
+		writeSync(log, line);
+		tail.push(line);
+		writeAtomic(runs.path(id, 'tail.txt'), tail.text());
+		write({ seq: state.seq + 1 });
+	};
+	process.on('SIGHUP', () => {});
+	process.on('uncaughtException', async (error) => {
+		try {
+			await stopAll(runs, stepRuns(runs, launch, id));
+			write({ status: 'failed', ended: Date.now(), error: `symbiosis run: ${error.message}` });
+		} finally {
+			process.exit(1);
+		}
+	});
+	let next = 0;
+	let waiting = -1;
+	let beat = Date.now();
+	for (;;) {
+		const now = stepRuns(runs, launch, id);
+		if (runs.marked(id, 'stop')) {
+			await stopAll(runs, now);
+			say('stopped');
+			write({ status: 'stopped', ended: Date.now() });
+			break;
+		}
+		const why = now.map((r) => r && failure(r)).find(Boolean);
+		if (why) {
+			say(`${why}: stopping all`);
+			await stopAll(runs, now);
+			write({ status: 'failed', error: why, ended: Date.now() });
+			break;
+		}
+		if (next < steps.length) {
+			const step = steps[next];
+			if (ready(steps, next, now)) {
+				await stopLive(runs, launch.folder, step.launch.configId);
+				const child = runs.create({ ...step.launch, compound: id }, undefined, session() ?? owner);
+				launchSupervisor(runs, child.id);
+				say(`${step.launch.name} starts`);
+				write({ next: ++next });
+				continue;
+			}
+			if (waiting !== next) {
+				say(waitText(steps, next));
+				waiting = next;
+			}
+		} else if (now.every((r) => !r || !isLive(r.status))) {
+			say('all steps ended');
+			write({ status: 'exited', code: 0, ended: Date.now() });
+			break;
+		}
+		if (Date.now() - beat >= HEARTBEAT_MS) {
+			beat = Date.now();
+			write({ t: beat });
+		}
+		await sleep(POLL_MS);
+	}
+	closeSync(log);
+	return 0;
+}
+
 /** The supervisor: runs the program in its own process group, keeps runs/ID up to date. */
 export async function supervise(runs: Runs, id: string): Promise<number> {
 	const launch = runs.launch(id);
 	let state = runs.read(id);
 	if (!launch || !state) return 1;
+	if (launch.steps) return superviseCompound(runs, id, launch, state);
 	// Only state.json's own fields: kept and session come from their files.
 	const { kept: _kept, session: _session, ...own } = state;
 	state = { ...own, status: 'starting' };
@@ -287,17 +441,17 @@ export async function runCommand(args: RunArgs, runs = new Runs(args.runs ?? run
 		case 'start': {
 			const { folder, file } = contextOf(args);
 			if (!args.config) throw new RunConfigError('start needs --config');
-			const config = listConfigs(folder, { file }).configs.find((c) => c.id === args.config);
-			if (!config) throw new RunConfigError(`no configuration "${args.config}" in ${folder}`);
+			const listing = listConfigs(folder, { file });
 			const ctx = { folder, file, line: args.line, env: process.env };
+			const compound = listing.compounds.find((c) => c.id === args.config);
+			if (compound) return ok(await startCompound(runs, listing.configs, compound, ctx, args));
+			const config = listing.configs.find((c) => c.id === args.config);
+			if (!config) throw new RunConfigError(`no configuration "${args.config}" in ${folder}`);
 			const memory = inputMemory(runs);
 			const inputs = await pickInputs(config, ctx, memory, args.inputs, args.labels, args.ask);
 			if ('ask' in inputs) return ok({ ask: inputs.ask });
 			const launch = resolveConfig(config, { ...ctx, inputs: inputs.values });
-			// One run per configuration, as in Rider: starting it again restarts it.
-			for (const r of runs.list(folder)) {
-				if (r.configId === config.id && isLive(r.status)) await stopRun(runs, r.id);
-			}
+			await stopLive(runs, folder, config.id);
 			mkdirSync(runs.dir, { recursive: true });
 			const state = runs.create(launch, undefined, session());
 			launchSupervisor(runs, state.id);
