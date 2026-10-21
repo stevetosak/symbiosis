@@ -195,6 +195,11 @@ export class Runs {
 	}
 
 	remove(id: string): void {
+		if (this.read(id)?.steps) {
+			for (const r of this.list()) {
+				if (r.compound === id && !isLive(r.status)) rmSync(this.path(r.id), { recursive: true, force: true });
+			}
+		}
 		rmSync(this.path(id), { recursive: true, force: true });
 	}
 
