@@ -242,16 +242,23 @@ Run a project from ttt, as in Rider or VS Code (debugging comes later).
   picker. `shift+F5` stops it. `ctrl+k F5` (or a click on the status item)
   opens the picker: type to filter (Enter runs the first match), Tab to the
   list (the arrows only move), Enter or a click runs one and chooses it for `F5`, `s` saves a detected one to
-  `.symbiosis/run.json`, `e` opens that file.
+  `.symbiosis/run.json`, `e` opens that file. Compound launches come first,
+  in their own section. A row is one line: the name, and its command (or a
+  compound's steps) muted at its right, cut to fit; the filter finds the
+  whole command.
 - Status bar: `▶ api` (chosen), `● api 0:42` (runs), `✓ api`, `✗ api 1`
-  (its exit code), `+2` (others that run).
+  (its exit code), `● Local Nilan 2/3 0:42` (a compound: 2 of its 3 steps
+  started), `+2` (others that run; a compound counts as one).
 - The Run tab of the bottom panel: the runs, newest at the top, and the
   output of one. A click in it, or `ctrl+k shift+F5`, gives it the keys (Esc
   gives them back to the editor). Drag the `│` between its panes to resize
   them; the panel's height drags at its top edge, as in ttt. long output lines wrap; `w` cuts them instead (again: wraps). Up/Down or a click choose a run, PgUp/PgDn/Home/End scroll (End
   follows the output again), `s` stops, `r` runs it again, `x` removes an
   ended run, `o` opens its whole log, Enter or a click opens a `file:line` from
-  the output.
+  the output. A compound is one row with its steps under it; a step that has
+  not started is muted (`○`). Its output is its event log (`api starts`,
+  `web waits for api to start`). On the compound's row `s`, `r` and `x` act on
+  all its steps; on a step's row, on that step only.
 - `ctrl+q` while programs run asks: `s` stops them and quits, `k` keeps them
   running, Esc stays. Kept programs show in the Run panel the next time ttt
   opens the folder. When ttt quits without asking (ctrl+q from its terminal),
@@ -299,8 +306,43 @@ Where the configurations come from, in the picker's order:
   folder with no stdin and 20 s to answer; it names no other input, and
   what it starts is stopped with it. Inputs come from `.symbiosis/run.json`
   only: those of `.vscode/` files are not read.
+
+  Compound launches start several configurations of the same file, in order:
+
+  ```jsonc
+  {
+    "compounds": [
+      {
+        "name": "Local Nilan",
+        "inputs": { "profile": "nilan-local" },
+        "steps": [
+          { "run": "infra" },
+          { "run": "build", "after": "finished" },
+          { "run": "api", "after": "finished" },
+          { "run": "web", "after": "started" }
+        ]
+      },
+      { "name": "Both", "configurations": ["api", "web"] }
+    ]
+  }
+  ```
+
+  A step names a configuration, once. With no `after` it starts at once;
+  `"started"`: when the step before it runs; `"finished"`: when all the
+  steps before it have ended. `configurations: [names]` (VS Code's form)
+  starts them all at once. Each step is a run of its own. When a step exits
+  with a code that is not 0, cannot start or is lost, the compound stops all
+  its steps; a step you stop or run again is no error. Starting a compound
+  again stops its earlier run, and a step stops a run of its configuration
+  that still goes. The compound's `inputs` go to every step that uses them;
+  a step's own `inputs` replace them. These values are not remembered as
+  picked; an input with no value is decided once for the whole compound,
+  before its first step starts. `s` in the picker does not save a compound.
 - `.vscode/launch.json` (the `node`, `python`, `go`, ... programs it can run
-  without a debugger) and `.vscode/tasks.json`.
+  without a debugger, and its `compounds`) and `.vscode/tasks.json`. A
+  compound with a `preLaunchTask`, or with a step symbiosis cannot run, is a
+  problem, not a compound; `stopAll` has no effect (a compound always stops
+  all).
 - The file open: `node`, `python3`, `go run`, `bash`, `ruby`, ... by its
   extension (`.venv` python when there is one).
 - The project's files, up to 3 folders deep (not `node_modules`, `target`,
@@ -363,6 +405,7 @@ bash test/e2e/ask.sh       # ctrl+k d and why!: the drawer, a term asked about, 
 bash test/e2e/review.sh    # a filled body: the drawer opens by itself, the gutter mark and status item, Esc hides, ctrl+k x shows, a acks
 bash test/e2e/stubs.sh     # helpi! on a stub: an edit outside it is blocked, the body goes in, a proposal is accepted; then a function from its description
 bash test/e2e/runconf.sh   # run configurations: the picker, F5, shift+F5, a failing run, ctrl+q keeps a run, back in ttt it shows
+bash test/e2e/runcompound.sh # a compound: its row in the Run panel with its steps under it, the event log, the status bar, s stops all
 bash test/e2e/runinputs.sh # inputs: the drawer asks, F5 runs the pick again, the picker shows it, i asks again, one option asks nothing, an input decided is not listed again
 sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi): without herdr, with it, twice, key taken, own command file
 ```
