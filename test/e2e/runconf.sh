@@ -47,8 +47,8 @@ steps="$steps; key ctrl+k shift+f5; wait 300; key down; wait 400; $s/focused.txt
 # The picker's list: the arrows only move (Enter or a click runs). The │ between the Run panel's panes drags.
 steps="$steps; key ctrl+k f5; wait 900; key tab; wait 200; key down; wait 200; key down; wait 300; $s/moved.txt; key escape; wait 100; key escape; wait 300"
 steps="$steps; drag 29 20 50 20; wait 400; $s/dragged.txt"
-# A line longer than the pane: cut, then w wraps it.
-steps="$steps; key ctrl+k f5; wait 900; type long; wait 300; key enter; wait 1500; $s/cut.txt; key ctrl+k shift+f5; wait 300; key w; wait 400; $s/wrapped.txt; key w; wait 200; key escape; wait 300"
+# A line longer than the pane: wrapped, then w cuts it.
+steps="$steps; key ctrl+k f5; wait 900; type long; wait 300; key enter; wait 1500; $s/wrapped.txt; key ctrl+k shift+f5; wait 300; key w; wait 400; $s/cut.txt; key w; wait 200; key escape; wait 300"
 # F5 again: the chosen one, now "fails"; then ticker, and ctrl+q while it runs.
 steps="$steps; key ctrl+k f5; wait 900; type ticker; wait 300; key enter; wait 1200; key ctrl+q; wait 400; $s/quit.txt; type k; wait 1500; debug $OUT/debug.json; quit"
 cd "$ws"
@@ -78,9 +78,9 @@ grep -q '›■ ticker' "$OUT/focused.txt" || fail "Down in the focused Run pane
 grep -q 'ticker · stopped' "$OUT/focused.txt" || fail "the Run panel does not show ticker's output"
 grep -q '▼ Saved' "$OUT/moved.txt" || fail "the arrows in the picker's list ran a configuration"
 grep -q '"left":49' "$OUT/cfg/plugins/symbiosis/run-layout.json" || fail "dragging the │ did not resize the runs list"
-grep -q 'LLLL' "$OUT/cut.txt" || fail "long: no output"
-grep -q 'LEND' "$OUT/cut.txt" && fail "long: the line was not cut at the pane's edge"
-grep -q 'LEND' "$OUT/wrapped.txt" || fail "w did not wrap the long line"
+grep -q 'LLLL' "$OUT/wrapped.txt" || fail "long: no output"
+grep -q 'LEND' "$OUT/wrapped.txt" || fail "long: the line does not wrap"
+grep -q 'LEND' "$OUT/cut.txt" && fail "w did not cut the long line at the pane's edge"
 grep -q '"ticker" runs: s stops them and quits' "$OUT/quit.txt" || fail "ctrl+q did not ask"
 grep -q '1 program from the last time still runs' "$OUT/back.txt" || fail "no notice of the kept run"
 grep -q '● ticker' "$OUT/back.txt" || fail "the Run panel does not show the kept run"
