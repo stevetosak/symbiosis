@@ -22,12 +22,16 @@ interface Workspace {
 	done(): void;
 }
 
-function workspace(runJson: unknown): Workspace {
+function workspace(runJson: unknown, more: Record<string, string> = {}): Workspace {
 	const dir = realpathSync(mkdtempSync(join(tmpdir(), 'symbiosis-compound-')));
 	const ws = join(dir, 'ws');
 	const runsDir = join(dir, 'runs');
 	mkdirSync(join(ws, '.symbiosis'), { recursive: true });
 	writeFileSync(join(ws, '.symbiosis/run.json'), JSON.stringify(runJson));
+	for (const [path, text] of Object.entries(more)) {
+		mkdirSync(dirname(join(ws, path)), { recursive: true });
+		writeFileSync(join(ws, path), text);
+	}
 	const env = { ...process.env, SYMBIOSIS_RUNS: runsDir };
 	const cli = (...argv: string[]): Out => {
 		const r = spawnSync(join(root, 'bin/symbiosis'), ['run', ...argv], { env, encoding: 'utf8', timeout: 20000 });
@@ -112,6 +116,19 @@ test('compound: when every step ends without an error, the compound exits 0', as
 		const compound = await w.until('the compound ends', (runs) => runs.find((r) => r.id === cid && !isLive(r.status)));
 		assert.deepEqual([compound.status, compound.code, compound.error], ['exited', 0, undefined]);
 		assert.match(w.tail(cid), /all steps ended/);
+	} finally {
+		w.done();
+	}
+});
+
+test('compound: one from .vscode/launch.json runs its launch configurations', async () => {
+	const launch = (name: string) => ({ type: 'node-terminal', request: 'launch', name, command: 'sleep 30' });
+	const w = workspace({ configurations: [] }, {
+		'.vscode/launch.json': JSON.stringify({ configurations: [launch('server'), launch('client')], compounds: [{ name: 'Both', configurations: ['server', 'client'] }] }),
+	});
+	try {
+		const cid = (w.cli('start', '--folder', w.ws, '--config', 'compound:vscode:Both').run as RunState).id;
+		await w.until('server and client run', (runs) => ['server', 'client'].every((n) => member(runs, cid, n)?.status === 'running'));
 	} finally {
 		w.done();
 	}

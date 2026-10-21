@@ -2,7 +2,7 @@
 // .vscode/launch.json (launch requests whose program symbiosis can start
 // without a debugger) and .vscode/tasks.json (shell, process and npm tasks).
 // What cannot be run comes back as a problem, not silently dropped.
-import { parseJsonc, type RunConfig, shQuote } from './config.ts';
+import { type Compound, COMPOUND_GROUP, type CompoundStep, parseJsonc, type RunConfig, shQuote } from './config.ts';
 
 type Json = Record<string, unknown>;
 
@@ -54,14 +54,34 @@ export function launchCommand(c: Json): { command: string; args: string[] } | st
 	}
 }
 
-export function importLaunch(text: string, source = '.vscode/launch.json'): { configs: RunConfig[]; problems: string[] } {
-	const data = parseJsonc(text, source) as { configurations?: unknown };
+function launchSteps(c: Json, runnable: ReadonlySet<string>, written: ReadonlySet<string>, source: string): CompoundStep[] | string {
+	if (c.preLaunchTask !== undefined) return ' has a preLaunchTask; symbiosis does not run tasks';
+	const refs: unknown[] = Array.isArray(c.configurations) ? c.configurations : [];
+	if (refs.length === 0) return ' has no configurations';
+	const steps: CompoundStep[] = [];
+	for (const ref of refs) {
+		const name = typeof ref === 'string' ? str(ref) : str((ref as Json)?.name);
+		if (!name) return ': a step has no name';
+		const folder = typeof ref === 'string' ? undefined : str((ref as Json).folder);
+		if (folder) return `: "${name}" is in another folder ("${folder}")`;
+		if (!written.has(name)) return `: no configuration "${name}" in ${source}`;
+		if (!runnable.has(name)) return `: "${name}" is not a configuration symbiosis can run`;
+		if (steps.some((s) => s.configId === `vscode:${name}`)) return `: "${name}" is a step already`;
+		steps.push({ configId: `vscode:${name}` });
+	}
+	return steps;
+}
+
+export function importLaunch(text: string, source = '.vscode/launch.json'): { configs: RunConfig[]; compounds: Compound[]; problems: string[] } {
+	const data = parseJsonc(text, source) as { configurations?: unknown; compounds?: unknown };
 	const configs: RunConfig[] = [];
 	const problems: string[] = [];
+	const written = new Set<string>();
 	for (const raw of Array.isArray(data?.configurations) ? data.configurations : []) {
 		const c = raw as Json;
 		const name = str(c?.name);
 		if (!name) continue;
+		written.add(name);
 		if (str(c.request) !== 'launch') {
 			problems.push(`${source}: "${name}" attaches to a program; symbiosis starts programs`);
 			continue;
@@ -82,7 +102,17 @@ export function importLaunch(text: string, source = '.vscode/launch.json'): { co
 			source,
 		});
 	}
-	return { configs, problems };
+	const runnable = new Set(configs.map((c) => c.name));
+	const compounds: Compound[] = [];
+	for (const raw of Array.isArray(data?.compounds) ? data.compounds : []) {
+		const c = raw as Json;
+		const name = str(c?.name);
+		if (!name) continue;
+		const steps = launchSteps(c, runnable, written, source);
+		if (typeof steps === 'string') problems.push(`${source}: compound "${name}"${steps}`);
+		else compounds.push({ id: `compound:vscode:${name}`, name, group: COMPOUND_GROUP, steps, source });
+	}
+	return { configs, compounds, problems };
 }
 
 export function importTasks(text: string, source = '.vscode/tasks.json'): { configs: RunConfig[]; problems: string[] } {
