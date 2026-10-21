@@ -600,7 +600,7 @@ function M.setup(app)
 
 	ask_input = function(config, ask, opts)
 		asking = { config = config, ask = ask, opts = opts, items = ask.options }
-		ttt.open_drawer({ width = 64, min_width = 40, side = "right", render = render_input })
+		app:open_drawer("run", { width = 64, min_width = 40, side = "right", render = render_input })
 	end
 
 	local function by_id(id)
