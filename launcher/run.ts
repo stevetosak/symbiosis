@@ -27,7 +27,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { pluginDir } from '../core/channel/file.ts';
 import { parseJsonc, RunConfigError, toRunJson } from '../core/run/config.ts';
 import { InputMemory, pickedLabels, pickInputs } from '../core/run/inputs.ts';
-import { listConfigs, listed, resolveConfig, RUN_JSON, workspaceFolder } from '../core/run/list.ts';
+import { listConfigs, listed, listedCompound, resolveConfig, RUN_JSON, workspaceFolder } from '../core/run/list.ts';
 import { readSmall } from '../core/run/providers/provider.ts';
 import { alive, groupAlive, HEARTBEAT_MS, isLive, killGroup, type RunState, Runs, Tail, writeAtomic } from '../core/run/runs.ts';
 
@@ -276,7 +276,10 @@ export async function runCommand(args: RunArgs, runs = new Runs(args.runs ?? run
 			const memory = inputMemory(runs);
 			return ok({
 				folder,
-				configs: listing.configs.map((c) => listed(folder, c, file, pickedLabels(c, folder, memory))),
+				configs: [
+					...listing.compounds.map((c) => listedCompound(c, listing.configs)),
+					...listing.configs.map((c) => listed(folder, c, file, pickedLabels(c, folder, memory))),
+				],
 				problems: listing.problems,
 				runs: runs.list(folder),
 			});
