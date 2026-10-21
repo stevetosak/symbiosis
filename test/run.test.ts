@@ -6,7 +6,7 @@ import { dirname, join, sep } from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { commandLine, inputRefs, parseDotenv, parseInputs, parseJsonc, parseRunJson, type RunConfig, RunConfigError, shQuote, toRunJson } from '../core/run/config.ts';
+import { commandLine, inputRefs, type ListedConfig, parseDotenv, parseInputs, parseJsonc, parseRunJson, type RunConfig, RunConfigError, shQuote, toRunJson } from '../core/run/config.ts';
 import { detect, walk } from '../core/run/detect.ts';
 import { currentFileConfig, fileCommand } from '../core/run/file.ts';
 import { decide, InputMemory, listOptions, pickedLabels, pickInputs } from '../core/run/inputs.ts';
@@ -51,14 +51,14 @@ test('run.json: JSONC with comments and trailing commas; command+args vs a shell
 		'  ],',
 		'}',
 	].join('\n');
-	assert.deepEqual(parseRunJson(text), [
+	assert.deepEqual(parseRunJson(text).configs, [
 		{
 			id: 'saved:api', name: 'api', group: 'Saved', command: 'npm', args: ['run', 'dev'], cwd: '${workspaceFolder}/api',
 			env: { PORT: '3000', DEBUG: 'true', URL: 'http://x//y' }, envFile: '.env', source: '.symbiosis/run.json',
 		},
 		{ id: 'saved:worker', name: 'worker', group: 'Saved', command: 'python worker.py --verbose', source: '.symbiosis/run.json' },
 	]);
-	assert.deepEqual(parseRunJson('{"configurations": []}', 'x.json'), []);
+	assert.deepEqual(parseRunJson('{"configurations": []}', 'x.json'), { configs: [], compounds: [] });
 	// "//" and "/*" inside strings are not comments; escaped quotes are kept.
 	assert.deepEqual(parseJsonc('{"a": "// no", "b": "/* no */", "c": "q\\"//"} // yes', 'w'), { a: '// no', b: '/* no */', c: 'q"//' });
 	assert.deepEqual(parseJsonc('{"a": "x,}", "b": [1, 2, ], /* c */ }', 'w'), { a: 'x,}', b: [1, 2] }, 'a ",}" in a string stays');
@@ -80,6 +80,138 @@ test('run.json: bad entries throw RunConfigError with where and what', () => {
 	bad('{"configurations": [{"name": "a", "command": "x", "envFile": []}]}', /\.envFile must be a string/);
 	bad('{"configurations": [{"name": "a", "command": "x", "env": []}]}', /\.env must be an object of strings/);
 	bad('{"configurations": [{"name": "a", "command": "x", "env": {"K": {}}}]}', /\.env\.K must be a string/);
+});
+
+test('run.json compounds: steps name configs of the file; a step input replaces the compound one', () => {
+	const text = JSON.stringify({
+		inputs: [{ id: 'profile', type: 'pick', options: ['nilan-local', 'ies-local'] }],
+		configurations: [
+			{ name: 'infra', command: 'bash up.sh' },
+			{ name: 'api', command: 'dotnet run --launch-profile ${input:profile}' },
+			{ name: 'web', command: 'dotnet run --launch-profile ${input:profile}' },
+		],
+		compounds: [{
+			name: 'Local Nilan',
+			inputs: { profile: 'nilan-local' },
+			steps: [
+				{ run: 'infra' },
+				{ run: 'api', after: 'finished' },
+				{ run: 'web', after: 'started', inputs: { profile: 'ies-local' } },
+			],
+		}],
+	});
+	assert.deepEqual(parseRunJson(text).compounds, [{
+		id: 'compound:Local Nilan', name: 'Local Nilan', group: 'Compound Launches', source: '.symbiosis/run.json',
+		steps: [
+			{ configId: 'saved:infra' },
+			{ configId: 'saved:api', after: 'finished', inputs: { profile: 'nilan-local' } },
+			{ configId: 'saved:web', after: 'started', inputs: { profile: 'ies-local' } },
+		],
+	}]);
+});
+
+test('run.json compounds: "configurations", as VS Code writes it, starts each one now', () => {
+	const text = JSON.stringify({
+		configurations: [{ name: 'api', command: 'npm run api' }, { name: 'web', command: 'npm run web' }],
+		compounds: [{ name: 'Dev', configurations: ['api', 'web'] }],
+	});
+	assert.deepEqual(parseRunJson(text).compounds.map((c) => c.steps), [[{ configId: 'saved:api' }, { configId: 'saved:web' }]]);
+});
+
+/** Throws for compounds over the configs a, b and c. */
+function badCompounds(compounds: unknown, re: RegExp): void {
+	const configurations = ['a', 'b', 'c'].map((name) => ({ name, command: `echo ${name}` }));
+	assert.throws(() => parseRunJson(JSON.stringify({ configurations, compounds }), 'r.json'), (e: Error) => e instanceof RunConfigError && re.test(e.message), re.source);
+}
+
+test('run.json compounds: a bad shape throws with where and what', () => {
+	badCompounds({}, /^r\.json: "compounds" must be a list/);
+	badCompounds([1], /^r\.json: compounds\[0\] must be an object/);
+	badCompounds([{ steps: [{ run: 'a' }] }], /compounds\[0\] needs a "name"/);
+	badCompounds([{ name: ' ', steps: [{ run: 'a' }] }], /compounds\[0\] needs a "name"/);
+	badCompounds([{ name: 'X', steps: [{ run: 'a' }] }, { name: 'X', steps: [{ run: 'b' }] }], /compounds\[1\]: the name "X" is used twice/);
+	badCompounds([{ name: 'X' }], /compounds\[0\] \("X"\) needs "steps" or "configurations", one of them/);
+	badCompounds([{ name: 'X', steps: [{ run: 'a' }], configurations: ['b'] }], /one of them/);
+	badCompounds([{ name: 'X', steps: [] }], /compounds\[0\] \("X"\): "steps" must be a list with a step in it/);
+	badCompounds([{ name: 'X', steps: {} }], /"steps" must be a list with a step in it/);
+	badCompounds([{ name: 'X', configurations: [] }], /compounds\[0\] \("X"\): "configurations" must be a list of names, not empty/);
+	badCompounds([{ name: 'X', configurations: [1] }], /"configurations" must be a list of names/);
+	badCompounds([{ name: 'X', steps: [1] }], /compounds\[0\]\.steps\[0\] must be an object/);
+});
+
+test('run.json compounds: a step names a config of the file once; "after" is "started" or "finished", not on the first', () => {
+	badCompounds([{ name: 'X', steps: [{}] }], /compounds\[0\]\.steps\[0\] needs a "run": the name of a configuration/);
+	badCompounds([{ name: 'X', steps: [{ run: 'npm::dev' }] }], /compounds\[0\]\.steps\[0\]: no configuration "npm::dev" in r\.json/);
+	badCompounds([{ name: 'X', configurations: ['a', 'zz'] }], /compounds\[0\]\.configurations\[1\]: no configuration "zz" in r\.json/);
+	badCompounds([{ name: 'X', configurations: ['a', 'b', 'a'] }], /compounds\[0\]\.configurations\[2\]: "a" is a step already/);
+	badCompounds([{ name: 'X', steps: [{ run: 'a' }, { run: 'b', after: 'ready' }] }], /compounds\[0\]\.steps\[1\]\.after must be "started" or "finished"/);
+	badCompounds([{ name: 'X', steps: [{ run: 'a', after: 'finished' }] }], /compounds\[0\]\.steps\[0\]: the first step has nothing to wait for/);
+});
+
+test('run.json compounds: input values are for inputs a step uses, and one of the options of a list', () => {
+	const file = (compounds: unknown) => JSON.stringify({
+		inputs: [
+			{ id: 'profile', type: 'pick', options: ['nilan-local', 'ies-local'] },
+			{ id: 'device', type: 'pick', command: 'list-devices' },
+		],
+		configurations: [
+			{ name: 'api', command: 'run ${input:profile}' },
+			{ name: 'app', command: 'run-on ${input:device}' },
+			{ name: 'infra', command: 'up' },
+		],
+		compounds,
+	});
+	const bad = (compounds: unknown, re: RegExp) =>
+		assert.throws(() => parseRunJson(file(compounds), 'r.json'), (e: Error) => e instanceof RunConfigError && re.test(e.message), re.source);
+	bad([{ name: 'X', inputs: [], configurations: ['api'] }], /compounds\[0\]\.inputs must be an object of strings/);
+	bad([{ name: 'X', steps: [{ run: 'api', inputs: { profile: {} } }] }], /compounds\[0\]\.steps\[0\]\.inputs\.profile must be a string/);
+	bad([{ name: 'X', inputs: { mode: 'x' }, configurations: ['api', 'infra'] }], /compounds\[0\]\.inputs: no step uses the input "mode"/);
+	bad([{ name: 'X', steps: [{ run: 'infra', inputs: { profile: 'ies-local' } }] }], /compounds\[0\]\.steps\[0\]\.inputs: "infra" does not use the input "profile"/);
+	bad([{ name: 'X', inputs: { profile: 'prod' }, configurations: ['api'] }], /compounds\[0\]\.inputs\.profile: "prod" is not one of its options/);
+	bad([{ name: 'X', steps: [{ run: 'api', inputs: { profile: 'prod' } }] }], /compounds\[0\]\.steps\[0\]\.inputs\.profile: "prod" is not one of its options/);
+	const [ok] = parseRunJson(file([{ name: 'X', inputs: { device: 'any-serial' }, configurations: ['app', 'infra'] }])).compounds;
+	assert.deepEqual(ok.steps, [{ configId: 'saved:app', inputs: { device: 'any-serial' } }, { configId: 'saved:infra' }], 'a command\'s options are known only when it runs');
+});
+
+test('run.json compounds: listed with the configs; a bad one is a problem of the file, as a bad config is', () => {
+	const dir = temp();
+	try {
+		const configurations = [{ name: 'a', command: 'echo a' }];
+		files(dir, { '.symbiosis/run.json': JSON.stringify({ configurations, compounds: [{ name: 'All', configurations: ['a'] }] }) });
+		assert.deepEqual(listConfigs(dir).compounds.map((c) => c.id), ['compound:All']);
+		files(dir, {
+			'.symbiosis/run.json': JSON.stringify({ configurations, compounds: [{ name: 'All', configurations: ['zz'] }] }),
+			'package.json': '{"scripts": {"dev": "node app.js"}}',
+		});
+		const listing = listConfigs(dir);
+		assert.deepEqual(listing.problems, ['.symbiosis/run.json: compounds[0].configurations[0]: no configuration "zz" in .symbiosis/run.json']);
+		assert.deepEqual(listing.compounds, []);
+		assert.deepEqual(listing.configs.map((c) => c.id), ['npm::dev']);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test('symbiosis run list: the compounds first, a line of their step names', async () => {
+	const dir = temp();
+	try {
+		files(dir, {
+			'.symbiosis/run.json': JSON.stringify({
+				configurations: [{ name: 'a', command: 'echo a' }, { name: 'b', command: 'echo b' }],
+				compounds: [{ name: 'All', steps: [{ run: 'a' }, { run: 'b', after: 'finished' }] }],
+			}),
+		});
+		const runs = new Runs(join(dir, 'runs'));
+		const { out } = await runCommand({ command: 'list', ids: [], all: false, adopt: false, folder: dir }, runs);
+		const configs = out.configs as ListedConfig[];
+		assert.deepEqual(configs.map((c) => c.id), ['compound:All', 'saved:a', 'saved:b']);
+		assert.deepEqual(configs[0], {
+			id: 'compound:All', name: 'All', group: 'Compound Launches', kind: 'compound', steps: ['a', 'b'], line: 'a → b', cwd: '.', source: '.symbiosis/run.json',
+		});
+		assert.equal(configs[1].kind, undefined);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test('run.json: a broken file is a problem in the listing, not a throw; the rest still lists', () => {
@@ -725,7 +857,7 @@ test('run commands in-process: save, list, ps, keep, remove, errors', async () =
 		assert.deepEqual((await runCommand(args({ command: 'save', folder: ws, config: 'npm::dev' }), runs)).out, { ok: true, saved: 'dev', file: join(ws, '.symbiosis/run.json') });
 		assert.equal((await runCommand(args({ command: 'save', folder: ws, config: 'npm::dev' }), runs)).out.saved, 'dev (2)');
 		assert.equal((await runCommand(args({ command: 'save', folder: ws, config: 'npm:web:dev' }), runs)).out.saved, 'web: dev');
-		assert.deepEqual(parseRunJson(readFileSync(join(ws, '.symbiosis/run.json'), 'utf8')).map((c) => [c.id, commandLine(c), c.cwd]), [
+		assert.deepEqual(parseRunJson(readFileSync(join(ws, '.symbiosis/run.json'), 'utf8')).configs.map((c) => [c.id, commandLine(c), c.cwd]), [
 			['saved:dev', 'npm run dev', undefined],
 			['saved:dev (2)', 'npm run dev', undefined],
 			['saved:web: dev', 'npm run dev', 'web'],
@@ -1056,7 +1188,7 @@ test('inputs: run.json "inputs", ${input:id} anywhere in a config; bad ones thro
 			{ "name": "plain", "command": "ls" },
 		],
 	}`;
-	const [app, plain] = parseRunJson(text);
+	const [app, plain] = parseRunJson(text).configs;
 	assert.deepEqual(app.inputs, [
 		{ id: 'device', description: 'Android device', command: 'list-devices' },
 		{ id: 'mode', description: 'mode', options: [{ value: 'Debug', label: 'Debug' }, { value: 'R', label: 'Release', detail: 'slow', ready: true }] },
@@ -1154,7 +1286,7 @@ test('inputs: pickInputs gives, remembers, decides or asks, one input after the 
 				{ id: 'mode', type: 'pick', options: ['Debug'] },
 			],
 			configurations: [{ name: 'app', command: 'run \${input:device} \${input:mode}' }],
-		}));
+		})).configs;
 		const ctx = { folder: dir, env: {} };
 		assert.deepEqual(await pickInputs(config, ctx, memory), {
 			ask: {
@@ -1194,7 +1326,7 @@ test('inputs: pickInputs gives, remembers, decides or asks, one input after the 
 				{ id: 'b', type: 'pick', options: ['b1', 'b2'] },
 			],
 			configurations: [{ name: 'two', command: 'run \${input:a} \${input:b}' }],
-		}));
+		})).configs;
 		const asked = await pickInputs(two, ctx, memory);
 		assert.ok('ask' in asked);
 		assert.deepEqual([asked.ask.input.id, asked.ask.given, asked.ask.labels], ['b', { a: 'only' }, { a: 'only' }]);
@@ -1206,7 +1338,7 @@ test('inputs: pickInputs gives, remembers, decides or asks, one input after the 
 		// A memory file that is not JSON is no memory.
 		writeFileSync(memory.path, 'nope');
 		assert.equal(memory.get(dir, 'device'), undefined);
-		const [empty] = parseRunJson(JSON.stringify({ inputs: [{ id: 'd', type: 'pick', description: 'Android device', options: [] }], configurations: [{ name: 'e', command: 'x \${input:d}' }] }));
+		const [empty] = parseRunJson(JSON.stringify({ inputs: [{ id: 'd', type: 'pick', description: 'Android device', options: [] }], configurations: [{ name: 'e', command: 'x \${input:d}' }] })).configs;
 		await assert.rejects(pickInputs(empty, ctx, memory), /"e": no Android device to pick from/);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });

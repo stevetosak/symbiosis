@@ -4,7 +4,7 @@
 // expanded, cwd absolute, the environment merged.
 import { existsSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { commandLine, type ListedConfig, parseDotenv, parseRunJson, type RunConfig, RunConfigError } from './config.ts';
+import { commandLine, type Compound, type ListedConfig, parseDotenv, parseRunJson, type RunConfig, RunConfigError } from './config.ts';
 import { detect, type WalkOptions } from './detect.ts';
 import { CURRENT_FILE_ID, currentFileConfig, fileCommand } from './file.ts';
 import { readSmall } from './providers/provider.ts';
@@ -53,6 +53,7 @@ export function workspaceFolder(file: string | undefined, cwd: string): string {
 export interface Listing {
 	readonly folder: string;
 	readonly configs: RunConfig[];
+	readonly compounds: Compound[];
 	readonly problems: string[];
 }
 
@@ -62,6 +63,7 @@ export interface ListOptions extends WalkOptions {
 
 export function listConfigs(folder: string, opts: ListOptions = {}): Listing {
 	const configs: RunConfig[] = [];
+	const compounds: Compound[] = [];
 	const problems: string[] = [];
 	const ids = new Set<string>();
 	const add = (list: RunConfig[]) => {
@@ -74,7 +76,9 @@ export function listConfigs(folder: string, opts: ListOptions = {}): Listing {
 	const saved = readSmall(join(folder, RUN_JSON));
 	if (saved !== undefined) {
 		try {
-			add(parseRunJson(saved, RUN_JSON));
+			const file = parseRunJson(saved, RUN_JSON);
+			add(file.configs);
+			compounds.push(...file.compounds);
 		} catch (error) {
 			if (!(error instanceof RunConfigError)) throw error;
 			problems.push(error.message);
@@ -96,7 +100,7 @@ export function listConfigs(folder: string, opts: ListOptions = {}): Listing {
 	const found = detect(folder, opts);
 	add(found.configs);
 	problems.push(...found.problems);
-	return { folder, configs, problems };
+	return { folder, configs, compounds, problems };
 }
 
 /** `picked`: the labels picked last for its inputs. */
@@ -108,6 +112,14 @@ export function listed(folder: string, c: RunConfig, file?: string, picked?: str
 		id: c.id, name: c.name, group: c.group, line: commandLine(cfg), cwd: cwd || '.',
 		...(c.source ? { source: c.source } : {}),
 		...(picked ? { picked } : {}),
+	};
+}
+
+export function listedCompound(c: Compound, configs: readonly RunConfig[]): ListedConfig {
+	const steps = c.steps.map((s) => configs.find((k) => k.id === s.configId)?.name ?? s.configId);
+	return {
+		id: c.id, name: c.name, group: c.group, kind: 'compound', steps, line: steps.join(' → '), cwd: '.',
+		...(c.source ? { source: c.source } : {}),
 	};
 }
 

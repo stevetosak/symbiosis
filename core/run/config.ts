@@ -55,7 +55,27 @@ export interface ListedConfig {
 	readonly source?: string;
 	/** The labels picked last for its inputs, ", " between them. */
 	readonly picked?: string;
+	readonly kind?: 'compound';
+	readonly steps?: readonly string[];
 }
+
+export type After = 'started' | 'finished';
+
+export interface CompoundStep {
+	readonly configId: string;
+	readonly after?: After;
+	readonly inputs?: Readonly<Record<string, string>>;
+}
+
+export interface Compound {
+	readonly id: string;
+	readonly name: string;
+	readonly group: string;
+	readonly steps: readonly CompoundStep[];
+	readonly source?: string;
+}
+
+export const COMPOUND_GROUP = 'Compound Launches';
 
 export class RunConfigError extends Error {}
 
@@ -204,15 +224,83 @@ function stringMap(value: unknown, what: string): Record<string, string> {
 	return out;
 }
 
-/** .symbiosis/run.json's text → its configurations. `where`: the file, for errors. */
-export function parseRunJson(text: string, where = '.symbiosis/run.json'): RunConfig[] {
-	const data = parseJsonc(text, where) as { configurations?: unknown; inputs?: unknown };
+function writtenSteps(c: Record<string, unknown>, at: string): { key: string; steps: Record<string, unknown>[] } {
+	if ((c.steps === undefined) === (c.configurations === undefined)) throw new RunConfigError(`${at} needs "steps" or "configurations", one of them`);
+	if (c.configurations !== undefined) {
+		const names = c.configurations;
+		if (!Array.isArray(names) || names.length === 0 || names.some((n) => typeof n !== 'string')) {
+			throw new RunConfigError(`${at}: "configurations" must be a list of names, not empty`);
+		}
+		return { key: 'configurations', steps: names.map((run: string) => ({ run })) };
+	}
+	if (!Array.isArray(c.steps) || c.steps.length === 0) throw new RunConfigError(`${at}: "steps" must be a list with a step in it`);
+	return { key: 'steps', steps: c.steps };
+}
+
+const AFTER = new Set<unknown>(['started', 'finished']);
+
+function stepInputs(config: RunConfig, own: Record<string, string>, shared: Record<string, string>, step: string, compound: string): Record<string, string> | undefined {
+	const unused = Object.keys(own).find((id) => !config.inputs?.some((d) => d.id === id));
+	if (unused) throw new RunConfigError(`${step}.inputs: "${config.name}" does not use the input "${unused}"`);
+	const values: [string, string][] = [];
+	for (const def of config.inputs ?? []) {
+		const value = own[def.id] ?? shared[def.id];
+		if (value === undefined) continue;
+		if (def.options && !def.options.some((o) => o.value === value)) {
+			throw new RunConfigError(`${def.id in own ? step : compound}.inputs.${def.id}: "${value}" is not one of its options`);
+		}
+		values.push([def.id, value]);
+	}
+	return values.length > 0 ? Object.fromEntries(values) : undefined;
+}
+
+function parseCompounds(raw: unknown, configs: readonly RunConfig[], where: string): Compound[] {
+	if (raw === undefined) return [];
+	if (!Array.isArray(raw)) throw new RunConfigError(`${where}: "compounds" must be a list`);
+	const seen = new Set<string>();
+	return raw.map((r: unknown, i: number): Compound => {
+		const c = r as Record<string, unknown>;
+		const at = `${where}: compounds[${i}]`;
+		if (typeof c !== 'object' || c === null) throw new RunConfigError(`${at} must be an object`);
+		if (typeof c.name !== 'string' || c.name.trim() === '') throw new RunConfigError(`${at} needs a "name"`);
+		if (seen.has(c.name)) throw new RunConfigError(`${at}: the name "${c.name}" is used twice`);
+		seen.add(c.name);
+		const shared = c.inputs !== undefined ? stringMap(c.inputs, `${at}.inputs`) : {};
+		const written = writtenSteps(c, `${at} ("${c.name}")`);
+		const named = new Set<unknown>();
+		const steps = written.steps.map((s, j): CompoundStep => {
+			const step = `${at}.${written.key}[${j}]`;
+			if (typeof s !== 'object' || s === null) throw new RunConfigError(`${step} must be an object`);
+			if (typeof s.run !== 'string' || s.run === '') throw new RunConfigError(`${step} needs a "run": the name of a configuration`);
+			const config = configs.find((k) => k.name === s.run);
+			if (!config) throw new RunConfigError(`${step}: no configuration "${s.run}" in ${where}`);
+			if (named.has(s.run)) throw new RunConfigError(`${step}: "${s.run}" is a step already`);
+			named.add(s.run);
+			if (s.after !== undefined && !AFTER.has(s.after)) throw new RunConfigError(`${step}.after must be "started" or "finished"`);
+			if (s.after !== undefined && j === 0) throw new RunConfigError(`${step}: the first step has nothing to wait for`);
+			const own = s.inputs !== undefined ? stringMap(s.inputs, `${step}.inputs`) : {};
+			const inputs = stepInputs(config, own, shared, step, at);
+			return {
+				configId: config.id,
+				...(s.after ? { after: s.after as After } : {}),
+				...(inputs ? { inputs } : {}),
+			};
+		});
+		const unusedShared = Object.keys(shared).find((id) => !steps.some((st) => st.inputs && id in st.inputs));
+		if (unusedShared) throw new RunConfigError(`${at}.inputs: no step uses the input "${unusedShared}"`);
+		return { id: `compound:${c.name}`, name: c.name, group: COMPOUND_GROUP, steps, source: where };
+	});
+}
+
+/** .symbiosis/run.json's text → its configurations and compounds. `where`: the file, for errors. */
+export function parseRunJson(text: string, where = '.symbiosis/run.json'): { configs: RunConfig[]; compounds: Compound[] } {
+	const data = parseJsonc(text, where) as { configurations?: unknown; inputs?: unknown; compounds?: unknown };
 	if (typeof data !== 'object' || data === null || !Array.isArray(data.configurations)) {
 		throw new RunConfigError(`${where}: needs "configurations": [ ... ]`);
 	}
 	const defs = parseInputs(data.inputs, where);
 	const seen = new Set<string>();
-	return data.configurations.map((raw: unknown, i: number) => {
+	const configs = data.configurations.map((raw: unknown, i: number): RunConfig => {
 		const c = raw as Record<string, unknown>;
 		const at = `${where}: configurations[${i}]`;
 		if (typeof c !== 'object' || c === null) throw new RunConfigError(`${at} must be an object`);
@@ -240,6 +328,7 @@ export function parseRunJson(text: string, where = '.symbiosis/run.json'): RunCo
 		if (unknown.length > 0) throw new RunConfigError(`${at} ("${c.name}"): no input "${unknown[0]}" in "inputs"`);
 		return { ...config, inputs: refs.map((id) => defs.get(id)!) };
 	});
+	return { configs, compounds: parseCompounds(data.compounds, configs, where) };
 }
 
 /** A config as run.json holds it: for "Save" (copy a detected config into the file). */
