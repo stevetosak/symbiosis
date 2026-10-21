@@ -55,12 +55,29 @@ return {
 		local items = run.picker_items(cs, "c")
 		t.eq(#items, 2, "a node per group")
 		t.eq(items[1].label, "npm · web")
-		t.eq(items[1].children[2].label, "test  npm run test")
+		t.eq(items[1].children[2].label, "test")
+		t.eq(items[1].children[2].badge, "npm run test", "the command, muted")
 		t.eq(items[1].children[2].icon, "▶", "the chosen one")
 		t.eq(items[2].children[1].id, "b")
 		cs[2].picked = "Pixel 7"
 		t.eq(ids(run.filter(cs, "pixel")), { "b" }, "what its inputs picked")
-		t.eq(run.picker_items(cs)[2].children[1].label, "build → Pixel 7  make build")
+		local row = run.picker_items(cs)[2].children[1]
+		t.eq({ row.label, row.badge }, { "build → Pixel 7", "make build" })
+	end },
+	{ "run: a picker row is one line, a compound's steps or a long command in its badge", function()
+		local wrap = require("core.wrap")
+		local cs = {
+			{ id = "compound:Local Nilan", name = "Local Nilan", group = "Compound Launches", kind = "compound", steps = { "infra", "api" }, line = "infra → api" },
+			{ id = "saved:stack", name = "stack", group = "Saved", line = "bash Scripts/local_stack_up.sh Nilan && dotnet build A && dotnet build B && { dotnet run --no-build A & wait; }" },
+		}
+		local items = run.picker_items(cs)
+		t.eq(items[1].label, "Compound Launches")
+		t.eq({ items[1].children[1].label, items[1].children[1].badge }, { "Local Nilan", "infra → api" })
+		local rows = wrap.items(items, 40)
+		t.eq(#rows[2].children, 1, "the long command does not wrap")
+		t.eq(rows[2].children[1].badge, cs[2].line, "ttt cuts the badge at the row's edge")
+		t.eq(run.filter(cs, "api")[1].id, "compound:Local Nilan", "a step's name")
+		t.eq(run.filter(cs, "no-build wait")[1].id, "saved:stack", "the end of the command, cut on screen")
 	end },
 	{ "run: an input's options: filter, items, and the arguments for run start", function()
 		local os_ = {

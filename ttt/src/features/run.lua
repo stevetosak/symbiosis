@@ -248,7 +248,8 @@ function M.picker_items(list, chosen_id)
 		end
 		table.insert(g.children, {
 			id = c.id,
-			label = c.name .. (c.picked and c.picked ~= "" and (" → " .. c.picked) or "") .. (c.line and c.line ~= "" and ("  " .. c.line) or ""),
+			label = c.name .. (c.picked and c.picked ~= "" and (" → " .. c.picked) or ""),
+			badge = c.line ~= "" and c.line or nil,
 			icon = c.id == chosen_id and "▶" or " ",
 		})
 	end
@@ -541,6 +542,9 @@ function M.setup(app)
 
 	local function save(config)
 		if not config or config.group == "Saved" then return end
+		if config.kind == "compound" then
+			return notify("\"" .. config.name .. "\" is a compound launch: s saves only a single configuration")
+		end
 		cli({ "save", "--folder", folder, "--config", config.id, "--file", file_now() or "" }, function(out)
 			if not out then return end
 			notify("saved \"" .. tostring(out.saved) .. "\" to .symbiosis/run.json")

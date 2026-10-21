@@ -24,8 +24,10 @@ cat > "$ws/.symbiosis/run.json" <<'JSON'
 	"configurations": [
 		{ "name": "ticker", "command": "i=0; while true; do i=$((i+1)); echo \"tick $i in $PWD\"; sleep 0.2; done", "cwd": "${workspaceFolder}/web" },
 		{ "name": "fails", "command": "node", "args": ["-e", "console.error('boom at app.js:2'); process.exit(3)"] },
-		{ "name": "long", "command": "node", "args": ["-e", "console.log('L'.repeat(150) + 'END')"] }
-	]
+		{ "name": "long", "command": "node", "args": ["-e", "console.log('L'.repeat(150) + 'END')"] },
+		{ "name": "hello", "command": "echo hello" }
+	],
+	"compounds": [{ "name": "greet", "configurations": ["hello"] }]
 }
 JSON
 printf '{ "scripts": { "dev": "node app.js", "test": "node --test" } }\n' > "$ws/web/package.json"
@@ -59,9 +61,13 @@ export SYMBIOSIS_RUNS="$OUT/cfg/plugins/symbiosis/runs"
 
 fail() { echo "FAIL: $*"; echo "out: $OUT"; exit 1; }
 grep -q '▼ Saved' "$OUT/pick.txt" || fail "the picker has no Saved group"
-grep -q 'web: dev  npm run dev' "$OUT/pick.txt" || fail "the picker misses web/package.json's dev"
-grep -q 'build  make build' "$OUT/pick.txt" || fail "the picker misses the Makefile"
-grep -q 'Current file  node' "$OUT/pick.txt" || fail "the picker misses the file open"
+compounds=$(grep -n '▼ Compound Launches' "$OUT/pick.txt" | cut -d: -f1)
+saved=$(grep -n '▼ Saved' "$OUT/pick.txt" | cut -d: -f1)
+[ -n "$compounds" ] && [ "$compounds" -lt "$saved" ] || fail "the Compound Launches section is not above Saved"
+grep -q 'greet hello' "$OUT/pick.txt" || fail "the compound's row does not show its steps"
+grep -q 'web: dev npm run dev' "$OUT/pick.txt" || fail "the picker misses web/package.json's dev"
+grep -q 'build make build' "$OUT/pick.txt" || fail "the picker misses the Makefile"
+grep -q 'Current file node' "$OUT/pick.txt" || fail "the picker misses the file open"
 grep -q 'tick 3 in .*/ws/web' "$OUT/ran.txt" || fail "F5 + ticker: no output, or not in its cwd"
 grep -q '● ticker' "$OUT/ran.txt" || fail "the status bar does not say ticker runs"
 grep -q 'ticker · stopped' "$OUT/stopped.txt" || fail "shift+F5 did not stop ticker"

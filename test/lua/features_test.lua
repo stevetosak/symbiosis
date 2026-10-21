@@ -647,4 +647,27 @@ return {
 		stub.run_timers()
 		t.eq(stub.notices[#stub.notices], { text = "symbiosis: no stub at line 1", level = "warning" })
 	end },
+	{ "bundle: s on a compound in the Run picker only says it cannot be saved", function()
+		local json = require("ttt.json")
+		load_bundle()
+		command("symbiosis.runPick")
+		local function calls(sub)
+			local out = {}
+			for _, e in ipairs(stub.execs) do
+				if e.args[2] == sub then table.insert(out, e) end
+			end
+			return out
+		end
+		local lists = calls("list")
+		lists[#lists].cb({ stdout = json.encode({ ok = true, folder = "/w", problems = {}, configs = {
+			{ id = "compound:Local Nilan", name = "Local Nilan", group = "Compound Launches", kind = "compound", steps = { "api" }, line = "api" },
+		} }) })
+		local tree
+		stub.drawer.render(setmetatable({}, { __index = function(_, m)
+			return function(_, arg) if m == "tree" then tree = arg end end
+		end }))
+		tree.on_command("save", { id = "compound:Local Nilan" })
+		t.eq(#calls("save"), 0)
+		t.eq(stub.notices[#stub.notices].text, 'symbiosis: "Local Nilan" is a compound launch: s saves only a single configuration')
+	end },
 }
