@@ -328,8 +328,63 @@ test('vscode: launch.json launch configs become programs; the rest are problems'
 		'.vscode/launch.json: "empty" needs a "program" or "runtimeArgs"',
 		'.vscode/launch.json: "nopy" needs a "program" or "module"',
 	]);
-	assert.deepEqual(importLaunch('{}'), { configs: [], problems: [] });
+	assert.deepEqual(importLaunch('{}'), { configs: [], compounds: [], problems: [] });
 	assert.throws(() => importLaunch('{ nope'), /\.vscode\/launch\.json: not valid JSON/);
+});
+
+const LAUNCH_CONFIGS = [
+	'{ "type": "node", "request": "launch", "name": "server", "program": "server.js" }',
+	'{ "type": "node", "request": "launch", "name": "tsx", "runtimeExecutable": "npx", "runtimeArgs": ["tsx", "a.ts"] }',
+];
+
+test('vscode: launch.json compounds become compounds; stopAll has no effect', () => {
+	const text = `{ "configurations": [${LAUNCH_CONFIGS.join(',')}], "compounds": [
+		{ "name": "Both", "configurations": ["server", { "name": "tsx" }], "stopAll": true },
+	] }`;
+	const { compounds, problems } = importLaunch(text);
+	assert.deepEqual(problems, []);
+	assert.deepEqual(compounds, [{
+		id: 'compound:vscode:Both', name: 'Both', group: 'Compound Launches',
+		steps: [{ configId: 'vscode:server' }, { configId: 'vscode:tsx' }], source: '.vscode/launch.json',
+	}]);
+});
+
+test('vscode: a launch.json compound that symbiosis cannot run as written is a problem, not a compound', () => {
+	const text = `{ "configurations": [${LAUNCH_CONFIGS.join(',')}, { "type": "node", "request": "attach", "name": "attach" }],
+	"compounds": [
+		{ "name": "Pre", "configurations": ["server"], "preLaunchTask": "build" },
+		{ "name": "Attach", "configurations": ["server", "attach"] },
+		{ "name": "Nope", "configurations": ["nope"] },
+		{ "name": "Other", "configurations": [{ "name": "server", "folder": "api" }] },
+		{ "name": "Twice", "configurations": ["server", "server"] },
+		{ "name": "Empty", "configurations": [] },
+		{ "name": "Blank", "configurations": [{}] },
+		{ "configurations": ["server"] },
+	] }`;
+	const { compounds, problems } = importLaunch(text);
+	assert.deepEqual(compounds, []);
+	assert.deepEqual(problems.filter((p) => p.includes('compound')), [
+		'.vscode/launch.json: compound "Pre" has a preLaunchTask; symbiosis does not run tasks',
+		'.vscode/launch.json: compound "Attach": "attach" is not a configuration symbiosis can run',
+		'.vscode/launch.json: compound "Nope": no configuration "nope" in .vscode/launch.json',
+		'.vscode/launch.json: compound "Other": "server" is in another folder ("api")',
+		'.vscode/launch.json: compound "Twice": "server" is a step already',
+		'.vscode/launch.json: compound "Empty" has no configurations',
+		'.vscode/launch.json: compound "Blank": a step has no name',
+	]);
+});
+
+test('vscode: launch.json compounds are listed after run.json\'s; the same name in both is two compounds', () => {
+	const dir = temp();
+	try {
+		files(dir, {
+			'.symbiosis/run.json': JSON.stringify({ configurations: [{ name: 'a', command: 'echo a' }], compounds: [{ name: 'Both', configurations: ['a'] }] }),
+			'.vscode/launch.json': `{ "configurations": [${LAUNCH_CONFIGS.join(',')}], "compounds": [{ "name": "Both", "configurations": ["server", "tsx"] }] }`,
+		});
+		assert.deepEqual(listConfigs(dir).compounds.map((c) => c.id), ['compound:Both', 'compound:vscode:Both']);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test('vscode: tasks.json shell, process and npm tasks become configs', () => {

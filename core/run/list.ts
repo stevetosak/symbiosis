@@ -90,6 +90,7 @@ export function listConfigs(folder: string, opts: ListOptions = {}): Listing {
 		try {
 			const got = load(text, `.vscode/${file}`);
 			add(got.configs);
+			if ('compounds' in got) compounds.push(...got.compounds);
 			problems.push(...got.problems);
 		} catch (error) {
 			if (!(error instanceof RunConfigError)) throw error;
