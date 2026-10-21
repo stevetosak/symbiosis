@@ -65,23 +65,66 @@ function M.duration(run, now)
 	return M.elapsed(ended - (run.started or 0) / 1000)
 end
 
+function M.panel_rows(runs)
+	local ids, members = {}, {}
+	for _, r in ipairs(runs) do ids[r.id] = true end
+	for _, r in ipairs(runs) do
+		if r.compound and ids[r.compound] then
+			members[r.compound] = members[r.compound] or {}
+			table.insert(members[r.compound], r)
+		end
+	end
+	local rows = {}
+	for i = #runs, 1, -1 do
+		local r = runs[i]
+		if not (r.compound and ids[r.compound]) then
+			table.insert(rows, { run = r, depth = 0 })
+			for _, step in ipairs(r.steps or {}) do
+				local last = nil
+				for _, m in ipairs(members[r.id] or {}) do
+					if m.configId == step.configId then last = m end
+				end
+				table.insert(rows, last and { run = last, depth = 1 } or { name = step.name, depth = 1 })
+			end
+		end
+	end
+	return rows
+end
+
+function M.run_order(runs)
+	local ids = {}
+	for _, row in ipairs(M.panel_rows(runs)) do
+		if row.run then table.insert(ids, row.run.id) end
+	end
+	return ids
+end
+
+function M.newest_live(runs)
+	for _, row in ipairs(M.panel_rows(runs)) do
+		if row.depth == 0 and M.live(row.run) then return row.run end
+	end
+	return nil
+end
+
 -- The status bar: the latest run of the chosen configuration, else the choice.
 function M.status_line(chosen, runs, now)
-	local live, last = 0, nil
-	for _, r in ipairs(runs) do
-		if M.live(r) then live = live + 1 end
+	local live, top, last = 0, {}, nil
+	for _, row in ipairs(M.panel_rows(runs)) do
+		if row.depth == 0 then
+			top[row.run.id] = true
+			if M.live(row.run) then live = live + 1 end
+		end
 	end
 	for i = #runs, 1, -1 do
 		local r = runs[i]
 		if chosen and r.configId == chosen.id then last = r break end
 	end
-	if not last and live > 0 then
-		for i = #runs, 1, -1 do if M.live(runs[i]) then last = runs[i] break end end
-	end
+	last = last or M.newest_live(runs)
 	local text
 	if last then
 		local icon = M.badge(last)
 		text = icon .. " " .. util.cut(last.name, 24)
+		if last.steps then text = text .. " " .. (last.next or 0) .. "/" .. #last.steps end
 		if M.live(last) then text = text .. " " .. M.duration(last, now)
 		elseif last.status == "exited" and (last.code or 0) ~= 0 then text = text .. " " .. tostring(last.code) end
 	elseif chosen then
@@ -89,7 +132,7 @@ function M.status_line(chosen, runs, now)
 	else
 		return nil
 	end
-	local others = live - ((last and M.live(last)) and 1 or 0)
+	local others = live - ((last and top[last.id] and M.live(last)) and 1 or 0)
 	if others > 0 then text = text .. " +" .. others end
 	return text
 end
@@ -393,7 +436,7 @@ function M.setup(app)
 	list_runs = function()
 		runs = read_runs()
 		if selected and not find_run(selected) then selected = nil end
-		if not selected and #runs > 0 then selected = runs[#runs].id end
+		if not selected then selected = M.run_order(runs)[1] end
 		read_tail()
 		status()
 		redraw()
@@ -505,10 +548,7 @@ function M.setup(app)
 	-- shift+F5: the run the panel shows when it runs, else the newest that runs.
 	local function stop_current()
 		local run = find_run(selected)
-		if not M.live(run) then
-			run = nil
-			for i = #runs, 1, -1 do if M.live(runs[i]) then run = runs[i] break end end
-		end
+		if not M.live(run) then run = M.newest_live(runs) end
 		if not run then return notify("nothing runs") end
 		stop(run)
 	end
@@ -720,18 +760,24 @@ function M.setup(app)
 		layout.rows = {}
 		-- The runs, newest at the top.
 		local y = 0
-		for i = #runs, 1, -1 do
+		for _, row in ipairs(M.panel_rows(runs)) do
 			if y >= h then break end
-			local r = runs[i]
-			local icon, _, style = M.badge(r)
-			local on = r.id == selected
-			local time = M.duration(r, now)
-			local name = util.cut(r.name, left - 4 - #time)
-			M.put(panel, 0, y, on and "›" or " ", on and "selected" or "default")
-			M.put(panel, 1, y, icon, style)
-			M.put(panel, 3, y, name, on and "selected" or "default")
-			M.put(panel, left - #time - 1, y, time, "muted")
-			layout.rows[y] = r.id
+			local indent = row.depth * 2
+			local r = row.run
+			if r then
+				local icon, _, style = M.badge(r)
+				local on = r.id == selected
+				local time = M.duration(r, now)
+				local name = util.cut(r.name, left - 4 - indent - #time)
+				M.put(panel, 0, y, on and "›" or " ", on and "selected" or "default")
+				M.put(panel, 1 + indent, y, icon, style)
+				M.put(panel, 3 + indent, y, name, on and "selected" or "default")
+				M.put(panel, left - #time - 1, y, time, "muted")
+				layout.rows[y] = r.id
+			else
+				M.put(panel, 1 + indent, y, "○", "muted")
+				M.put(panel, 3 + indent, y, util.cut(row.name, left - 4 - indent), "muted")
+			end
 			y = y + 1
 		end
 		for row = 0, h - 1 do M.put(panel, left, row, "│", "border") end
@@ -772,12 +818,13 @@ function M.setup(app)
 	end
 
 	local function select_run(delta)
-		if #runs == 0 then return end
-		local at = #runs
-		for i, r in ipairs(runs) do if r.id == selected then at = i end end
-		-- The list shows the newest first: Up (1) is newer, Down (-1) older.
-		at = math.max(1, math.min(#runs, at + delta))
-		selected, scroll = runs[at].id, 0
+		local order = M.run_order(runs)
+		if #order == 0 then return end
+		local at = 1
+		for i, id in ipairs(order) do if id == selected then at = i end end
+		-- Up (1) is the row above.
+		at = math.max(1, math.min(#order, at - delta))
+		selected, scroll = order[at], 0
 		read_tail()
 		redraw()
 	end

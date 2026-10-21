@@ -33,13 +33,26 @@ return {
 		t.eq(run.status_line(nil, {}, 0), nil, "nothing chosen, nothing ran")
 		t.eq(run.status_line(api, {}, 0), "▶ api")
 		local runs = {
-			{ configId = "saved:web", name = "web", status = "running", started = 0 },
-			{ configId = "saved:api", name = "api", status = "running", started = 10000 },
+			{ id = "web", configId = "saved:web", name = "web", status = "running", started = 0 },
+			{ id = "api", configId = "saved:api", name = "api", status = "running", started = 10000 },
 		}
 		t.eq(run.status_line(api, runs, 52), "● api 0:42 +1")
-		runs[2] = { configId = "saved:api", name = "api", status = "exited", code = 2, started = 0, ended = 1000 }
+		runs[2] = { id = "api", configId = "saved:api", name = "api", status = "exited", code = 2, started = 0, ended = 1000 }
 		t.eq(run.status_line(api, runs, 52), "✗ api 2 +1")
 		t.eq(run.status_line({ id = "x", name = "x" }, { runs[1] }, 5), "● web 0:05", "a run when the chosen never ran")
+	end },
+	{ "run: the status bar shows a compound as one run, with its started steps", function()
+		local runs = {
+			{ id = "web", configId = "saved:web", name = "web", status = "running", started = 0 },
+			{ id = "c", configId = "compound:Pair", name = "Pair", status = "running", started = 10000, next = 2, steps = {
+				{ name = "x", configId = "saved:x" }, { name = "y", configId = "saved:y" }, { name = "z", configId = "saved:z" },
+			} },
+			{ id = "x", configId = "saved:x", name = "x", compound = "c", status = "running", started = 11000 },
+			{ id = "y", configId = "saved:y", name = "y", compound = "c", status = "running", started = 12000 },
+		}
+		t.eq(run.status_line({ id = "compound:Pair", name = "Pair" }, runs, 52), "● Pair 2/3 0:42 +1", "+1 is web, not a step")
+		t.eq(run.status_line(nil, runs, 52), "● Pair 2/3 0:42 +1", "the newest that runs is the compound, not a step")
+		t.eq(run.newest_live(runs).id, "c", "what shift+F5 stops")
 	end },
 	{ "run: the picker filters on every word, keeps the order", function()
 		local cs = {
@@ -78,6 +91,23 @@ return {
 		t.eq(rows[2].children[1].badge, cs[2].line, "ttt cuts the badge at the row's edge")
 		t.eq(run.filter(cs, "api")[1].id, "compound:Local Nilan", "a step's name")
 		t.eq(run.filter(cs, "no-build wait")[1].id, "saved:stack", "the end of the command, cut on screen")
+	end },
+	{ "run: the Run panel's rows: newest first, a compound's steps under it, a step with no run muted", function()
+		local runs = {
+			{ id = "web", name = "web", configId = "saved:web", started = 0 },
+			{ id = "lone", name = "q", configId = "saved:q", compound = "gone", started = 5 },
+			{ id = "c", name = "Pair", configId = "compound:Pair", started = 10, next = 2, steps = {
+				{ name = "x", configId = "saved:x" }, { name = "y", configId = "saved:y" }, { name = "z", configId = "saved:z" },
+			} },
+			{ id = "x", name = "x", configId = "saved:x", compound = "c", started = 11 },
+			{ id = "y", name = "y", configId = "saved:y", compound = "c", started = 12 },
+		}
+		local shape = {}
+		for _, row in ipairs(run.panel_rows(runs)) do
+			table.insert(shape, (row.depth == 1 and "  " or "") .. (row.run and row.run.id or ("○ " .. row.name)))
+		end
+		t.eq(shape, { "c", "  x", "  y", "  ○ z", "lone", "web" })
+		t.eq(run.run_order(runs), { "c", "x", "y", "lone", "web" }, "↑↓ skip a step with no run")
 	end },
 	{ "run: an input's options: filter, items, and the arguments for run start", function()
 		local os_ = {
