@@ -117,6 +117,26 @@ test('compound: when every step ends without an error, the compound exits 0', as
 	}
 });
 
+test('compound: run again or removed, its old steps go from the run list with it', async () => {
+	const w = workspace({
+		configurations: [{ name: 'a', command: 'true' }, { name: 'b', command: 'echo b' }],
+		compounds: [{ name: 'Once', steps: [{ run: 'a' }, { run: 'b', after: 'finished' }] }],
+	});
+	const ended = (cid: string) => (runs: RunState[]) =>
+		runs.some((r) => r.id === cid && !isLive(r.status)) && runs.filter((r) => r.compound === cid).length === 2;
+	try {
+		const first = (w.cli('start', '--folder', w.ws, '--config', 'compound:Once').run as RunState).id;
+		await w.until('the compound ends', ended(first));
+		const second = (w.cli('again', first).run as RunState).id;
+		await w.until('it ends again', ended(second));
+		assert.deepEqual(w.ps().filter((r) => r.id === first || r.compound === first), []);
+		assert.deepEqual(w.cli('remove', second).removed, [second]);
+		assert.deepEqual(w.ps(), []);
+	} finally {
+		w.done();
+	}
+});
+
 test('compound: a step that exits with an error stops all; steps that wait do not start', async () => {
 	const w = workspace({
 		configurations: [
