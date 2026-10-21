@@ -10,6 +10,7 @@
 //   session      the symbiosis (launcher) session whose ttt started or adopted the run
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { After } from './config.ts';
 import type { Launch } from './list.ts';
 
 export const TAIL_LINES = 2000;
@@ -47,6 +48,9 @@ export interface RunState {
 	readonly kept?: boolean;
 	/** The symbiosis session (SYMBIOSIS_SESSION) the run belongs to; from the session file. */
 	readonly session?: string;
+	readonly compound?: string;
+	readonly steps?: readonly { readonly name: string; readonly configId: string; readonly after?: After }[];
+	readonly next?: number;
 }
 
 export function isLive(status: RunStatus): boolean {
@@ -122,6 +126,11 @@ export class Runs {
 		const state: RunState = {
 			id, name: launch.name, configId: launch.configId, folder: launch.folder, line: launch.line, cwd: launch.cwd,
 			status: 'starting', started: Date.now(), seq: 0,
+			...(launch.compound ? { compound: launch.compound } : {}),
+			...(launch.steps ? {
+				steps: launch.steps.map((s) => ({ name: s.launch.name, configId: s.launch.configId, ...(s.after ? { after: s.after } : {}) })),
+				next: 0,
+			} : {}),
 		};
 		this.write(state);
 		return state;

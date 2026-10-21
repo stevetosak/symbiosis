@@ -4,7 +4,7 @@
 // expanded, cwd absolute, the environment merged.
 import { existsSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { commandLine, type Compound, type ListedConfig, parseDotenv, parseRunJson, type RunConfig, RunConfigError } from './config.ts';
+import { type After, commandLine, type Compound, type ListedConfig, parseDotenv, parseRunJson, type RunConfig, RunConfigError } from './config.ts';
 import { detect, type WalkOptions } from './detect.ts';
 import { CURRENT_FILE_ID, currentFileConfig, fileCommand } from './file.ts';
 import { readSmall } from './providers/provider.ts';
@@ -134,6 +134,8 @@ export interface Launch {
 	/** Only the variables the config sets (with envFile); the runner adds them to its own. */
 	readonly env: Record<string, string>;
 	readonly line: string;
+	readonly steps?: readonly { readonly launch: Launch; readonly after?: After }[];
+	readonly compound?: string;
 }
 
 /** A config ready to start: variables expanded, cwd absolute, envFile read. */
