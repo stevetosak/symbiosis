@@ -43,6 +43,35 @@ local function command(id)
 	error("no command " .. id)
 end
 
+local function run_calls(sub)
+	local out = {}
+	for _, e in ipairs(stub.execs) do
+		if e.args[1] == "run" and e.args[2] == sub then table.insert(out, e) end
+	end
+	return out
+end
+
+local function answer(sub, out)
+	local calls = run_calls(sub)
+	out.ok = true
+	calls[#calls].cb({ stdout = require("ttt.json").encode(out) })
+end
+
+local function drawer_tree()
+	local tree
+	stub.drawer.render(setmetatable({}, { __index = function(_, m)
+		return function(_, arg) if m == "tree" then tree = arg end end
+	end }))
+	return tree
+end
+
+local function pick_compound()
+	command("symbiosis.runPick")
+	answer("list", { folder = "/w", problems = {}, configs = {
+		{ id = "compound:Local Nilan", name = "Local Nilan", group = "Compound Launches", kind = "compound", steps = { "api" }, line = "api" },
+	} })
+end
+
 -- The bundle, following pi, with a.ts open as pi found it.
 local function following(text)
 	load_bundle()
@@ -648,26 +677,23 @@ return {
 		t.eq(stub.notices[#stub.notices], { text = "symbiosis: no stub at line 1", level = "warning" })
 	end },
 	{ "bundle: s on a compound in the Run picker only says it cannot be saved", function()
-		local json = require("ttt.json")
 		load_bundle()
-		command("symbiosis.runPick")
-		local function calls(sub)
-			local out = {}
-			for _, e in ipairs(stub.execs) do
-				if e.args[2] == sub then table.insert(out, e) end
-			end
-			return out
-		end
-		local lists = calls("list")
-		lists[#lists].cb({ stdout = json.encode({ ok = true, folder = "/w", problems = {}, configs = {
-			{ id = "compound:Local Nilan", name = "Local Nilan", group = "Compound Launches", kind = "compound", steps = { "api" }, line = "api" },
-		} }) })
-		local tree
-		stub.drawer.render(setmetatable({}, { __index = function(_, m)
-			return function(_, arg) if m == "tree" then tree = arg end end
-		end }))
-		tree.on_command("save", { id = "compound:Local Nilan" })
-		t.eq(#calls("save"), 0)
+		pick_compound()
+		drawer_tree().on_command("save", { id = "compound:Local Nilan" })
+		t.eq(#run_calls("save"), 0)
 		t.eq(stub.notices[#stub.notices].text, 'symbiosis: "Local Nilan" is a compound launch: s saves only a single configuration')
+	end },
+	{ "bundle: the drawer for an input closes when an option is picked", function()
+		load_bundle()
+		pick_compound()
+		drawer_tree().on_command("activate", { id = "compound:Local Nilan" })
+		answer("start", { ask = {
+			config = "compound:Local Nilan", name = "Local Nilan",
+			input = { id = "profile", description = "profile" }, options = { { value = "nilan", label = "nilan" } },
+		} })
+		drawer_tree().on_command("activate", { id = "nilan" })
+		t.eq(stub.drawer, nil)
+		local starts = run_calls("start")
+		t.ok(has(starts[#starts].args, "profile=nilan"), "the run starts again with the pick")
 	end },
 }
