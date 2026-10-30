@@ -8,6 +8,7 @@
 //   stop         written by `run stop`: the run was stopped, not ended
 //   keep         written when ttt quits and the user keeps the run going
 //   session      the symbiosis (launcher) session whose ttt started or adopted the run
+//   debug.json, debug-in.json, dap.log   a debug session's (core/debug/view.ts)
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { After } from './config.ts';
@@ -51,6 +52,12 @@ export interface RunState {
 	readonly compound?: string;
 	readonly steps?: readonly { readonly name: string; readonly configId: string; readonly after?: After }[];
 	readonly next?: number;
+	/** A debug session: its spec's type (python, lldb, ...). `pid` is then the adapter's. */
+	readonly debug?: string;
+	/** Where a debug session is paused: the chosen frame, and why. */
+	readonly paused?: { readonly path?: string; readonly line?: number; readonly reason: string };
+	/** The program a debug session runs, from its adapter. */
+	readonly debuggee?: number;
 }
 
 export function isLive(status: RunStatus): boolean {
@@ -127,6 +134,7 @@ export class Runs {
 			id, name: launch.name, configId: launch.configId, folder: launch.folder, line: launch.line, cwd: launch.cwd,
 			status: 'starting', started: Date.now(), seq: 0,
 			...(launch.compound ? { compound: launch.compound } : {}),
+			...(launch.debug ? { debug: launch.debug.spec.type } : {}),
 			...(launch.steps ? {
 				steps: launch.steps.map((s) => ({ name: s.launch.name, configId: s.launch.configId, ...(s.after ? { after: s.after } : {}) })),
 				next: 0,

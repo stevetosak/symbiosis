@@ -309,7 +309,13 @@ test('vscode: launch.json launch configs become programs; the rest are problems'
 	].join('\n');
 	const { configs, problems } = importLaunch(text);
 	const src = { group: 'VS Code', source: '.vscode/launch.json' };
-	assert.deepEqual(configs, [
+	// The configuration itself is how to debug it (core/debug/spec.ts), when symbiosis has a debugger for its type.
+	assert.deepEqual(configs.map((c) => c.debug?.type), ['node', 'pwa-node', undefined, 'debugpy', 'python', 'go', undefined, 'lldb']);
+	assert.deepEqual(configs[0].debug, {
+		type: 'node', request: 'launch', program: '${workspaceFolder}/server.js', args: ['--port', '3000'],
+		cwd: '${workspaceFolder}/web', env: { DEBUG: '1', N: 2, X: null }, envFile: '${workspaceFolder}/.env',
+	});
+	assert.deepEqual(configs.map(({ debug: _, ...c }) => c), [
 		{
 			id: 'vscode:server', name: 'server', ...src, command: 'node', args: ['${workspaceFolder}/server.js', '--port', '3000'],
 			cwd: '${workspaceFolder}/web', env: { DEBUG: '1', N: '2' }, envFile: '${workspaceFolder}/.env',
@@ -612,7 +618,7 @@ test('current file: the program by extension; listed only for files it can run',
 		// The listed line is made from the file given, not the one listed with.
 		const cfg = listConfigs(dir, { file: js }).configs.find((c) => c.id === 'file')!;
 		assert.deepEqual(listed(dir, cfg, join(dir, 'other/app.py')), {
-			id: 'file', name: 'Current file', group: 'Current file', line: `python3 ${join(dir, 'other/app.py')}`, cwd: '${fileDirname}',
+			id: 'file', name: 'Current file', group: 'Current file', line: `python3 ${join(dir, 'other/app.py')}`, cwd: '${fileDirname}', debug: 'python',
 		});
 
 		const launch = resolveConfig(cfg, { folder: dir, file: js, env: {} });
@@ -665,7 +671,7 @@ test('resolveConfig: variables, cwd, envFile and env; missing folders and files 
 		assert.throws(() => resolveConfig({ ...config, command: '${bogus}' }, { folder: dir, line: 1, env: {} }), RunConfigError);
 		// listed: an absolute cwd shows relative to the folder.
 		assert.deepEqual(listed(dir, { ...config, cwd: join(dir, 'api') }), {
-			id: 'saved:api', name: 'api', group: 'Saved', line: "node '${workspaceFolder}/srv.js' '--line=${lineNumber}' 'two words'", cwd: 'api',
+			id: 'saved:api', name: 'api', group: 'Saved', line: "node '${workspaceFolder}/srv.js' '--line=${lineNumber}' 'two words'", cwd: 'api', debug: 'node',
 		});
 		assert.equal(listed(dir, { ...config, cwd: dir }).cwd, '.');
 		assert.equal(listed(dir, { id: 'x', name: 'x', group: 'g', command: 'ls', source: 'Makefile' }).cwd, '.');

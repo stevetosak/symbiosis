@@ -44,6 +44,7 @@
 		"web-tree-sitter": "0.27.1"
 	},
 	"devDependencies": {
-		"@earendil-works/pi-coding-agent": "1.2.0"
+		"@earendil-works/pi-coding-agent": "1.2.0",
+		"@vscode/debugprotocol": "1.68.0"
 	}
 }

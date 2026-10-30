@@ -23,6 +23,12 @@
 //       { "id": "mode", "type": "pick", "options": ["Debug", { "value": "Release", "detail": "slow" }] }
 //     ],
 //     "configurations": [{ "name": "app", "command": "run-on ${input:device} ${input:mode}" }] }
+//
+// A configuration may say how to debug it: "debug" is a VS Code launch
+// configuration ({ "type": "python", "program": "app.py" }, core/debug/spec.ts).
+// Without one, symbiosis debugs the programs it knows from the command.
+// (spec.ts imports this file too: it uses RunConfigError only inside functions.)
+import { type DebugSpec, specOf } from '../debug/spec.ts';
 
 /** A configuration, ready to resolve and start. */
 export interface RunConfig {
@@ -43,6 +49,8 @@ export interface RunConfig {
 	readonly source?: string;
 	/** The inputs its strings name (${input:id}), in the order they come. */
 	readonly inputs?: readonly InputDef[];
+	/** How to debug it, when the command does not say (launch.json, run.json's "debug"). */
+	readonly debug?: DebugSpec;
 }
 
 /** What the plugin shows: a config with its command as one line. */
@@ -57,6 +65,8 @@ export interface ListedConfig {
 	readonly picked?: string;
 	readonly kind?: 'compound';
 	readonly steps?: readonly string[];
+	/** The debugger's type, when symbiosis can debug it. */
+	readonly debug?: string;
 }
 
 export type After = 'started' | 'finished';
@@ -311,6 +321,7 @@ export function parseRunJson(text: string, where = '.symbiosis/run.json'): { con
 		for (const key of ['cwd', 'envFile'] as const) {
 			if (c[key] !== undefined && typeof c[key] !== 'string') throw new RunConfigError(`${at}.${key} must be a string`);
 		}
+		const debug = c.debug !== undefined ? specOf(c.debug as Record<string, unknown>, `${at}.debug`) : undefined;
 		const config: RunConfig = {
 			id: `saved:${c.name}`,
 			name: c.name,
@@ -320,6 +331,7 @@ export function parseRunJson(text: string, where = '.symbiosis/run.json'): { con
 			...(c.cwd !== undefined ? { cwd: c.cwd as string } : {}),
 			...(c.env !== undefined ? { env: stringMap(c.env, `${at}.env`) } : {}),
 			...(c.envFile !== undefined ? { envFile: c.envFile as string } : {}),
+			...(debug ? { debug } : {}),
 			source: where,
 		};
 		const refs = inputRefs([config.command, ...(config.args ?? []), config.cwd, config.envFile, ...Object.values(config.env ?? {})]);
@@ -340,6 +352,7 @@ export function toRunJson(config: RunConfig): Record<string, unknown> {
 		...(config.cwd ? { cwd: config.cwd } : {}),
 		...(config.env ? { env: { ...config.env } } : {}),
 		...(config.envFile ? { envFile: config.envFile } : {}),
+		...(config.debug ? { debug: { ...config.debug } } : {}),
 	};
 }
 

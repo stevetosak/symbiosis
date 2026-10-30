@@ -1,8 +1,10 @@
 // Imports the configurations a repository already has for VSCode:
-// .vscode/launch.json (launch requests whose program symbiosis can start
-// without a debugger) and .vscode/tasks.json (shell, process and npm tasks).
-// What cannot be run comes back as a problem, not silently dropped.
-import { type Compound, COMPOUND_GROUP, type CompoundStep, parseJsonc, type RunConfig, shQuote } from './config.ts';
+// .vscode/launch.json (launch requests: symbiosis runs their program, and
+// debugs it with the configuration as it is) and .vscode/tasks.json (shell,
+// process and npm tasks). What cannot be run comes back as a problem, not
+// silently dropped.
+import { hasAdapter, specOf } from '../debug/spec.ts';
+import { type Compound, COMPOUND_GROUP, type CompoundStep, parseJsonc, type RunConfig, RunConfigError, shQuote } from './config.ts';
 
 type Json = Record<string, unknown>;
 
@@ -91,6 +93,14 @@ export function importLaunch(text: string, source = '.vscode/launch.json'): { co
 			problems.push(`${source}: "${name}" ${cmd}`);
 			continue;
 		}
+		// Debugged as it is written, when symbiosis has a debugger for its type.
+		let debug;
+		try {
+			debug = specOf(c, `${source}: "${name}"`);
+		} catch (error) {
+			if (!(error instanceof RunConfigError)) throw error;
+		}
+		if (debug && !hasAdapter(debug)) debug = undefined;
 		configs.push({
 			id: `vscode:${name}`,
 			name,
@@ -99,6 +109,7 @@ export function importLaunch(text: string, source = '.vscode/launch.json'): { co
 			...(str(c.cwd) ? { cwd: str(c.cwd) } : {}),
 			...(envOf(c.env) ? { env: envOf(c.env) } : {}),
 			...(str(c.envFile) ? { envFile: str(c.envFile) } : {}),
+			...(debug ? { debug } : {}),
 			source,
 		});
 	}

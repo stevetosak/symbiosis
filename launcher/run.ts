@@ -9,6 +9,7 @@
 //                       the config's inputs: those given, else picked as core/run/inputs.ts says;
 //                       one the user is to pick: { ok: true, ask } and no run. --ask: the user picks each.
 //                       Started: { ok: true, run, picked? }, picked = the labels of its inputs' picks.
+//                       --debug: under a debugger (core/debug; launcher/debug.ts supervises it).
 //   symbiosis run again ID                               the same run again (stops it first if it runs)
 //   symbiosis run stop  ID... | --folder D --all
 //   symbiosis run ps    --folder D [--adopt]              the runs; --adopt: ttt is back, forget "keep"
@@ -25,12 +26,15 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { StringDecoder } from 'node:string_decoder';
 import { pluginDir } from '../core/channel/file.ts';
+import { adapterFor } from '../core/debug/adapters.ts';
+import { debugSpecOf, resolveDebug } from '../core/debug/spec.ts';
 import { type Compound, type InputDef, parseJsonc, type RunConfig, RunConfigError, toRunJson } from '../core/run/config.ts';
 import { InputMemory, pickedLabels, pickInputs } from '../core/run/inputs.ts';
 import { type Launch, listConfigs, listed, listedCompound, resolveConfig, RUN_JSON, workspaceFolder } from '../core/run/list.ts';
 import { readSmall } from '../core/run/providers/provider.ts';
 import type { VariableContext } from '../core/run/variables.ts';
 import { alive, groupAlive, HEARTBEAT_MS, isLive, killGroup, type RunState, Runs, Tail, writeAtomic } from '../core/run/runs.ts';
+import { superviseDebug } from './debug.ts';
 
 export function runsDir(env: NodeJS.ProcessEnv = process.env): string {
 	return env.SYMBIOSIS_RUNS || join(pluginDir(env), 'runs');
@@ -57,6 +61,8 @@ export interface RunArgs {
 	readonly labels?: Readonly<Record<string, string>>;
 	/** --ask: the user picks every input not given. */
 	readonly ask?: boolean;
+	/** --debug: start it under a debugger. */
+	readonly debug?: boolean;
 }
 
 export function parseRunArgs(argv: readonly string[]): RunArgs {
@@ -77,6 +83,7 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
 		else if (a === '--all') out.all = true;
 		else if (a === '--adopt') out.adopt = true;
 		else if (a === '--ask') out.ask = true;
+		else if (a === '--debug') out.debug = true;
 		else if (a === '--input' || a === '--input-label') {
 			const v = value();
 			const eq = v.indexOf('=');
@@ -92,6 +99,9 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** How long a debug session has to end itself when it is stopped. */
+const DEBUG_STOP_MS = 4000;
+
 /**
  * Stops a run: the stop marker (a supervisor still starting reads it), SIGTERM
  * to the program's process group, SIGKILL to what is left of it after
@@ -103,6 +113,15 @@ export async function stopRun(runs: Runs, id: string, graceMs = 4000): Promise<R
 	let state = runs.read(id);
 	if (!state || (!isLive(state.status) && state.status !== 'lost')) return state;
 	runs.mark(id, 'stop');
+	// A debug session ends itself: a disconnect takes the program with it. Its
+	// adapter's group is signalled only when that takes too long.
+	if (state.debug && state.status !== 'lost') {
+		for (const began = Date.now(); state && isLive(state.status) && Date.now() - began < DEBUG_STOP_MS;) {
+			await sleep(50);
+			state = runs.read(id);
+		}
+		if (!state || !isLive(state.status)) return state;
+	}
 	if (runs.launch(id)?.steps) await stopAll(runs, runs.list(state.folder).filter((r) => r.compound === id), graceMs);
 	const began = Date.now();
 	if (state.status === 'lost') {
@@ -144,6 +163,59 @@ function launchSupervisor(runs: Runs, id: string): void {
 
 /** output.log stops here; tail.txt goes on. */
 const LOG_MAX = 64 * 1024 * 1024;
+
+/**
+ * A run's output: all of it in output.log (up to LOG_MAX), the last lines in
+ * tail.txt, which `flush` writes when something came (the supervisor calls it
+ * every 200 ms) and then calls `changed` (the state's seq goes up).
+ */
+export class RunOutput {
+	private readonly log: number;
+	private readonly tailPath: string;
+	private readonly changed: () => void;
+	private readonly tail = new Tail();
+	private logged = 0;
+	private dirty = false;
+
+	constructor(runs: Runs, id: string, changed: () => void) {
+		this.log = openSync(runs.path(id, 'output.log'), 'a');
+		this.tailPath = runs.path(id, 'tail.txt');
+		this.changed = changed;
+	}
+
+	/** `raw` goes to output.log as it is; `text` (raw decoded) to the tail. */
+	push(raw: Buffer | string, text = typeof raw === 'string' ? raw : raw.toString('utf8')): void {
+		if (this.logged < LOG_MAX) {
+			try {
+				writeSync(this.log, raw);
+			} catch {
+				this.logged = LOG_MAX; // a full disk: the tail goes on
+			}
+			this.logged += typeof raw === 'string' ? Buffer.byteLength(raw) : raw.length;
+			if (this.logged >= LOG_MAX) {
+				try {
+					writeSync(this.log, `\n[symbiosis: output.log stops at ${LOG_MAX >> 20} MB; the Run panel shows the rest]\n`);
+				} catch {
+					// as above
+				}
+			}
+		}
+		this.tail.push(text);
+		this.dirty = true;
+	}
+
+	flush(): void {
+		if (!this.dirty) return;
+		this.dirty = false;
+		writeAtomic(this.tailPath, this.tail.text());
+		this.changed();
+	}
+
+	close(): void {
+		this.flush();
+		closeSync(this.log);
+	}
+}
 
 /** One run per configuration, as in Rider: a new one stops the one that runs. */
 async function stopAll(runs: Runs, list: readonly (RunState | undefined)[], graceMs?: number): Promise<void> {
@@ -302,6 +374,7 @@ export async function supervise(runs: Runs, id: string): Promise<number> {
 	let state = runs.read(id);
 	if (!launch || !state) return 1;
 	if (launch.steps) return superviseCompound(runs, id, launch, state);
+	if (launch.debug) return superviseDebug(runs, id, launch, state);
 	// Only state.json's own fields: kept and session come from their files.
 	const { kept: _kept, session: _session, ...own } = state;
 	state = { ...own, status: 'starting' };
@@ -315,16 +388,7 @@ export async function supervise(runs: Runs, id: string): Promise<number> {
 		write({ status: 'stopped', ended: Date.now() });
 		return 0;
 	}
-	const log = openSync(runs.path(id, 'output.log'), 'a');
-	let logged = 0;
-	const tail = new Tail();
-	let dirty = false;
-	const flush = () => {
-		if (!dirty) return;
-		dirty = false;
-		writeAtomic(runs.path(id, 'tail.txt'), tail.text());
-		write({ seq: state!.seq + 1 });
-	};
+	const output = new RunOutput(runs, id, () => write({ seq: state!.seq + 1 }));
 	const hasArgs = launch.args !== undefined;
 	const child = spawn(hasArgs ? launch.command : '/bin/sh', hasArgs ? [...launch.args!] : ['-c', launch.command], {
 		cwd: launch.cwd,
@@ -342,31 +406,13 @@ export async function supervise(runs: Runs, id: string): Promise<number> {
 		}
 		process.exit(1);
 	});
-	const timer = setInterval(flush, 200);
+	const timer = setInterval(() => output.flush(), 200);
 	// A heartbeat: the plugin cannot ask whether a pid lives; a run whose
 	// state is not rewritten for a while has lost its supervisor.
 	const beat = setInterval(() => write({ t: Date.now() }), HEARTBEAT_MS);
 	for (const stream of [child.stdout, child.stderr]) {
 		const decoder = new StringDecoder('utf8');
-		stream?.on('data', (chunk: Buffer) => {
-			if (logged < LOG_MAX) {
-				try {
-					writeSync(log, chunk);
-				} catch {
-					logged = LOG_MAX; // a full disk: the tail goes on
-				}
-				logged += chunk.length;
-				if (logged >= LOG_MAX) {
-					try {
-						writeSync(log, `\n[symbiosis: output.log stops at ${LOG_MAX >> 20} MB; the Run panel shows the rest]\n`);
-					} catch {
-						// as above
-					}
-				}
-			}
-			tail.push(decoder.write(chunk));
-			dirty = true;
-		});
+		stream?.on('data', (chunk: Buffer) => output.push(chunk, decoder.write(chunk)));
 	}
 	process.on('SIGHUP', () => {});
 	process.on('SIGTERM', () => killGroup(child.pid, 'SIGTERM'));
@@ -398,12 +444,8 @@ export async function supervise(runs: Runs, id: string): Promise<number> {
 	});
 	clearInterval(timer);
 	clearInterval(beat);
-	if (result.error) {
-		tail.push(`${result.error}\n`);
-		dirty = true;
-	}
-	flush();
-	closeSync(log);
+	if (result.error) output.push(`${result.error}\n`);
+	output.close();
 	const stopped = runs.marked(id, 'stop');
 	write({
 		status: result.error ? 'failed' : stopped ? 'stopped' : 'exited',
@@ -444,13 +486,23 @@ export async function runCommand(args: RunArgs, runs = new Runs(args.runs ?? run
 			const listing = listConfigs(folder, { file });
 			const ctx = { folder, file, line: args.line, env: process.env };
 			const compound = listing.compounds.find((c) => c.id === args.config);
+			if (compound && args.debug) throw new RunConfigError(`"${compound.name}" is a compound launch: debug one of its configurations`);
 			if (compound) return ok(await startCompound(runs, listing.configs, compound, ctx, args));
 			const config = listing.configs.find((c) => c.id === args.config);
 			if (!config) throw new RunConfigError(`no configuration "${args.config}" in ${folder}`);
+			const spec = args.debug ? debugSpecOf(config, { file, folder }) : undefined;
+			if (args.debug && !spec) {
+				throw new RunConfigError(`symbiosis does not know how to debug "${config.name}" (${config.command}): give it a "debug" launch configuration in ${RUN_JSON}`);
+			}
 			const memory = inputMemory(runs);
 			const inputs = await pickInputs(config, ctx, memory, args.inputs, args.labels, args.ask);
 			if ('ask' in inputs) return ok({ ask: inputs.ask });
-			const launch = resolveConfig(config, { ...ctx, inputs: inputs.values });
+			const resolved = resolveConfig(config, { ...ctx, inputs: inputs.values });
+			let launch: Launch = resolved;
+			if (spec) {
+				const debugSpec = resolveDebug(spec, resolved, { ...ctx, inputs: inputs.values });
+				launch = { ...resolved, debug: { spec: debugSpec, adapter: adapterFor(debugSpec) } };
+			}
 			await stopLive(runs, folder, config.id);
 			mkdirSync(runs.dir, { recursive: true });
 			const state = runs.create(launch, undefined, session());

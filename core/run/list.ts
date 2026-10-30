@@ -3,6 +3,8 @@
 // file, then the detected ones. And a config made ready to start: variables
 // expanded, cwd absolute, the environment merged.
 import { existsSync, statSync } from 'node:fs';
+import type { AdapterStart } from '../debug/adapters.ts';
+import { debugSpecOf, type DebugSpec } from '../debug/spec.ts';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { type After, commandLine, type Compound, type ListedConfig, parseDotenv, parseRunJson, type RunConfig, RunConfigError } from './config.ts';
 import { detect, type WalkOptions } from './detect.ts';
@@ -109,10 +111,12 @@ export function listed(folder: string, c: RunConfig, file?: string, picked?: str
 	const cfg = c.id === CURRENT_FILE_ID ? currentFileConfig(file) : c;
 	let cwd = cfg.cwd ?? '';
 	if (cwd && !cwd.includes('${') && isAbsolute(cwd)) cwd = relative(folder, cwd) || '.';
+	const debug = debugSpecOf(c, { file, folder })?.type;
 	return {
 		id: c.id, name: c.name, group: c.group, line: commandLine(cfg), cwd: cwd || '.',
 		...(c.source ? { source: c.source } : {}),
 		...(picked ? { picked } : {}),
+		...(debug ? { debug } : {}),
 	};
 }
 
@@ -137,6 +141,8 @@ export interface Launch {
 	readonly line: string;
 	readonly steps?: readonly { readonly launch: Launch; readonly after?: After }[];
 	readonly compound?: string;
+	/** Debug it: the spec resolved, and the adapter that runs it (core/debug). */
+	readonly debug?: { readonly spec: DebugSpec; readonly adapter: AdapterStart };
 }
 
 /** A config ready to start: variables expanded, cwd absolute, envFile read. */
