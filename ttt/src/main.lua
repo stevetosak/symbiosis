@@ -20,6 +20,7 @@
 --   ask       ctrl+k d and `why!`: ask pi about code, in a drawer
 --   changes   ctrl+k w: what pi changed in its last turn
 --   run       F5: run configurations, the Run panel (bottom)
+--   debug     F9 breakpoints, shift+F9 debugs; paused: F5 F10 F11, the stack and the variables in the Run panel
 --   close     ctrl+k z: close symbiosis, pi and ttt together
 --   panel     ctrl+k h: settings, sessions, keys
 -- See docs/design.md.
@@ -39,6 +40,7 @@ app:use("features.review")
 app:use("features.ask")
 app:use("features.changes")
 app:use("features.run")
+app:use("features.debug")
 app:use("features.close")
 app:use("features.panel")
 

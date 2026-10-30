@@ -14,6 +14,10 @@
 --   the Run panel    a tab of the bottom panel: the runs, and the output of one
 -- Runs outlive ttt when you say so at ctrl+q; the Run panel shows them again
 -- the next time.
+--
+-- A run under the debugger (features/debug.lua) is a run too: `run start
+-- --debug`. The Run panel gives such a run's right pane to that feature
+-- (its call stack and variables) when it asks for it.
 local ttt = require("ttt")
 local editor = require("ttt.editor")
 local fs = require("ttt.fs")
@@ -51,7 +55,10 @@ end
 -- The icon and the word for a run's state.
 function M.badge(run)
 	local st = run.status
+	if run.paused and (st == "starting" or st == "running") then return "⏸", "paused", "warning" end
 	if st == "starting" or st == "running" then return "●", "running", "success" end
+	-- A debug adapter does not always say the exit code (js-debug).
+	if st == "exited" and run.code == nil and run.debug then return "✓", "ended", "muted" end
 	if st == "exited" and (run.code or 0) == 0 then return "✓", "exited 0", "muted" end
 	if st == "exited" then return "✗", "exited " .. tostring(run.code), "danger" end
 	if st == "stopped" then return "■", "stopped", "muted" end
@@ -156,6 +163,13 @@ end
 
 -- The configs that match a query: every word in the name, the group, the
 -- command or what its inputs picked last.
+-- The configs symbiosis can debug (`run list` gives each its debugger's type).
+function M.debuggable(configs)
+	local out = {}
+	for _, c in ipairs(configs) do if c.debug then table.insert(out, c) end end
+	return out
+end
+
 function M.filter(configs, query)
 	return filter_by(configs, query, function(c) return c.name .. " " .. c.group .. " " .. (c.line or "") .. " " .. (c.picked or "") end)
 end
@@ -500,7 +514,8 @@ function M.setup(app)
 
 	-- opts: again = the user picks every input again; given, labels = the
 	-- inputs decided so far (id -> value, id -> label); folder = the one the
-	-- run was asked in (a drawer stays open while another project's file opens).
+	-- run was asked in (a drawer stays open while another project's file opens);
+	-- debug = under the debugger.
 	local function start(config, opts)
 		if busy then return end
 		opts = opts or {}
@@ -515,10 +530,11 @@ function M.setup(app)
 		end
 		for _, a in ipairs(M.input_args(opts.given, opts.labels)) do table.insert(args, a) end
 		if opts.again then table.insert(args, "--ask") end
+		if opts.debug then table.insert(args, "--debug") end
 		cli(args, function(out)
 			busy = false
 			if not out then return end
-			if out.ask then return ask_input(config, out.ask, { again = opts.again, folder = at }) end
+			if out.ask then return ask_input(config, out.ask, { again = opts.again, folder = at, debug = opts.debug }) end
 			selected, scroll = out.run.id, 0
 			-- What its inputs picked, for the picker.
 			if out.picked then config.picked = out.picked end
@@ -535,6 +551,10 @@ function M.setup(app)
 	end
 
 	local function run_chosen()
+		-- While a debug session is paused, F5 continues it (the editor's key hook
+		-- does it before this; the Run panel's F5 comes here).
+		local dbg = app:get("debug")
+		if dbg and dbg.continue_paused() then return end
 		local c = chosen()
 		if c then return start(c) end
 		M.api.pick()
@@ -611,13 +631,13 @@ function M.setup(app)
 			for k, v in pairs(a.ask.given or {}) do given[k] = v end
 			for k, v in pairs(a.ask.labels or {}) do labels[k] = v end
 			given[a.ask.input.id], labels[a.ask.input.id] = option.value, option.label
-			start(a.config, { again = a.opts.again, given = given, labels = labels, folder = a.opts.folder })
+			start(a.config, { again = a.opts.again, given = given, labels = labels, folder = a.opts.folder, debug = a.opts.debug })
 		end
 		local function by_value(value)
 			for _, o in ipairs(a.ask.options) do if o.value == value then return o end end
 			return nil
 		end
-		panel:title("Run " .. a.ask.name)
+		panel:title((a.opts.debug and "Debug " or "Run ") .. a.ask.name)
 		panel_wrap.label(panel, { text = "Pick the " .. a.ask.input.description, style = "bold" })
 		panel:input({
 			placeholder = "filter",
@@ -651,28 +671,32 @@ function M.setup(app)
 	local function render_picker(panel)
 		if not picker then return end
 		local now = chosen()
-		panel:title("Run")
+		local debug = picker.debug
+		local pool = debug and M.debuggable(configs) or configs
+		panel:title(debug and "Debug" or "Run")
 		panel_wrap.label(panel, { text = folder and util.short(folder) or "", style = "muted" })
 		panel:input({
 			placeholder = "filter: name, group or command",
 			on_change = function(text)
 				if not picker then return end
-				picker.items = M.filter(configs, text)
+				picker.items = M.filter(pool, text)
 				panel:redraw()
 			end,
 			on_submit = function()
 				local c = picker and picker.items[1]
 				if not c then return end
 				close_picker()
-				start(c)
+				start(c, { debug = debug })
 			end,
 		})
 		if #picker.items == 0 then
-			panel_wrap.label(panel, { text = #configs == 0 and "Nothing to run found here." or "No configuration matches.", style = "muted" })
+			local none = debug and "Nothing here symbiosis can debug: python, node, go and compiled programs; or give a configuration a \"debug\" launch configuration in .symbiosis/run.json."
+				or "Nothing to run found here."
+			panel_wrap.label(panel, { text = #pool == 0 and none or "No configuration matches.", style = "muted" })
 		end
 		panel:tree({
 			items = panel_wrap.items(M.picker_items(picker.items, now and now.id), panel_wrap.width(panel)),
-			key_commands = { s = "save", e = "edit", i = "inputs" },
+			key_commands = { s = "save", e = "edit", i = "inputs", d = "debug" },
 			-- on_select comes with every move of the selection (the arrows);
 			-- Enter and a click are "activate".
 			on_command = function(command, node)
@@ -680,7 +704,16 @@ function M.setup(app)
 					local c = by_id(node and panel_wrap.id(node.id))
 					if not c then return end
 					close_picker()
-					return start(c)
+					return start(c, { debug = debug })
+				end
+				if command == "debug" then
+					local c = by_id(node and panel_wrap.id(node.id))
+					if not c then return end
+					if not c.debug then
+						return notify("symbiosis does not know how to debug \"" .. c.name .. "\": give it a \"debug\" launch configuration in .symbiosis/run.json")
+					end
+					close_picker()
+					return start(c, { debug = true })
 				end
 				if command == "edit" then
 					close_picker()
@@ -695,16 +728,19 @@ function M.setup(app)
 					local c = by_id(node and panel_wrap.id(node.id))
 					if not c then return end
 					close_picker()
-					start(c, { again = true })
+					start(c, { again = true, debug = debug })
 				end
 			end,
 		})
 		for _, p in ipairs(problems) do panel_wrap.label(panel, { text = "⚠ " .. p, style = "warning" }) end
-		panel_wrap.label(panel, { text = "Enter runs the first · ↓ to the list: Enter or a click runs one, i picks its inputs again, s saves it to run.json, e edits run.json · Esc", style = "muted", margin_top = 1 })
+		local hint = debug and "Enter debugs the first · ↓ to the list: Enter or a click debugs one, i picks its inputs again · Esc"
+			or "Enter runs the first · ↓ to the list: Enter or a click runs one, d debugs it, i picks its inputs again, s saves it to run.json, e edits run.json · Esc"
+		panel_wrap.label(panel, { text = hint, style = "muted", margin_top = 1 })
 	end
 
-	local function show_picker()
-		picker = { items = configs }
+	-- debug: the configurations symbiosis can debug only; Enter debugs.
+	local function show_picker(debug)
+		picker = { items = debug and M.debuggable(configs) or configs, debug = debug }
 		app:open_drawer("run", { width = 64, min_width = 40, side = "right", render = render_picker })
 	end
 
@@ -786,6 +822,9 @@ function M.setup(app)
 		if not run then return end
 		local x = left + 2
 		local ow = w - x
+		-- A debug run that is paused: its stack and variables (features/debug.lua).
+		local dbg = run.debug and app:get("debug")
+		if dbg and dbg.shows(run) then return dbg.render(panel, x, ow, h, run) end
 		local _, word, style = M.badge(run)
 		local head = run.name .. " · " .. word
 		if run.pid and M.live(run) then head = head .. " · pid " .. run.pid end
@@ -813,6 +852,7 @@ function M.setup(app)
 		end
 		local hint = M.live(run) and "s stop · r restart" or "r run again · x remove"
 		hint = hint .. " · ↑↓ runs · PgUp/PgDn scroll · w " .. (wrap and "no wrap" or "wrap") .. " · o full log · click a file:line · drag │ to resize · Esc editor"
+		if run.debug and M.live(run) then hint = "v stack and variables · " .. hint end
 		if scroll > 0 then hint = "↓ " .. scroll .. " more · End follows · " .. hint end
 		M.put(panel, x, h - 1, util.cut(hint, ow), "muted")
 	end
@@ -861,6 +901,8 @@ function M.setup(app)
 		if ev.type == "key" then
 			local k, rune = ev.key, ev.rune
 			local run = find_run(selected)
+			local dbg = run and run.debug and app:get("debug")
+			if dbg and dbg.on_key(ev, run) then return true end
 			if k == "Up" or rune == "k" then select_run(1)
 			elseif k == "Down" or rune == "j" then select_run(-1)
 			elseif k == "PgUp" then scroll_by(math.max(1, layout.out_rows - 1))
@@ -914,6 +956,12 @@ function M.setup(app)
 			if x < layout.left then
 				local id = layout.rows[y]
 				if id then selected, scroll = id, 0 read_tail() redraw() end
+				return true
+			end
+			local run = find_run(selected)
+			local dbg = run and run.debug and app:get("debug")
+			if dbg and dbg.shows(run) then
+				dbg.on_click(x - layout.left - 2, y, run)
 				return true
 			end
 			local row = view.rows[layout.first + y - layout.out_top]
@@ -1049,7 +1097,24 @@ function M.setup(app)
 	app:hint({ key = "F5 · shift+F5", text = "run · stop", order = 95 })
 	app:hint({ key = "ctrl+k F5", text = "pick a run configuration", order = 96 })
 
-	M.api = { pick = pick, start = start, stop = stop, runs = function() return runs end, reveal = reveal, before_quit = before_quit }
+	M.api = {
+		pick = pick, start = start, stop = stop, runs = function() return runs end, reveal = reveal, before_quit = before_quit,
+		-- For the debugger: the configurations, the chosen one, the Debug picker,
+		-- the run the Run panel shows (and showing one), a redraw of the panel.
+		configs = function() return configs end,
+		chosen = chosen,
+		pick_debug = function() refresh_list(function() show_picker(true) end) end,
+		selected = function() return find_run(selected) end,
+		select = function(id)
+			if selected == id then return end
+			selected, scroll = id, 0
+			read_tail()
+			redraw()
+		end,
+		redraw = redraw,
+		refresh = list_runs,
+		put = M.put,
+	}
 	return M.api
 end
 

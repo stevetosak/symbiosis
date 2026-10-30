@@ -9,9 +9,14 @@
 --
 -- A line may name its own style instead of true: { [12] = "success" } (the
 -- change marks use one colour for each plan step).
+--
+-- opts.force: the mark takes its line even from another feature's mark (the
+-- debugger's breakpoints and paused line: they matter more while you debug).
+-- The other feature's mark comes back when the line is free again.
 local M = {}
 
-function M.new(bookmarks, icon, style)
+function M.new(bookmarks, icon, style, opts)
+	local force = opts and opts.force or false
 	local marked, marked_path, key = {}, nil, ""
 	local self = {}
 
@@ -42,8 +47,8 @@ function M.new(bookmarks, icon, style)
 		marked = {}
 		for line in pairs(want) do
 			local b = bookmarks.get(line)
-			if not b or b.icon == icon then
-				if not b or b.style ~= style_at(line) then bookmarks.set(line, icon, style_at(line)) end
+			if not b or b.icon == icon or force then
+				if not b or b.icon ~= icon or b.style ~= style_at(line) then bookmarks.set(line, icon, style_at(line)) end
 				marked[line] = true
 			end
 		end

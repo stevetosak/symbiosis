@@ -23,6 +23,8 @@ local function reset()
 	M.quit = 0          -- ttt.quit calls
 	M.execs = {}        -- {binary, args, cb}: system.exec_async
 	M.env = {}          -- name -> value: system.env
+	M.marks = {}        -- line -> {icon, style}: ttt.bookmarks (of the open file)
+	M.handlers = {}     -- event -> every handler events.on got (M.events keeps the last)
 end
 reset()
 M.reset = reset
@@ -135,13 +137,19 @@ local fs = {
 	read = function(path) return M.files[path] end,
 	write = function(path, text) M.files[path] = text return true end,
 	exists = function(path) return M.files[path] ~= nil end,
-	-- The files directly in `dir`.
+	-- What is directly in `dir`: its files, and the folders that hold files.
 	list = function(dir)
-		local out = {}
+		local out, seen = {}, {}
 		for path in pairs(M.files) do
 			local name = path:sub(#dir + 2)
-			if path:sub(1, #dir + 1) == dir .. "/" and not name:find("/", 1, true) then
-				table.insert(out, { name = name, is_dir = false })
+			if path:sub(1, #dir + 1) == dir .. "/" then
+				local folder = name:match("^([^/]+)/")
+				if not folder then
+					table.insert(out, { name = name, is_dir = false })
+				elseif not seen[folder] then
+					seen[folder] = true
+					table.insert(out, { name = folder, is_dir = true })
+				end
 			end
 		end
 		table.sort(out, function(a, b) return a.name < b.name end)
@@ -150,14 +158,29 @@ local fs = {
 }
 
 local events = {
-	on = function(name, fn) M.events[name] = fn end,
+	on = function(name, fn)
+		M.events[name] = fn
+		M.handlers[name] = M.handlers[name] or {}
+		table.insert(M.handlers[name], fn)
+	end,
+}
+
+-- Fires `name` to every handler (notes, review and the debugger all take gutter.click).
+function M.fire(name, ...)
+	for _, fn in ipairs(M.handlers[name] or {}) do fn(...) end
+end
+
+local bookmarks = {
+	get = function(line) return M.marks[line] end,
+	set = function(line, icon, style) M.marks[line] = { icon = icon, style = style } end,
+	remove = function(line) M.marks[line] = nil end,
 }
 
 local system = { env = function(name) return M.env[name] end, exec_async = function(binary, args, cb) table.insert(M.execs, { binary = binary, args = args, cb = cb }) end }
 
 M.modules = {
 	ttt = ttt, ["ttt.editor"] = editor, ["ttt.fs"] = fs, ["ttt.json"] = json,
-	["ttt.events"] = events, ["ttt.system"] = system,
+	["ttt.events"] = events, ["ttt.system"] = system, ["ttt.bookmarks"] = bookmarks,
 }
 
 -- Makes require find the stubs, and the plugin's sources by module name.

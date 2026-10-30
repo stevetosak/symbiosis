@@ -221,15 +221,16 @@ return {
 		local ids, keys = {}, {}
 		for _, c in ipairs(reg.commands) do ids[c.id] = true end
 		for _, k in ipairs(reg.keybindings) do keys[k.key] = k.command end
-		for _, id in ipairs({ "toggleFollow", "goToAgent", "slower", "faster", "skipToNow", "nextSession", "goToSession", "showPlan", "showChanges", "help", "stop", "fillStub", "releaseStub", "showProposal", "review", "ask", "notes", "run", "runStop", "runPick", "runPanel", "runWrap", "runEdit", "runAsk", "close", "detach" }) do
+		for _, id in ipairs({ "toggleFollow", "goToAgent", "slower", "faster", "skipToNow", "nextSession", "goToSession", "showPlan", "showChanges", "help", "stop", "fillStub", "releaseStub", "showProposal", "review", "ask", "notes", "run", "runStop", "runPick", "runPanel", "runWrap", "runEdit", "runAsk", "debug", "debugPick", "debugToggleBreakpoint", "debugContinue", "debugStepOver", "debugStepInto", "debugStepOut", "debugPause", "debugWatch", "debugRemoveBreakpoints", "close", "detach" }) do
 			t.ok(ids["symbiosis." .. id], id)
 		end
-		t.eq(#reg.commands, 29)
+		t.eq(#reg.commands, 39)
 		t.eq(keys, {
 			["ctrl+k a"] = "symbiosis.toggleFollow", ["ctrl+k -"] = "symbiosis.slower", ["ctrl+k ="] = "symbiosis.faster", ["ctrl+k space"] = "symbiosis.skipToNow", ["ctrl+k n"] = "symbiosis.nextSession", ["ctrl+k g"] = "symbiosis.goToSession",
 			["ctrl+k v"] = "symbiosis.showPlan", ["ctrl+k w"] = "symbiosis.showChanges",
 			["ctrl+k h"] = "symbiosis.help", ["ctrl+k q"] = "symbiosis.stop", ["ctrl+k f"] = "symbiosis.fillStub", ["ctrl+k p"] = "symbiosis.showProposal", ["ctrl+k x"] = "symbiosis.review", ["ctrl+k d"] = "symbiosis.ask", ["ctrl+k z"] = "symbiosis.close", ["ctrl+k ."] = "symbiosis.changeHere", ["ctrl+k /"] = "symbiosis.markSeen",
 			["f5"] = "symbiosis.run", ["shift+f5"] = "symbiosis.runStop", ["ctrl+k f5"] = "symbiosis.runPick", ["ctrl+k shift+f5"] = "symbiosis.runPanel",
+			["f9"] = "symbiosis.debugToggleBreakpoint", ["shift+f9"] = "symbiosis.debug", ["ctrl+k f9"] = "symbiosis.debugPick",
 		})
 		t.eq(reg.bottom.title, "Run")
 		t.eq(reg.sidebar.title, "pi files")
@@ -318,7 +319,7 @@ return {
 		t.eq(out, {
 			"Preview speed   medium (160/s)", "Stub scope      the stub's body", "Autosave        1 s after you type", "Editor          stays", "Changed lines   marked in the gutter",
 			"ctrl+k h", "ctrl+k q", "ctrl+k z", "ctrl+k a", "ctrl+k - / =", "ctrl+k space", "ctrl+k v", "ctrl+k d", "ctrl+k w", "ctrl+k .", "ctrl+k /",
-			"// … helpi!", "// … why!", "// TODO(pi) helpi!", "ctrl+k p", "ctrl+k x", "F5 · shift+F5", "ctrl+k F5", "Esc", "ctrl+k n", "ctrl+k g",
+			"// … helpi!", "// … why!", "// TODO(pi) helpi!", "ctrl+k p", "ctrl+k x", "F5 · shift+F5", "ctrl+k F5", "F9 · shift+F9", "F5 F10 F11 ⇧F11", "Esc", "ctrl+k n", "ctrl+k g",
 		})
 	end },
 	{ "bundle: pi writes: the editor stays where you are, and says which file pi writes", function()
