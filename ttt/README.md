@@ -22,7 +22,7 @@ ttt/
       marker.lua        a word at the end of a comment (helpi!)
       trigger.lua       a marker's pause and Enter, once for each text (helpi!, why!)
       notes.lua         the pure parts of notes: hash, anchoring, file path, JSON lines
-      gutter.lua        gutter marks of one icon on ttt's bookmarks (notes ◆, review ●)
+      gutter.lua        gutter marks of one icon on ttt's bookmarks (notes ◆, review ●, breakpoints ◉, the paused line ▶)
       review.lua        the pure parts of review: the list, finding a function again, choosing
       folder.lua        the workspace folder of a file
     features/
@@ -39,6 +39,8 @@ ttt/
       review.lua        ctrl+k x: the bodies pi filled, until acked; ● in the gutter
       fill.lua          a fill (a stub, or a function under its description), ctrl+k f; proposals, ctrl+k p
       changes.lua       ctrl+k w: what pi changed
+      run.lua           F5: run configurations, the Run panel (bottom), ctrl+q with programs running
+      debug.lua         F9 breakpoints ◉, shift+F9 debugs; paused: ▶, F5 F10 F11, the stack and variables in the Run panel
       close.lua         ctrl+k z: close symbiosis (pi and ttt)
       panel.lua         ctrl+k h: settings, sessions, keys
   symbiosis/
@@ -108,8 +110,11 @@ opened or the tab changed), `change` (the buffer changed). The features add
 file), `start`, `abort` and `done` (pi started, dropped or finished a call)
 and `shown` (you saw a finished change: at once, or at the end of the preview).
 
-The order of the `key` handlers: helpi! (10: Esc, Enter), follow (50:
-your typing waits while the preview or helpi! writes in the file), autosave (90).
+The order of the `key` handlers: debug (5: F5, F10, F11, shift+F11 and F6
+while a debug session is live), helpi! (10: Esc, Enter), run (10: ctrl+q
+while programs run), follow (50: your typing waits while the preview or
+helpi! writes in the file), autosave (90). A focused bottom panel gets its
+keys in its own `on_event`, not in this hook.
 
 ## Rules
 

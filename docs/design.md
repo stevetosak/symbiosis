@@ -28,6 +28,7 @@ open each file and type pi's change in it as a preview, at a speed you set.
 | Tools | `pi/tools.ts` | pi's own `edit` and `write` again, with a `why` argument and one call at a time; a probe that tells what an edit would leave in the file. |
 | Filling | `pi/fill.ts` | The pi side of a fill: the fill request, the guard before each call, the `propose` tool that waits for the editor's answer. |
 | Hunks | `core/hunks.ts` | Pure: the lines a change touched (a line diff, by the `diff` package), and where an old line stands after a later change. |
+| Debugger | `core/debug/`, `launcher/debug.ts` | A DAP client (`dap.ts`), what a run configuration debugs as (`spec.ts`), the adapter for each type (`adapters.ts`), one session's state (`session.ts`), the files to the plugin (`view.ts`); the supervisor of a debug run. See "Debugging". |
 | Launcher | `launcher/main.ts` (`bin/symbiosis`) | Starts a real pi in its own herdr or tmux pane, runs ttt here as its child, ends when ttt quits. One record per folder in `~/.local/state/symbiosis/`. |
 | Layout | `launcher/layout.ts` | Pure: the herdr and tmux command lines for a pi tab, a split, or a new tab for symbiosis itself. |
 | ttt plugin | `ttt/src` (bundled into `ttt/symbiosis/plugin.lua`) | Polls every 40 ms. Shows which file pi writes. When you follow pi, types its changes as a preview. Sends helpi! questions and writes the answers. A host (`ttt/src/core`) and one module per feature (`ttt/src/features`); see `ttt/README.md`. |
@@ -710,6 +711,112 @@ at once, as the session starts writing, and Esc or release stops it. Two
 equal descriptions are told apart only by their line. A description edited
 while pi writes (in the editor, not by pi) loses the place, and the guard
 then blocks every call until the fill is released.
+
+## Debugging
+
+Issue #19: breakpoints, stepping, the variables and the call stack, for many
+languages without one adapter each. The Debug Adapter Protocol is that: each
+language's debugger (debugpy, lldb-dap, Delve, js-debug) speaks it, and VS
+Code is only a client. symbiosis is a client too.
+
+**The client.** `core/debug/dap.ts`, about 200 lines on the official types
+(`@vscode/debugprotocol`, types only). Checked first: `@vscode/debugadapter-testsupport`
+is built for mocha (its helpers assert) and answers no request from the
+adapter; `node-debugprotocol-client` has not changed since 2022. The adapter's
+own requests matter: js-debug starts each process it debugs as a child
+session (`startDebugging`, a new TCP connection), and an adapter may ask the
+client to start the program (`runInTerminal`).
+
+**Where it runs.** ttt's Lua cannot hold a socket or a pipe, so a debug
+session is a run: `symbiosis run start --debug` starts a supervisor
+(`launcher/debug.ts`) like any run's, which starts the adapter in its own
+process group and keeps the session (`core/debug/session.ts`). The plugin and
+the supervisor talk in files of the run's folder, as pi and the plugin do:
+`debug.json` (the view: status, stop, frames, scopes, the variables fetched,
+the breakpoints as the adapter took them, watches), written at each change,
+read by the plugin every tick while the run is live; `debug-in.json`
+(commands, each with a `seq`), which the plugin rewrites with the commands not
+acked yet, so a write that overwrites the last one loses nothing. The
+supervisor polls it every 50 ms. A step takes a poll, a DAP round trip and a
+tick: about 0.1 s.
+
+**What it debugs.** A spec is a VS Code launch configuration. launch.json's
+are taken as written (VS Code's own keys out), for the types symbiosis has
+an adapter for; run.json's `"debug"` is one; else `spec.ts` makes one from the
+command when it is a program it knows (python, node, `go run`, a Mach-O or
+ELF file; plain words only, not a shell line with quotes or pipes). The
+adapter is found when the run starts (`adapters.ts`), so a missing debugger
+is a notice with the line that installs it, not a failed run. debugpy is
+also found in VS Code's Python Debugger extension (`bundled/libs`), as many
+have it and not pip's.
+
+**The session.** DAP's order: `initialize`; `launch`, whose answer may come
+only after `configurationDone` (debugpy's does); at `initialized` the
+breakpoints, the exception filters the adapter turns on by default (VS Code's
+default), `configurationDone`. A stop fetches the threads, the stack (50
+frames), the first frame with a file that is not a library's
+(`presentationHint: subtle`), its scopes, the watches, and the variables
+under every expanded key (40 requests at most). A key is the scope's name and
+the names down to the variable, so what you opened stays open at the next
+stop (DAP's references die at each step). The first scope of a frame is open
+unless you closed one of that name. A step marks the session running before
+its request goes: the stop may come in the same read as the answer.
+`epoch` drops what a fetch of an older stop finds. The program's output comes
+as output events, each write of the program its own: the supervisor joins
+them into lines per category (`LineJoiner`), or stdout and stderr cut each
+other's lines (`sumto stderr` / ` 6`, measured with debugpy).
+
+**Stop.** `stop` (shift+F5, `s`) disconnects with `terminateDebuggee`; the
+adapter's group, and the debuggee (its pid from the `process` event), are
+killed when they are left. `stopRun` gives a debug run 4 s to end itself
+before it signals the adapter's group, which could kill the adapter before it
+kills the program. After the program ended an adapter may wait for a
+disconnect (lldb-dap sends `exited`, then `terminated` only after it): the
+session ends 1.5 s after `exited` whatever comes.
+
+**The editor** (`ttt/src/features/debug.lua`). Measured in ttt 1.7.1:
+
+- `key.press` gives F keys as `{ key = "F10" }`, `{ key = "F11", mod = "shift" }`,
+  and a handler that returns true keeps them from ttt's bindings: F10 does
+  not open the menu. So F5, F10, F11, shift+F11 and F6 are the debugger's only
+  while a session is live; F10 and F6 are ttt's (the menu, the next group)
+  otherwise.
+- A focused bottom panel gets its keys in its own `on_event`, not in
+  `key.press`, and cannot tell ttt it took one: F10 there stepped and opened
+  the menu. So the panel steps with letters (c n i u p); F5 there reaches the
+  run's command, which continues a paused session instead of starting the
+  configuration again (that would stop the session: one run per
+  configuration).
+- `gutter.click` fires only on a line with a bookmark, so a click takes a
+  breakpoint off but cannot set one: F9 does.
+- `ttt.open_file(path, line)` does not move the cursor in the file already
+  open: the plugin sets the cursor and scrolls (`core/buffer.lua` reveal).
+- Moving the focus to the editor at a stop sent the next letters typed in the
+  Run panel into the file (autosave saved them): the focus stays where it is.
+
+The gutter: `◉` a breakpoint, `▶` the line it is paused on (the chosen
+frame); both take the line from another feature's mark (`core/gutter.lua`
+`force`): while you debug they matter more than a change bar or a note, which
+come back when the line is free. The breakpoints are the plugin's
+(`breakpoints.json`, by path: line and the hash of its text); a breakpoint
+follows its line as a note does (`core/notes.lua` anchor), and one whose line
+you edited stays on its line number. A change goes to every live session.
+
+Weak points:
+
+- A breakpoint shows the same whether the adapter verified it or not: lldb-dap
+  says `verified: false` for a breakpoint it then stops at (it moves the
+  address once the program loads). The view has it; the gutter does not.
+- A program compiled under a path with a symlink in it (macOS `/tmp`) has
+  that path in its debug info, and ttt names the real one: lldb does not bind
+  the breakpoint. A `sourceMap` in the config's `"debug"` fixes it; a mapping
+  of its own for `/tmp` broke the paths that were real already.
+- No attach (`request: attach`), no compound debugging, no conditional
+  breakpoints from the editor yet (a `condition` written in
+  `breakpoints.json` is kept and sent), no exception breakpoints to choose:
+  the adapter's defaults.
+- Values are text: an object is opened by its children, not shown whole.
+- js-debug does not say the exit code: the run ends as `✓ ended`.
 
 ## The symbiosis command: ttt and a real pi
 

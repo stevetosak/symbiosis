@@ -246,7 +246,8 @@ argument, else the git root, else this folder.
 
 ## Run configurations
 
-Run a project from ttt, as in Rider or VS Code (debugging comes later).
+Run a project from ttt, as in Rider or VS Code; debug it too (see
+[Debugging](#debugging)).
 
 - `F5` runs the chosen configuration; with none chosen yet, it opens the
   picker. `shift+F5` stops it. `ctrl+k F5` (or a click on the status item)
@@ -348,8 +349,8 @@ Where the configurations come from, in the picker's order:
   a step's own `inputs` replace them. These values are not remembered as
   picked; an input with no value is decided once for the whole compound,
   before its first step starts. `s` in the picker does not save a compound.
-- `.vscode/launch.json` (the `node`, `python`, `go`, ... programs it can run
-  without a debugger, and its `compounds`) and `.vscode/tasks.json`. A
+- `.vscode/launch.json` (the `node`, `python`, `go`, ... programs it can run,
+  `shift+F9` debugs them as written, and its `compounds`) and `.vscode/tasks.json`. A
   compound with a `preLaunchTask`, or with a step symbiosis cannot run, is a
   problem, not a compound; `stopAll` has no effect (a compound always stops
   all).
@@ -367,6 +368,66 @@ The workspace folder is the nearest folder above the open file with a
 (`symbiosis run supervise`), so a program outlives ttt when you keep it; its
 state and output are in `runs/` in the plugin's folder. From a terminal:
 `symbiosis run ps --folder .`, `symbiosis run stop --folder . --all`.
+
+## Debugging
+
+Debug a run configuration in ttt, as in VS Code: breakpoints, stepping, the
+call stack, the variables and watches. symbiosis talks to the language's
+debug adapter (the Debug Adapter Protocol), so each language has the
+debugger VS Code uses.
+
+- `F9` sets a breakpoint on the cursor's line, or takes it off: `◉` in the
+  gutter (a click on it takes it off too). A breakpoint follows its line
+  when lines come or go above it; they are kept when ttt quits.
+- `shift+F9` debugs the chosen configuration (`F5`'s). With none chosen, or
+  one that cannot be debugged, it opens the Debug picker, which lists only
+  the configurations it can debug; `ctrl+k F9` opens it too, and `d` debugs
+  the configuration under the cursor in the Run picker.
+- The program pauses at a breakpoint: `▶` on its line, the editor goes there,
+  the status bar says `⏸ app.py:12`. Then `F5` continues, `F10` steps over,
+  `F11` steps into, `shift+F11` steps out, `shift+F5` stops; `F6` pauses a
+  program that runs. These keys are the debugger's only while a debug
+  session is live; otherwise `F10` and `F6` stay ttt's (its menu, the next
+  group).
+- The Run panel shows a paused debug run's call stack and variables (the
+  watches on top). Tab goes between the runs, the stack and the variables;
+  ↑↓ move, Enter (or →) opens a variable, ← closes it, Enter on a frame shows
+  its variables and its line. The letters work there too: `c` continue, `n`
+  over, `i` into, `u` out, `p` pause; `e` watches an expression (evaluated
+  again at each stop, in the frame chosen), `x` drops a watch, `v` shows the
+  output and back. A click on a frame or a variable does the same as Enter.
+  The panel cannot take `F10` from ttt (it opens ttt's menu there): step with
+  `n`, or in the editor.
+
+What it debugs, and with which adapter:
+
+| Program | Adapter | When it is not there |
+|---|---|---|
+| `python3 app.py`, `python -m mod`, `.venv/bin/python ...`, a `.py` file | debugpy: the program's python with `debugpy`, else the copy in VS Code's Python Debugger extension | `python3 -m pip install debugpy` |
+| a compiled program (`./build/app`, Mach-O or ELF), C, C++, Rust, Swift | `lldb-dap` (Xcode's on macOS, LLVM's elsewhere; `SYMBIOSIS_LLDB_DAP`) | `xcode-select --install`, or LLVM |
+| `go run ./cmd/api`, a `.go` file | Delve, `dlv dap` | `go install github.com/go-delve/delve/cmd/dlv@latest` |
+| `node x.js`, a `.js`/`.ts` file | js-debug's DAP server | unpack `js-debug-dap-*.tar.gz` from [its releases](https://github.com/microsoft/vscode-js-debug/releases) in `~/.local/share/symbiosis/`, or set `SYMBIOSIS_JS_DEBUG` to its `dapDebugServer.js` |
+
+A configuration of `.vscode/launch.json` is debugged as it is written (its
+`program`, `args`, `env`, `justMyCode`, ...). One of `.symbiosis/run.json`
+is debugged from its command when it is one of the programs above, or as
+its `"debug"` says, a VS Code launch configuration:
+
+```jsonc
+{ "configurations": [
+  { "name": "api", "command": "uv run python -m api",
+    "debug": { "type": "python", "module": "api", "python": ".venv/bin/python" } },
+  // Any other adapter: its command (stdio), or { "command", "args", "port": true } for one that prints a port.
+  { "name": "svc", "command": "dotnet run",
+    "debug": { "type": "coreclr", "program": "bin/Debug/net8.0/svc.dll", "adapter": ["netcoredbg", "--interpreter=vscode"] } }
+]}
+```
+
+A debug run is a run: the Run panel shows its output, `s` stops it, `r`
+starts it again under the debugger. Its supervisor talks to the adapter and
+writes what the editor shows to `runs/<id>/debug.json`; every DAP message is
+in `runs/<id>/dap.log`. Compound launches and attaching to a running program
+are not debugged yet.
 
 ## Demo
 
@@ -417,5 +478,6 @@ bash test/e2e/stubs.sh     # helpi! on a stub: an edit outside it is blocked, th
 bash test/e2e/runconf.sh   # run configurations: the picker, F5, shift+F5, a failing run, ctrl+q keeps a run, back in ttt it shows
 bash test/e2e/runcompound.sh # a compound: its row in the Run panel with its steps under it, the event log, the status bar, s stops all
 bash test/e2e/runinputs.sh # inputs: the drawer asks, F5 runs the pick again, the picker shows it, i asks again, one option asks nothing, an input decided is not listed again
+bash test/e2e/debug.sh     # the debugger with a real debugpy: F9, shift+F9 (the Debug picker), the pause, F10, shift+F11, a variable opened, a watch, c and n in the Run panel, F9 off, F5 to the end
 sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi): without herdr, with it, twice, key taken, own command file
 ```
