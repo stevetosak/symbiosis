@@ -276,6 +276,8 @@ at the repo root, so `core/` comes along) with the hooks in `claude/hooks.json`.
 | Claude's session status `idle`, newer than the turn | Idle | `stop` |
 | Notification `idle_prompt`, no dialog open | Idle | `stop` |
 | SessionEnd | The record goes; the keeper ends | |
+| `stop.json` (`ctrl+k q`), while working | Esc in its pane: `herdr pane send-keys <pane> esc`, `tmux send-keys -t <pane> Escape`. Then the transcript or the session status ends the turn | |
+| `close.json` (`symbiosis close`) | SIGTERM to `CLAUDE_PID`: Claude runs SessionEnd and quits | |
 
 Claude tells no hook about Esc or about a rejected permission, so the keeper
 reads the new lines of `transcript_path` every 200 ms (`claude/transcript.ts`:
@@ -302,7 +304,9 @@ Weak points:
 - A keeper that starts in the middle of a session (the plugin came later, or
   the keeper died) does not know the tasks from before, and the model only
   comes with SessionStart.
-- Stop, close, helpi!, ask and fill: not yet (`can` is empty), so ttt says so.
+- Stop needs the pane: outside herdr and tmux, `can` is `close` alone, and
+  `ctrl+k q` says so.
+- helpi!, ask and fill: not yet, so ttt says so.
 
 ## Slice 3: the timeline
 

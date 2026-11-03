@@ -216,7 +216,8 @@ return {
 				return ttt.notify("symbiosis: no agent session is running", "warning")
 			end
 			if not agent.can(owner, "stop") then
-				return ttt.notify("symbiosis: " .. agent.name(owner) .. " " .. owner.name .. " cannot be stopped from ttt yet", "warning")
+				local why = owner.pane and "" or ": it does not run in herdr or tmux"
+				return ttt.notify("symbiosis: " .. agent.name(owner) .. " " .. owner.name .. " cannot be stopped from ttt" .. why, "warning")
 			end
 			if not owner.working then
 				return ttt.notify("symbiosis: " .. agent.name(owner) .. " " .. owner.name .. " is idle", "info")

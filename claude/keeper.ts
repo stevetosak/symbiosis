@@ -1,8 +1,10 @@
+import { spawn } from 'node:child_process';
 import { closeSync, openSync, readFileSync, readSync, rmSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { AgentSide } from '../core/agent/agent.ts';
+import { escKeys, paneOf } from '../core/session.ts';
 import { applyTask, callOf, firstLine, stepsOf, type Task } from './map.ts';
 import { TranscriptReader, type TranscriptEvent } from './transcript.ts';
 import { ownDir, SESSION_ID, send, socketDir, socketPath } from './socket.mjs';
@@ -19,7 +21,8 @@ if (!SESSION_ID.test(id) || !Number.isInteger(pid) || pid <= 1 || !ownDir(socket
 const path = socketPath(id);
 const statusFile = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'sessions', `${pid}.json`);
 
-const side = new AgentSide({ id, agent: 'claude', can: [], cwd: process.cwd(), pid, host: { stop() {}, quit() {} } });
+const esc = escKeys(paneOf(process.env));
+const side = new AgentSide({ id, agent: 'claude', can: esc ? ['stop', 'close'] : ['close'], cwd: process.cwd(), pid, host: { stop, quit } });
 const { record } = side;
 let tasks: Task[] = [];
 let begun = false;
@@ -156,6 +159,19 @@ function handle(event: unknown, input: Record<string, unknown>): void {
 		case 'SessionEnd':
 			ending = true;
 			return;
+	}
+}
+
+function stop(): void {
+	if (!esc || !record.working) return;
+	spawn(esc[0], esc.slice(1), { stdio: 'ignore' }).on('error', () => undefined);
+}
+
+function quit(): void {
+	try {
+		process.kill(pid, 'SIGTERM');
+	} catch {
+		end();
 	}
 }
 

@@ -114,10 +114,13 @@ Each slice ends with its check. The next slice starts only after it passes.
    Check: unit tests for `map.ts` and `transcript.ts`, with the shapes above;
    an e2e test that plays hook JSON into a keeper and a headless ttt (status
    bar, plan drawer, `ctrl+k w`); by hand: `claude --plugin-dir .` in herdr.
-4. **Claude: control.** `ctrl+k q`: Esc to the pane (herdr `agent send-keys`,
-   tmux `send-keys`). `symbiosis close` and `ctrl+k z`: SIGTERM to `CLAUDE_PID`,
-   then the pane closes. "Waits for you" from `permission_prompt`.
-   Check: e2e for close in herdr; stop by hand.
+4. **Claude: control.** Done. `ctrl+k q`: Esc to the pane (herdr `pane send-keys`,
+   tmux `send-keys`), only while Claude works; with no pane, `can` has no `stop`.
+   `close.json`: SIGTERM to `CLAUDE_PID`; `symbiosis close` then closes the pane
+   it made (a claude pane comes with slice 5). "Waits for you" from
+   `permission_prompt` came with slice 3.
+   Check: the keeper test (Esc, close, no pane); claude.sh (a wait, then
+   `ctrl+k q`); by hand in herdr: a stop before and during output, a close.
 5. **Launcher.** `--agent`, config `agent` and `agentArgs`, tab
    `claude · <folder>`, `-c` gives `claude --continue`, `record.pi` becomes
    `record.agent`, and `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` for claude.

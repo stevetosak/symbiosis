@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 
@@ -11,12 +11,17 @@ const run = join(base, 'run');
 const ws = join(base, 'ws');
 const transcript = join(base, 't.jsonl');
 const sessions = join(base, 'claude', 'sessions');
+const bin = join(base, 'bin');
+const keys = join(base, 'keys.txt');
 mkdirSync(plugin, { recursive: true });
+mkdirSync(bin);
+writeFileSync(join(bin, 'herdr'), `#!/bin/sh\necho "herdr $*" >> '${keys}'\n`);
+chmodSync(join(bin, 'herdr'), 0o755);
 mkdirSync(sessions, { recursive: true });
 mkdirSync(run, { mode: 0o700 });
 mkdirSync(ws);
 writeFileSync(transcript, '');
-const env = { ...process.env, TTT_CONFIG_DIR: join(base, 'cfg'), SYMBIOSIS_RUN_DIR: run, CLAUDE_CONFIG_DIR: join(base, 'claude'), CLAUDE_PID: String(process.pid), HERDR_PANE_ID: 'w1:p7' };
+const env = { ...process.env, TTT_CONFIG_DIR: join(base, 'cfg'), SYMBIOSIS_RUN_DIR: run, CLAUDE_CONFIG_DIR: join(base, 'claude'), CLAUDE_PID: String(process.pid), HERDR_PANE_ID: 'w1:p7', TMUX: '', PATH: `${bin}:${process.env.PATH}` };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -39,19 +44,20 @@ async function until<T>(what: string, check: () => T | undefined | false, ms = 4
 
 const json = (file: string) => (existsSync(file) ? JSON.parse(readFileSync(file, 'utf-8')) : undefined);
 const record = (session: string) => json(join(plugin, 'sessions', `${session}.json`));
+const pressed = () => (existsSync(keys) ? readFileSync(keys, 'utf-8').trim().split('\n').filter(Boolean) : []);
 const events = () => (existsSync(join(plugin, 'events.jsonl')) ? readFileSync(join(plugin, 'events.jsonl'), 'utf-8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
 
 after(() => {
 	for (const session of ['s-main', 's-none']) hook(session, 'SessionEnd', { reason: 'other' });
 });
 
-test('a Claude session through its hooks: the record, a streamed edit, the tasks, a wait, a rejection, an interrupt and an Esc', async () => {
+test('a Claude session through its hooks: the record, a streamed edit, the tasks, a wait, a rejection, an interrupt, an Esc and a stop', async () => {
 	const s = 's-main';
 	writeFileSync(join(plugin, 'ttt.json'), JSON.stringify({ t: Date.now() / 1000 + 3600, owner: s }));
 	hook(s, 'SessionStart', { source: 'startup', model: 'claude-haiku-5-5', session_title: 'demo' });
 	const started = await until('the record', () => record(s));
 	assert.equal(started.agent, 'claude');
-	assert.deepEqual(started.can, []);
+	assert.deepEqual(started.can, ['stop', 'close']);
 	assert.equal(started.pid, process.pid);
 	assert.equal(started.cwd, ws);
 	assert.equal(started.model, 'claude-haiku-5-5');
@@ -116,22 +122,52 @@ test('a Claude session through its hooks: the record, a streamed edit, the tasks
 	hook(s, 'Notification', { notification_type: 'idle_prompt', message: 'Claude is waiting for your input' });
 	assert.equal(record(s).working, false, 'the idle notice also ends a turn that no hook ended');
 
+	writeFileSync(join(plugin, 'stop.json'), JSON.stringify({ id: 'idle-1', to: s }));
+	await sleep(400);
+	assert.deepEqual(pressed(), [], 'no Esc for an idle Claude');
+	hook(s, 'UserPromptSubmit', { prompt: 'long' });
+	writeFileSync(join(plugin, 'stop.json'), JSON.stringify({ id: 'stop-1', to: s }));
+	await until('Esc to its pane', () => pressed().length > 0);
+	assert.deepEqual(pressed(), ['herdr pane send-keys w1:p7 esc']);
+	writeFileSync(join(plugin, 'stop.json'), JSON.stringify({ id: 'stop-1', to: s }));
+	writeFileSync(join(plugin, 'stop.json'), JSON.stringify({ id: 'stop-2', to: 'someone-else' }));
+	await sleep(400);
+	assert.equal(pressed().length, 1, 'a request seen before, or for another session, presses nothing');
+
 	hook(s, 'SessionEnd', { reason: 'other' });
 	await until('the record goes', () => !record(s));
 	await until('the socket goes', () => !existsSync(join(run, `${s}.sock`)));
 });
 
-test('a session the editor does not follow: a record, no events; without the ttt plugin no keeper starts', async () => {
+test('a session the editor does not follow: a record, no events; no pane, so no stop; without the ttt plugin no keeper starts', async () => {
 	const s = 's-none';
 	writeFileSync(join(plugin, 'ttt.json'), JSON.stringify({ t: Date.now() / 1000 + 3600, owner: 'someone-else' }));
 	const before = events().length;
-	hook(s, 'SessionStart', { source: 'startup' });
-	hook(s, 'PreToolUse', { tool_name: 'Write', tool_use_id: 'n1', tool_input: { file_path: join(ws, 'c.ts'), content: 'c\n' } });
-	await until('the record', () => record(s));
+	hook(s, 'SessionStart', { source: 'startup' }, { HERDR_PANE_ID: '' });
+	hook(s, 'PreToolUse', { tool_name: 'Write', tool_use_id: 'n1', tool_input: { file_path: join(ws, 'c.ts'), content: 'c\n' } }, { HERDR_PANE_ID: '' });
+	const started = await until('the record', () => record(s));
+	assert.deepEqual(started.can, ['close']);
+	assert.equal(started.pane, null);
 	assert.equal(events().length, before);
 	hook('s-gone', 'SessionStart', {}, { TTT_CONFIG_DIR: join(base, 'nothing') });
 	await sleep(300);
 	assert.equal(existsSync(join(run, 's-gone.sock')), false);
+});
+
+test('symbiosis close: the keeper sends SIGTERM to its Claude, then ends with it', async () => {
+	const s = 's-close';
+	const claude = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+	const gone = new Promise<NodeJS.Signals | null>((resolve) => claude.on('exit', (_code, signal) => resolve(signal)));
+	const as = { CLAUDE_PID: String(claude.pid) };
+	writeFileSync(join(plugin, 'close.json'), JSON.stringify({ id: 'old', to: s }));
+	hook(s, 'SessionStart', { source: 'startup' }, as);
+	await until('the record', () => record(s));
+	await sleep(300);
+	assert.equal(claude.exitCode ?? claude.signalCode, null, 'a close request from before the session is old');
+	writeFileSync(join(plugin, 'close.json'), JSON.stringify({ id: 'close-1', to: s }));
+	assert.equal(await gone, 'SIGTERM');
+	await until('the record goes', () => !record(s), 3000);
+	await until('the socket goes', () => !existsSync(join(run, `${s}.sock`)));
 });
 
 test('a bad session id starts nothing', () => {
