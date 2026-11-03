@@ -21,7 +21,9 @@ curl -fsSL https://raw.githubusercontent.com/stevetosak/symbiosis/main/install.s
 ```
 
 It installs ttt and pi when one is missing, the symbiosis pi package, and the
-command `~/.local/bin/symbiosis`. It uses each tool's own official installer.
+command `~/.local/bin/symbiosis`; with Claude Code there, it also lists the
+package in Claude Code's settings (see Claude Code below). It uses each tool's
+own official installer.
 Each one is a script from the internet that runs on your machine, as this one
 does; read [install.sh](install.sh) first if you want to.
 
@@ -88,15 +90,22 @@ and puts its ttt plugin back at each start). It copies the ttt plugin, links
 load the extension twice). `/reload` in pi after a change.
 `SYMBIOSIS_CHECKOUT=<checkout> sh install.sh` runs the full installer on it.
 
-**Claude Code (preview).** From a checkout, after `npm run install:local` (it
-copies this checkout's ttt plugin): `symbiosis --agent claude`, or
-`"agent": "claude"` in the config. It starts
-`env CLAUDE_CODE_ENABLE_TODO_TOOLS=1 claude --plugin-dir <checkout>`; a Claude
-you start yourself needs the same. ttt shows the
+**Claude Code (preview).** With `claude` on PATH, install.sh (and
+`npm run install:local`, and `bin/setup.sh`) adds the one copy of symbiosis to
+`CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json` (`CLAUDE_CONFIG_DIR`
+moves it); your other folders and settings stay. Then each Claude session
+loads the symbiosis hooks from that copy, and `pi update` updates them with
+the rest. `symbiosis --agent claude` (or `"agent": "claude"` in the config)
+starts Claude beside ttt with `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`, which turns on
+the task tools for the plan; a Claude you start yourself needs that variable
+for the plan. ttt shows the
 session as `✻ <folder>` and follows what Claude writes: the file, the preview,
 the plan from its tasks, the change list, `ctrl+k w`. `ctrl+k q` presses Esc
 in its herdr or tmux pane; `symbiosis close` and `ctrl+k z` quit it. Not yet:
-helpi!, ask and fill. See [docs/plan-agents.md](docs/plan-agents.md).
+helpi!, ask and fill. To unload it, take the folder out of
+`CLAUDE_CODE_PLUGIN_DIRS`. An organization policy (`disableSideloadFlags`,
+`CLAUDE_CODE_RESTRICT_PERSONAL_CONFIG`) can block plugin folders. See
+[docs/plan-agents.md](docs/plan-agents.md).
 
 ## The symbiosis command
 
@@ -432,5 +441,5 @@ bash test/e2e/stubs.sh     # helpi! on a stub: an edit outside it is blocked, th
 bash test/e2e/runconf.sh   # run configurations: the picker, F5, shift+F5, a failing run, ctrl+q keeps a run, back in ttt it shows
 bash test/e2e/runcompound.sh # a compound: its row in the Run panel with its steps under it, the event log, the status bar, s stops all
 bash test/e2e/runinputs.sh # inputs: the drawer asks, F5 runs the pick again, the picker shows it, i asks again, one option asks nothing, an input decided is not listed again
-sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi): without herdr, with it, twice, key taken, own command file
+sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi, claude): without herdr, with herdr and claude (Claude Code's settings), twice, key taken, own command file
 ```
