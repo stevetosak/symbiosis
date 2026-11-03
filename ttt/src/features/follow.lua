@@ -119,7 +119,7 @@ return {
 			local what = text or typing_text()
 			if not what and writing then what = "✎ writing " .. name(writing) end
 			if not what and here then what = string.format("%s %s:%d", here.mark, name(here.path), here.line) end
-			ttt.set_status_item("left", "symbiosis", "pi " .. (what and what .. " · " or "· ") .. mode, { on_click = toggle })
+			ttt.set_status_item("left", "symbiosis", sessions.agent("agent") .. " " .. (what and what .. " · " or "· ") .. mode, { on_click = toggle })
 			show_speed()
 		end
 
@@ -131,7 +131,7 @@ return {
 
 		settings:define("follow", {
 			values = { false, true }, label = "Editor", order = 40, persist = false,
-			text = function(v) return v and "follows pi" or "stays" end,
+			text = function(v) return v and ("follows " .. sessions.agent()) or "stays" end,
 			-- Off: the preview ends, pi writes on in the background. On: jump to now.
 			on_change = function(v)
 				if v then jump() else pcall(finish) drop_queue() calls = {} end
@@ -546,12 +546,12 @@ return {
 		end)
 		app:on("ready", function() show() end)
 
-		app:command({ id = "symbiosis.toggleFollow", title = "symbiosis: Editor Follows pi / Stays", key = "ctrl+k a", run = toggle })
+		app:command({ id = "symbiosis.toggleFollow", title = "symbiosis: Editor Follows the Agent / Stays", key = "ctrl+k a", run = toggle })
 		app:command({ id = "symbiosis.goToAgent", title = "symbiosis: Go to the Agent's Last Edit", run = go })
 		app:command({ id = "symbiosis.slower", title = "symbiosis: Preview Slower", key = "ctrl+k -", run = function() settings:step("speed", -1) end })
 		app:command({ id = "symbiosis.faster", title = "symbiosis: Preview Faster", key = "ctrl+k =", run = function() settings:step("speed", 1) end })
-		app:command({ id = "symbiosis.skipToNow", title = "symbiosis: Preview Skips to What pi Writes Now", key = "ctrl+k space", run = skip_to_now })
-		app:hint({ key = "ctrl+k a", text = "the editor follows pi (typed preview) / stays", order = 30 })
+		app:command({ id = "symbiosis.skipToNow", title = "symbiosis: Preview Skips to What the Agent Writes Now", key = "ctrl+k space", run = skip_to_now })
+		app:hint({ key = "ctrl+k a", text = "the editor follows the agent (typed preview) / stays", order = 30 })
 		app:hint({ key = "ctrl+k - / =", text = "preview slower / faster", order = 40 })
 		app:hint({ key = "ctrl+k space", text = "preview skips to now", order = 50 })
 

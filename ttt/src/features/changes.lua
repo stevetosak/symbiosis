@@ -10,13 +10,15 @@ local name = util.name
 
 return {
 	name = "changes",
+	needs = { "sessions" },
 	setup = function(app)
+		local sessions = app:need("sessions")
 		local channel = app.channel
 
 		local function show_changes()
 			local index = channel:read_json("changes/index.json")
 			if type(index) ~= "table" or type(index.files) ~= "table" or #index.files == 0 then
-				return ttt.notify("symbiosis: pi changed no file in its last turn", "info")
+				return ttt.notify("symbiosis: " .. sessions.agent() .. " changed no file in its last turn", "info")
 			end
 			local open = editor.file_path()
 			local pick = index.files[#index.files]
@@ -28,20 +30,20 @@ return {
 				return ttt.notify("symbiosis: the changes to " .. name(pick.path) .. " are not readable", "warning")
 			end
 			if change.before == change.after then
-				return ttt.notify("symbiosis: " .. name(pick.path) .. " is the same as before pi's last turn", "info")
+				return ttt.notify("symbiosis: " .. name(pick.path) .. " is the same as before " .. sessions.agent() .. "'s last turn", "info")
 			end
-			ttt.open_diff("pi: " .. name(pick.path) .. " (last turn)", util.split(change.before), util.split(change.after), pick.path)
+			ttt.open_diff(sessions.agent() .. ": " .. name(pick.path) .. " (last turn)", util.split(change.before), util.split(change.after), pick.path)
 			-- pi's reasons for the choices in these changes (the `why` of its edits).
 			if type(change.whys) == "table" and #change.whys > 0 then
-				ttt.notify("pi, why: " .. table.concat(change.whys, " · "), "info")
+				ttt.notify(sessions.agent() .. ", why: " .. table.concat(change.whys, " · "), "info")
 			end
 			if open and open ~= "" and pick.path ~= open then
-				ttt.notify("symbiosis: pi did not change this file; this is " .. name(pick.path) .. ", its last change", "info")
+				ttt.notify("symbiosis: " .. sessions.agent() .. " did not change this file; this is " .. name(pick.path) .. ", its last change", "info")
 			end
 		end
 
-		app:command({ id = "symbiosis.showChanges", title = "symbiosis: What pi Changed in Its Last Turn (diff)", key = "ctrl+k w", run = show_changes })
-		app:hint({ key = "ctrl+k w", text = "what pi changed (diff)", order = 80 })
+		app:command({ id = "symbiosis.showChanges", title = "symbiosis: What the Agent Changed in Its Last Turn (diff)", key = "ctrl+k w", run = show_changes })
+		app:hint({ key = "ctrl+k w", text = "what the agent changed (diff)", order = 80 })
 
 		return { show = show_changes }
 	end,

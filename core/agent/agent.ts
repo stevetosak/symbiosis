@@ -3,7 +3,7 @@ import { basename, join } from 'node:path';
 import { absolutePath } from '../call.ts';
 import type { Channel } from '../channel/channel.ts';
 import { FileChannel, pluginDir } from '../channel/file.ts';
-import { type ChannelEvent, type PluginState, PROTOCOL, type Session, type Tool } from '../protocol.ts';
+import { type Capability, type ChannelEvent, type PluginState, PROTOCOL, type Session, type Tool } from '../protocol.ts';
 import { paneOf } from '../session.ts';
 import { adler32, BEFORE_MAX, FLUSH_MS, Tracker } from '../stream.ts';
 import { Changes } from './changes.ts';
@@ -19,6 +19,8 @@ export interface AgentHost {
 
 export interface AgentOptions {
 	id: string;
+	agent: string;
+	can: Capability[];
 	cwd: string;
 	pid: number;
 	host: AgentHost;
@@ -62,6 +64,8 @@ export class AgentSide {
 		this.changeLog = new ChangeLog(join(dir, 'log'), options.id);
 		this.record = {
 			id: options.id,
+			agent: options.agent,
+			can: [...options.can],
 			version: PROTOCOL,
 			...paneOf(options.env ?? process.env),
 			model: null,

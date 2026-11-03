@@ -3,6 +3,7 @@
 -- (core/review.ts, `Landed`). Here: flattening those lists, finding a body's
 -- function again in the buffer, counting by file, choosing what to show.
 local notes = require("core.notes")
+local agent = require("core.agent")
 
 local M = {}
 
@@ -13,7 +14,7 @@ function M.collect(sessions)
 	for _, rec in ipairs(sessions) do
 		for _, l in ipairs(type(rec.review) == "table" and rec.review or {}) do
 			if type(l) == "table" and type(l.id) == "string" and type(l.path) == "string" then
-				local copy = { session = rec.id }
+				local copy = { session = rec.id, agent = agent.name(rec) }
 				for k, v in pairs(l) do copy[k] = v end
 				table.insert(out, copy)
 			end

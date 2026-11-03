@@ -136,7 +136,7 @@ Operator feedback: the keys were not visible anywhere, and each setting key
 showed a ttt notice that covers the whole status bar for about 4 s (measured),
 so the new value was hidden. Now:
 
-- `ctrl+k h` opens a drawer: Settings (a `list`; Enter cycles the value), pi sessions (Enter follows one, or "automatic"),
+- `ctrl+k h` opens a drawer: Settings (a `list`; Enter cycles the value), agent sessions (Enter follows one, or "automatic"),
   and a key list. ttt calls a drawer's render on every frame, so render
   reads no files. Measured in ttt 1.7.1: a `button` keeps its first label
   after a redraw, a `list` item does not, so the settings are list items;
@@ -185,7 +185,7 @@ choice is saved as `nowrap` in its layout file).
   buffer stays old until you save or close it.
 - Two sessions in the same folder: the most recent one wins until you choose.
 - The reveal moves the sidebar to the explorer, also from Find or Changes.
-- The "pi files" tab is hidden behind `»` in a narrow sidebar.
+- The "agent files" tab is hidden behind `»` in a narrow sidebar.
 
 ## Slice 2: sessions
 
@@ -198,7 +198,7 @@ ttt was tried and dropped: it took space from the code.) Each pi writes
 1. the session you chose with `ctrl+k n` (it cycles through the sessions, then
    to **detached**, then back to automatic). Detached has no owner at all: the
    chosen id is the sentinel `-`, `pick` returns no session, the bar says
-   `π detached` and the features that need a pi say that the editor is
+   `○ detached` and the features that need an agent say that the editor is
    detached. pi itself runs on;
 2. else the session that wrote or edited the open file (each session record
    lists its last 20 files; pi adds a file when it starts to write it, before
@@ -211,7 +211,7 @@ ttt was tried and dropped: it took space from the code.) Each pi writes
    file", also a file pi itself had just written in `/tmp`.)
 
 Only the owner writes events and answers helpi! questions. The status bar shows it:
-`π symbiosis ● working`, `π none`, or `π tosak-docs · old, /reload` for an
+`π symbiosis ● working` (the mark is the agent's: π pi, ✻ claude, else its name), `○ no agent`, or `π tosak-docs · old, /reload` for an
 extension with another protocol. `ctrl+k g` or a click runs
 `herdr agent focus <pane>` (the plugin's `system.exec` permission allows
 `herdr` only). When the owner changes, its first event starts the log again,
@@ -226,6 +226,18 @@ pointer on text that has an empty line. The plugin splits lines with `find`.
 Keys `ctrl+k e t i j o r s u y` belong to ttt (`s` is Save As, `y` the keybindings); plugin chords that work are
 `a d g h n q v w x z` and `.` `/` (`d` asks, see "Ask" below). A `local ready` flag once hid the `ready` handler:
 Lua locals shadow quietly.
+
+## The agent of a session
+
+Each record names its agent (`agent`: `pi`, `claude`) and lists what its
+agent side can do (`can`: `help`, `ask`, `fill`, `stop`, `close`; `PROTOCOL`
+18). The plugin (`ttt/src/core/agent.lua`) shows the agent's mark in the
+status bar (π pi, ✻ claude, else its name), and its name in a text about
+that session (`claude ✎ writing store.ts`, `// claude: …` under a helpi!
+question). A text about no session says "the agent", and the bar says
+`○ no agent`. A feature the agent cannot do says so at once (`claude w cannot
+answer helpi! yet`), with no 3 s wait for an answer. A record without `agent`
+is pi's: only pi wrote records before `PROTOCOL` 18.
 
 ## Slice 3: the timeline
 
@@ -363,13 +375,13 @@ ttt), so there are two parts:
   `explorer.revealActiveFile`, once for each new file. Only for a file in a
   folder open in ttt: ttt.fs sees only those folders, so `fs.exists` tells.
   Outside them the reveal only says "File is not in the explorer".
-- The "pi files" panel (a sidebar tab): each live session, by name and
+- The "agent files" panel (a sidebar tab): each live session, by name and
   folder, with the files it wrote (`files` in its record, the last 20) as a
   tree under its folder; a file outside the folder goes under its own folder
   by full path. `▶` the session the editor follows, `✎` the file pi changes
   now; Enter opens a file.
 
-The reveal switches the sidebar to the explorer. So while the "pi files" tab
+The reveal switches the sidebar to the explorer. So while the "agent files" tab
 is on screen (ttt draws it on each tick, the plugin notes the tick) there is
 no reveal. ttt has no command to show a plugin's sidebar tab: you choose it.
 
@@ -537,7 +549,7 @@ record:
   `anchor`); the mark follows the function when lines move, and goes when the
   line's text changes. The drawing is `core/gutter.lua`, shared with the notes'
   `◆`.
-- **Tree.** The "pi files" tab shows `● n` at a file with n bodies waiting.
+- **Tree.** The "agent files" tab shows `● n` at a file with n bodies waiting.
 - **Ack.** The plugin writes `review.json` (`{id, to, ack}`); pi drops the body
   from its list in the next poll and writes the record at once. `acked` in the
   plugin hides the body until the record agrees.

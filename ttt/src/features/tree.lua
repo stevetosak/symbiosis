@@ -12,6 +12,7 @@ local editor = require("ttt.editor")
 local fs = require("ttt.fs")
 local util = require("core.util")
 local wrap = require("core.wrap")
+local agent = require("core.agent")
 local review = require("core.review")
 
 -- Adds `node` under `dir` (a node), in the folder named by `parts`.
@@ -52,7 +53,7 @@ local function build(sessions, owner, now)
 		local followed = owner and owner.id == rec.id
 		local node = {
 			id = rec.id,
-			label = (followed and "▶ " or "") .. rec.name,
+			label = (followed and "▶ " or "") .. agent.mark(rec) .. " " .. rec.name,
 			badge = util.short(rec.cwd or ""),
 			expanded = true,
 			children = {},
@@ -89,8 +90,8 @@ return {
 	build = build, -- for the unit tests
 	setup = function(app)
 		local sessions = app:need("sessions")
-		local seen = -100  -- the tick when ttt last drew the "pi files" panel
-		local items = {}   -- the "pi files" tree, built when the sessions or the follow change
+		local seen = -100  -- the tick when ttt last drew the "agent files" panel
+		local items = {}   -- the "agent files" tree, built when the sessions or the follow change
 		local paths = {}   -- node id -> file path
 		local revealed = nil -- the file last shown in ttt's file tree
 
@@ -119,11 +120,11 @@ return {
 		app:on("sessions", rebuild)
 		app:on("follow", follow)
 		app:sidebar({
-			title = "pi files",
+			title = "agent files",
 			render = function(panel)
 				seen = app.ticks
 				if #items == 0 then
-					wrap.label(panel, { text = "No pi session is running.", style = "muted" })
+					wrap.label(panel, { text = "No agent session is running.", style = "muted" })
 					return
 				end
 				panel:tree({
@@ -135,7 +136,7 @@ return {
 				})
 			end,
 		})
-		app:note("Sidebar: the \"pi files\" tab lists pi's files", 10)
+		app:note("Sidebar: the \"agent files\" tab lists the files of each agent session", 10)
 		return { follow = follow }
 	end,
 }

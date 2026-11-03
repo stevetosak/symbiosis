@@ -15,6 +15,8 @@ function setup(owner: string) {
 	const calls = { stop: 0, quit: 0 };
 	const side = new AgentSide({
 		id: 'a1',
+		agent: 'claude',
+		can: ['stop'],
 		cwd: ws,
 		pid: 4242,
 		env: {},
@@ -46,6 +48,8 @@ test('the owner sends a call from start to stop, and keeps it for the change lis
 	assert.equal(done.path, file);
 	assert.equal(done.why, 'the name says two');
 	assert.equal(record().working, false);
+	assert.equal(record().agent, 'claude');
+	assert.deepEqual(record().can, ['stop']);
 	assert.deepEqual(record().files, [file]);
 	assert.equal(log().changes.length, 1);
 	assert.equal(JSON.parse(readFileSync(join(dir, 'changes', 'index.json'), 'utf-8')).files[0].path, file);

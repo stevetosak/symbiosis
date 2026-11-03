@@ -24,6 +24,8 @@ local changelist = require("core.changelist")
 local MARK = "▌"
 local SETTLE_MS = 300 -- pi wrote the file: ttt reloads the buffer a moment later
 
+local agent = require("core.agent")
+
 local function setup(app)
 	local has_marks, bookmarks = pcall(require, "ttt.bookmarks")
 	local has_diag, diagnostics = pcall(require, "ttt.diagnostics")
@@ -101,7 +103,7 @@ local function setup(app)
 				table.insert(items, {
 					line = r.first, col = 1, end_line = r.last, end_col = math.max(2, util.runes(editor.get_line(r.last)) + 1),
 					severity = "hint", style = changelist.style_of(steps, r.change),
-					message = "pi · " .. step .. (r.change.created and "new file" or "changed") .. why, source = "pi",
+					message = agent.name(owner) .. " · " .. step .. (r.change.created and "new file" or "changed") .. why, source = agent.name(owner),
 				})
 			end
 		end
@@ -138,33 +140,33 @@ local function setup(app)
 	local function seen_here()
 		local path = editor.file_path()
 		local owner = sessions.owner()
-		if not path or path == "" or not owner then return ttt.notify("symbiosis: no file, or no pi followed", "info") end
+		if not path or path == "" or not owner then return ttt.notify("symbiosis: no file, or no agent followed", "info") end
 		local changes = changelist.read_log(channel, owner)
 		local ids, seen = {}, changelist.read_seen(channel, owner)
 		for _, c in ipairs(changes) do
 			if c.path == path and not seen[c.id] then table.insert(ids, c.id) end
 		end
-		if #ids == 0 then return ttt.notify("symbiosis: no change of pi in " .. util.name(path) .. " waits to be seen", "info") end
+		if #ids == 0 then return ttt.notify("symbiosis: no change of " .. agent.name(owner) .. " in " .. util.name(path) .. " waits to be seen", "info") end
 		changelist.mark_seen(channel, owner, ids, changes)
 		app:emit("seen")
-		ttt.notify("symbiosis: " .. #ids .. " change" .. (#ids == 1 and "" or "s") .. " of pi in " .. util.name(path) .. " marked seen", "info")
+		ttt.notify("symbiosis: " .. #ids .. " change" .. (#ids == 1 and "" or "s") .. " of " .. agent.name(owner) .. " in " .. util.name(path) .. " marked seen", "info")
 	end
 
-	app:command({ id = "symbiosis.markSeen", title = "symbiosis: Mark pi's Changes in This File Seen", key = "ctrl+k /", run = seen_here })
+	app:command({ id = "symbiosis.markSeen", title = "symbiosis: Mark the Agent's Changes in This File Seen", key = "ctrl+k /", run = seen_here })
 	app:command({
-		id = "symbiosis.markAllSeen", title = "symbiosis: Mark All of pi's Changes Seen",
+		id = "symbiosis.markAllSeen", title = "symbiosis: Mark All of the Agent's Changes Seen",
 		run = function()
 			local owner = sessions.owner()
-			if not owner then return ttt.notify("symbiosis: no pi followed", "info") end
+			if not owner then return ttt.notify("symbiosis: no agent followed", "info") end
 			local changes = changelist.read_log(channel, owner)
 			local ids = {}
 			for _, c in ipairs(changes) do table.insert(ids, c.id) end
 			changelist.mark_seen(channel, owner, ids, changes)
 			app:emit("seen")
-			ttt.notify("symbiosis: all of pi's changes marked seen", "info")
+			ttt.notify("symbiosis: all of " .. agent.name(owner) .. "'s changes marked seen", "info")
 		end,
 	})
-	app:hint({ key = "ctrl+k /", text = "mark pi's changes in this file seen", order = 82 })
+	app:hint({ key = "ctrl+k /", text = "mark the agent's changes in this file seen", order = 82 })
 
 	app:on("seen", draw_safe)
 	app:on("file", draw_safe)

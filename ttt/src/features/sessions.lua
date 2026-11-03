@@ -17,6 +17,7 @@ local system = require("ttt.system")
 local util = require("core.util")
 local wrap = require("core.wrap")
 local channel_mod = require("core.channel")
+local agent = require("core.agent")
 
 local PROTOCOL = channel_mod.PROTOCOL
 
@@ -115,9 +116,9 @@ return {
 		local function show()
 			local text
 			if chosen == DETACHED then
-				text = "π detached"
+				text = "○ detached"
 			elseif not owner then
-				text = "π none"
+				text = "○ no agent"
 			else
 				local waiting = type(owner.waiting) == "string" and owner.waiting or nil
 				-- pi shows a dialog in its own pane: a notice says so for 5 s, then the
@@ -125,7 +126,7 @@ return {
 				if waiting and waiting_said ~= owner.id .. waiting then
 					local said = owner.id .. waiting
 					waiting_said = said
-					ttt.notify("symbiosis: pi " .. owner.name .. " waits for you: " .. waiting .. " (ctrl+k g goes there)", "info")
+					ttt.notify("symbiosis: " .. agent.name(owner) .. " " .. owner.name .. " waits for you: " .. waiting .. " (ctrl+k g goes there)", "info")
 					-- Measured: here the notice stays (a bare plugin's goes in about 4 s).
 					ttt.set_timeout(5000, function()
 						if waiting_said == said then ttt.notify("") end
@@ -135,12 +136,12 @@ return {
 					waiting_said = nil
 					ttt.notify("")
 				end
-				text = "π " .. owner.name .. (waiting and " ? waits for you" or owner.working and " ● working" or " ○ idle")
+				text = agent.mark(owner) .. " " .. owner.name .. (waiting and " ? waits for you" or owner.working and " ● working" or " ○ idle")
 				local fill = owner.fill
 				if type(fill) == "table" and fill.name then
 					text = text .. (fill.kind == "place" and " · writing " or " · filling ") .. fill.name
 				end
-				if owner.version ~= PROTOCOL then text = "π " .. owner.name .. " · old, /reload" end
+				if owner.version ~= PROTOCOL then text = agent.mark(owner) .. " " .. owner.name .. " · old, /reload" end
 				if chosen then text = text .. " (chosen)"
 				elseif outside then text = text .. " (outside its folder)" end
 			end
@@ -163,7 +164,7 @@ return {
 		local function next_session()
 			sessions = load(DIR)
 			if #sessions == 0 and chosen ~= DETACHED then
-				ttt.notify("symbiosis: no pi session is running", "warning")
+				ttt.notify("symbiosis: no agent session is running", "warning")
 				return refresh()
 			end
 			if chosen == DETACHED then
@@ -191,10 +192,10 @@ return {
 			-- "π detached": a click follows pi again.
 			if chosen == DETACHED then return toggle_detach() end
 			if not owner then
-				return ttt.notify("symbiosis: no pi session is running", "warning")
+				return ttt.notify("symbiosis: no agent session is running", "warning")
 			end
 			if not owner.pane then
-				return ttt.notify("symbiosis: pi " .. owner.name .. " does not run in herdr or tmux", "warning")
+				return ttt.notify("symbiosis: " .. agent.name(owner) .. " " .. owner.name .. " does not run in herdr or tmux", "warning")
 			end
 			local binary, args = "herdr", { "agent", "focus", owner.pane }
 			if owner.host == "tmux" then
@@ -212,10 +213,13 @@ return {
 		local stops = 0
 		local function stop_pi()
 			if not owner then
-				return ttt.notify("symbiosis: no pi session is running", "warning")
+				return ttt.notify("symbiosis: no agent session is running", "warning")
+			end
+			if not agent.can(owner, "stop") then
+				return ttt.notify("symbiosis: " .. agent.name(owner) .. " " .. owner.name .. " cannot be stopped from ttt yet", "warning")
 			end
 			if not owner.working then
-				return ttt.notify("symbiosis: pi " .. owner.name .. " is idle", "info")
+				return ttt.notify("symbiosis: " .. agent.name(owner) .. " " .. owner.name .. " is idle", "info")
 			end
 			stops = stops + 1
 			app.channel:write_json("stop.json", { id = tostring(os.time()) .. "-" .. stops, to = owner.id })
@@ -226,32 +230,32 @@ return {
 		app:on("second", refresh)
 		app:on("file", refresh)
 
-		app:command({ id = "symbiosis.nextSession", title = "symbiosis: Next pi Session Takes Over", key = "ctrl+k n", run = next_session })
-		app:command({ id = "symbiosis.detach", title = "symbiosis: Detach from pi (or Follow pi Again)", run = toggle_detach })
-		app:command({ id = "symbiosis.goToSession", title = "symbiosis: Go to the pi Session (herdr, tmux)", key = "ctrl+k g", run = go_session })
-		app:command({ id = "symbiosis.stop", title = "symbiosis: Stop pi's Turn", key = "ctrl+k q", run = stop_pi })
-		app:hint({ key = "ctrl+k q", text = "stop pi's turn", order = 20 })
-		app:hint({ key = "ctrl+k n", text = "next pi session, then detached", order = 110 })
-		app:hint({ key = "ctrl+k g", text = "go to pi's pane (herdr, tmux)", order = 120 })
+		app:command({ id = "symbiosis.nextSession", title = "symbiosis: Next Agent Session Takes Over", key = "ctrl+k n", run = next_session })
+		app:command({ id = "symbiosis.detach", title = "symbiosis: Detach from the Agent (or Follow It Again)", run = toggle_detach })
+		app:command({ id = "symbiosis.goToSession", title = "symbiosis: Go to the Agent's Session (herdr, tmux)", key = "ctrl+k g", run = go_session })
+		app:command({ id = "symbiosis.stop", title = "symbiosis: Stop the Agent's Turn", key = "ctrl+k q", run = stop_pi })
+		app:hint({ key = "ctrl+k q", text = "stop the agent's turn", order = 20 })
+		app:hint({ key = "ctrl+k n", text = "next agent session, then detached", order = 110 })
+		app:hint({ key = "ctrl+k g", text = "go to the agent's pane (herdr, tmux)", order = 120 })
 
 		-- In the panel: the sessions; Enter follows one.
 		-- ✓ = how the editor picks; ▶ = the session it follows now.
 		app:section({
 			order = 20,
 			render = function(panel)
-				panel:label({ text = "pi sessions · Enter: follow it", style = "bold", margin_top = 1 })
+				panel:label({ text = "agent sessions · Enter: follow it", style = "bold", margin_top = 1 })
 				local items = { { id = "", label = (chosen and "  " or "✓ ") .. "automatic: by the open file" } }
 				for _, rec in ipairs(sessions) do
 					local mark = owner and owner.id == rec.id and "▶ " or "  "
 					table.insert(items, {
 						id = rec.id,
-						label = mark .. rec.name .. (type(rec.waiting) == "string" and " ?" or rec.working and " ●" or " ○")
+						label = mark .. agent.mark(rec) .. " " .. rec.name .. (type(rec.waiting) == "string" and " ?" or rec.working and " ●" or " ○")
 							.. (type(rec.model) == "string" and (" · " .. rec.model) or "")
 							.. (chosen == rec.id and " ✓ chosen" or "") .. now_step(rec),
 						muted = rec.version ~= PROTOCOL,
 					})
 				end
-				table.insert(items, { id = DETACHED, label = (chosen == DETACHED and "✓ " or "  ") .. "detached: follow no pi" })
+				table.insert(items, { id = DETACHED, label = (chosen == DETACHED and "✓ " or "  ") .. "detached: follow no agent" })
 				panel:list({
 					items = wrap.items(items, wrap.width(panel)),
 					truncate_left = false,
@@ -271,10 +275,11 @@ return {
 			detached = function() return chosen == DETACHED end,
 			-- What to tell when a feature needs a pi session and there is none.
 			missing = function(default)
-				if chosen == DETACHED then return "the editor is detached from pi (ctrl+k n, or the panel, follows one again)" end
+				if chosen == DETACHED then return "the editor is detached from every agent (ctrl+k n, or the panel, follows one again)" end
 				return default
 			end,
 			list = function() return sessions end,
+			agent = function(fallback) return owner and agent.name(owner) or fallback or "the agent" end,
 			refresh = refresh,
 		}
 	end,

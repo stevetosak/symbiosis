@@ -68,7 +68,7 @@ local function setup(app)
 		local asked = dir .. "/" .. IGNORE .. ".ignore-asked"
 		if not exists(dir .. "/.git") or exists(asked) then return end
 		pcall(fs.write, asked, "asked\n")
-		local fine, err = pcall(ttt.confirm, "Keep pi's notes out of git? This adds " .. IGNORE .. " to .gitignore.", function()
+		local fine, err = pcall(ttt.confirm, "Keep the symbiosis notes out of git? This adds " .. IGNORE .. " to .gitignore.", function()
 			local path = dir .. "/.gitignore"
 			local text = exists(path) and fs.read(path) or ""
 			for l in (text .. "\n"):gmatch("(.-)\n") do

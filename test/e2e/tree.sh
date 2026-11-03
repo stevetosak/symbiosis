@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The file tree follows pi (test/e2e/tree.ts) in a headless ttt opened on a
-# folder: ttt's tree opens to pi's file; the "pi files" panel shows pi's files
+# folder: ttt's tree opens to pi's file; the "agent files" panel shows pi's files
 # also outside that folder, and while it is on screen the tree stays on it.
 # Usage: test/e2e/tree.sh [out-dir]
 set -euo pipefail
@@ -12,7 +12,7 @@ export TTT_CONFIG_DIR="$OUT/cfg"
 mkdir -p "$OUT/cfg/plugins/symbiosis" "$OUT/ws/src" "$OUT/ws/docs"
 "$repo/bin/run-node" "$repo/ttt/build.ts" >/dev/null
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"
-# A wide sidebar, so the "pi files" tab shows and a click reaches it.
+# A wide sidebar, so the "agent files" tab shows and a click reaches it.
 echo '{"sidebarWidth":70}' > "$OUT/cfg/state.json"
 perms=$(python3 -c "import json; print(json.dumps(json.load(open('$repo/ttt/symbiosis/plugin.ttt.json'))['permissions']))")
 echo "[{\"name\":\"symbiosis\",\"displayName\":\"symbiosis\",\"version\":\"0.1.0\",\"enabled\":true,\"permissions\":$perms}]" > "$OUT/cfg/plugins.ttt.json"
@@ -32,7 +32,7 @@ fail() { echo "FAIL: $*"; echo "out: $OUT"; exit 1; }
 side() { cut -c1-72 "$1"; }
 side "$OUT/explorer.txt" | grep -q '▼ deep' || fail "ttt's tree did not open to src/deep"
 side "$OUT/explorer.txt" | grep -q 'a.ts' || fail "ttt's tree does not show a.ts"
-side "$OUT/panel.txt" | grep -q '▶ ws' || fail "the panel does not show the session the editor follows"
+side "$OUT/panel.txt" | grep -q '▶ π ws' || fail "the panel does not show the session the editor follows"
 side "$OUT/panel.txt" | grep -q 'deep/' || fail "the panel does not show src/deep"
 side "$OUT/panel.txt" | grep -q 'other/' || fail "the panel does not show the folder outside ttt's tree"
 side "$OUT/panel.txt" | grep -q '✎ a.ts' || fail "the panel does not mark the file pi changed last"

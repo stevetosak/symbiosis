@@ -1,7 +1,7 @@
 # Plan: symbiosis for any agent, Claude Code first
 
-Status: draft, 2026-11-03. Questions 1 to 8 answered by the operator. Slice 0
-(the spike) is done; its results changed decision 6 and slices 3 to 5.
+Status: draft, 2026-11-03. Questions 1 to 8 answered by the operator. Slices 0
+to 2 are done; the spike's results changed decision 6 and slices 3 to 5.
 
 ## What I understood
 
@@ -98,12 +98,13 @@ claude ──transcript .jsonl────────────────�
 Each slice ends with its check. The next slice starts only after it passes.
 
 0. **Spike.** Done (above).
-1. **Split the pi adapter.** `core/agent/` gets the record, the events, the
+1. **Split the pi adapter.** Done. `core/agent/` gets the record, the events, the
    change log (`pi/changelog.ts`) and the diff texts (`pi/changes.ts`).
    `pi/index.ts` uses it. No change in behaviour.
    Check: `npm test`, `npm run test:lua`, the e2e scripts and demo scenarios pass unchanged.
-2. **The record names its agent** (PROTOCOL 18): `agent` and `can`. ttt shows
-   the agent's name in place of the fixed "pi".
+2. **The record names its agent** (PROTOCOL 18): `agent` and `can`. Done. ttt shows
+   the agent's name in place of the fixed "pi"; the status bar shows its mark
+   (π pi, ✻ claude, `○ no agent`; decided 2026-11-03), and a text with no session says "the agent".
    Check: Lua tests; a pi session looks as before.
 3. **Claude: observe.** `claude/hook.ts`, `claude/keeper.ts`, `claude/map.ts`
    (pure: Claude's input to pi's shape, tasks to steps), `claude/transcript.ts`

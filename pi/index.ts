@@ -18,7 +18,7 @@ import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-a
 import { AgentSide } from '../core/agent/agent.ts';
 import { absolutePath, firstLine } from '../core/call.ts';
 import { askMessage, HELP_SYSTEM, helpPrompt, lastAssistantText, parseAnswer } from '../core/help.ts';
-import type { HelpRequest, Tool } from '../core/protocol.ts';
+import { CAPABILITIES, type HelpRequest, type Tool } from '../core/protocol.ts';
 import { Asking } from './ask.ts';
 import { Filling, PROPOSE_DESCRIPTION, PROPOSE_PARAMETERS, type ProposeParams } from './fill.ts';
 import { cleanSteps, PLAN_DESCRIPTION, prepareArguments, PLAN_GUIDELINES, PLAN_PARAMETERS, PLAN_SNIPPET, planFromBranch, planSummary } from './plan.ts';
@@ -35,6 +35,8 @@ export default function symbiosis(pi: ExtensionAPI) {
 	let session: ExtensionContext | undefined;
 	const side = new AgentSide({
 		id: `${process.pid}-${Date.now().toString(36)}`,
+		agent: 'pi',
+		can: [...CAPABILITIES],
 		cwd: process.cwd(),
 		pid: process.pid,
 		host: {

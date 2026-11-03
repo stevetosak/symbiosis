@@ -60,7 +60,7 @@ return {
 
 		app:command({ id = "symbiosis.help", title = "symbiosis: Settings, Sessions and Keys", key = "ctrl+k h", run = open })
 		app:hint({ key = "ctrl+k h", text = "this panel", order = 10 })
-		app:note("Esc closes · click on π goes to pi", 90)
+		app:note("Esc closes · a click on the session item goes to its pane", 90)
 
 		return { open = open, render = render }
 	end,
