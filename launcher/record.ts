@@ -14,6 +14,11 @@ export interface Host {
 	pane: string;
 }
 
+export interface AgentPane {
+	name: string;
+	pane: string;
+}
+
 export interface OpenRecord {
 	pid: number;
 	folder: string;
@@ -21,8 +26,15 @@ export interface OpenRecord {
 	started: number;
 	/** The pane it runs in, to go there later. */
 	host: Host | null;
-	/** The pane the launcher made for pi: `symbiosis close` closes it. Null: none (no herdr, no tmux). */
+	/** The pane the launcher made for the agent: `symbiosis close` closes it. Null: none (no herdr, no tmux). */
+	agent?: AgentPane | null;
 	pi?: string | null;
+}
+
+export function agentPane(record: OpenRecord): AgentPane | null {
+	const agent = record.agent;
+	if (agent && typeof agent.name === 'string' && typeof agent.pane === 'string' && agent.pane) return agent;
+	return typeof record.pi === 'string' && record.pi ? { name: 'pi', pane: record.pi } : null;
 }
 
 export function stateDir(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {

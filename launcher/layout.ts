@@ -1,20 +1,20 @@
-// Where ttt and pi go, as multiplexer commands. Pure: it only builds the
+// Where ttt and the agent go, as multiplexer commands. Pure: it only builds the
 // command lines and reads their output, so the tests need no herdr or tmux.
 //
-//   layout tabs   ttt here, pi in a new tab "pi · <folder>" (the default)
-//   layout split  this pane splits: ttt left, pi right
+//   layout tabs   ttt here, the agent in a new tab "<agent> · <folder>" (the default)
+//   layout split  this pane splits: ttt left, the agent right
 //   open tab      first a new tab "<folder>", where symbiosis runs again with --here
 //
 // The tab where ttt runs is named too ("ttt · <folder>", "symbiosis · <folder>"
-// with `split`, where pi shares it) and gets its old name back when ttt quits.
+// with `split`, where the agent shares it) and gets its old name back when ttt quits.
 //
 // Measured with herdr 0.9.3: `tab create` prints the new tab's root pane at
 // .result.root_pane.pane_id, `pane split` the new pane at .result.pane.pane_id;
 // `pane run` types a command into that pane's shell. tmux prints the pane id
-// with -P -F '#{pane_id}'. The shell stays after pi quits, so its last words
-// can be read.
+// with -P -F '#{pane_id}'. The shell stays after the agent quits, so its last
+// words can be read.
 import { basename } from 'node:path';
-import type { Layout } from './config.ts';
+import type { AgentName, Layout } from './config.ts';
 import type { Host } from './record.ts';
 
 /** One command line: the binary and its arguments. */
@@ -80,9 +80,9 @@ export function splitRight(host: Host, folder: string, command: Argv): PaneStart
 	return { create, run: runIn(host.kind, command), kind: host.kind };
 }
 
-/** Where pi starts for `layout`, next to the ttt in `host`'s pane. */
-export function piStart(host: Host, layout: Layout, folder: string, pi: Argv): PaneStart {
-	return layout === 'split' ? splitRight(host, folder, pi) : newTab(host, folder, label(folder, 'pi'), false, pi);
+/** Where the agent starts for `layout`, next to the ttt in `host`'s pane. */
+export function agentStart(host: Host, layout: Layout, folder: string, agent: AgentName, command: Argv): PaneStart {
+	return layout === 'split' ? splitRight(host, folder, command) : newTab(host, folder, label(folder, agent), false, command);
 }
 
 /** The new pane's id from the output of `create`; throws when it is not there. */
@@ -173,12 +173,13 @@ export function goTo(host: Host, place?: { workspace: string; tab: string }): Ar
 	];
 }
 
-/** The pi command line: -c continues, then the config's args, then the ones after `--`. */
-export function piCommand(pi: string, cont: boolean, configArgs: string[], args: string[]): Argv {
-	return [pi, ...(cont ? ['--continue'] : []), ...configArgs, ...args];
+/** The agent's command line: -c continues, then the config's args, then the ones after `--`. */
+export function agentCommand(agent: AgentName, bin: string, cont: boolean, configArgs: string[], args: string[], plugin: string): Argv {
+	const rest = [...(cont ? ['--continue'] : []), ...configArgs, ...args];
+	return agent === 'claude' ? ['env', 'CLAUDE_CODE_ENABLE_TODO_TOOLS=1', bin, '--plugin-dir', plugin, ...rest] : [bin, ...rest];
 }
 
-/** What to say when no multiplexer can hold pi. */
-export function noHost(folder: string, pi: Argv): string {
-	return `symbiosis: not in herdr or tmux, so this opens ttt only. Start pi in another terminal:\n  cd ${shellQuote(folder)} && ${shellLine(pi)}`;
+/** What to say when no multiplexer can hold the agent. */
+export function noHost(folder: string, agent: AgentName, command: Argv): string {
+	return `symbiosis: not in herdr or tmux, so this opens ttt only. Start ${agent} in another terminal:\n  cd ${shellQuote(folder)} && ${shellLine(command)}`;
 }

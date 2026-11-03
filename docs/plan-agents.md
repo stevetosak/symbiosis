@@ -121,10 +121,15 @@ Each slice ends with its check. The next slice starts only after it passes.
    `permission_prompt` came with slice 3.
    Check: the keeper test (Esc, close, no pane); claude.sh (a wait, then
    `ctrl+k q`); by hand in herdr: a stop before and during output, a close.
-5. **Launcher.** `--agent`, config `agent` and `agentArgs`, tab
+5. **Launcher.** Done. `--agent`, config `agent` and `agentArgs`, tab
    `claude · <folder>`, `-c` gives `claude --continue`, `record.pi` becomes
-   `record.agent`, and `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` for claude.
-   Check: launcher tests, the layout e2e.
+   `record.agent` (`{name, pane}`; close still reads `pi`), and
+   `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` for claude. The launcher also gives claude
+   `--plugin-dir <its own checkout>`, so the hooks work before slice 6.
+   `agentArgs` go to the config's agent only.
+   Check: launcher tests, app.sh (claude in a tab, from the config, `--tab`,
+   no multiplexer, close); by hand in herdr: `symbiosis --agent claude`, a task
+   and a write in ttt, then `symbiosis close`.
 6. **Install.** `.claude-plugin/marketplace.json`; the plugin's root is the repo
    root, so `core/` comes along; install.sh installs it when `claude` is on PATH.
    Check: a fresh install in a clean `HOME`.
@@ -143,6 +148,8 @@ Each slice ends with its check. The next slice starts only after it passes.
 
 - Slice 6: where the one copy lives when pi is not installed (today it is
   pi's package folder), and how the plugin gets `node_modules`.
+- Slice 6: the launcher gives claude `--plugin-dir`. With the plugin also
+  installed, check that Claude does not run the hooks twice, or drop the flag.
 
 ## Is this what you want
 

@@ -89,8 +89,10 @@ load the extension twice). `/reload` in pi after a change.
 `SYMBIOSIS_CHECKOUT=<checkout> sh install.sh` runs the full installer on it.
 
 **Claude Code (preview).** From a checkout, after `npm run install:local` (it
-copies this checkout's ttt plugin):
-`CLAUDE_CODE_ENABLE_TODO_TOOLS=1 claude --plugin-dir <checkout>`. ttt shows the
+copies this checkout's ttt plugin): `symbiosis --agent claude`, or
+`"agent": "claude"` in the config. It starts
+`env CLAUDE_CODE_ENABLE_TODO_TOOLS=1 claude --plugin-dir <checkout>`; a Claude
+you start yourself needs the same. ttt shows the
 session as `✻ <folder>` and follows what Claude writes: the file, the preview,
 the plan from its tasks, the change list, `ctrl+k w`. `ctrl+k q` presses Esc
 in its herdr or tmux pane; `symbiosis close` and `ctrl+k z` quit it. Not yet:
@@ -99,33 +101,37 @@ helpi!, ask and fill. See [docs/plan-agents.md](docs/plan-agents.md).
 ## The symbiosis command
 
 ```
-symbiosis [folder] [--tab | --here] [--tabs | --split] [-c] [--new] [-- <pi args>]
+symbiosis [folder] [--agent pi|claude] [--tab | --here] [--tabs | --split] [-c] [--new] [-- <agent args>]
 ```
 
-It opens ttt in the folder and a real pi beside it. The folder is the
-argument, else the git root, else this folder.
+It opens ttt in the folder and a real agent beside it: pi (the default), or
+Claude Code with `--agent claude`. The folder is the argument, else the git
+root, else this folder.
 
-- In herdr or tmux, pi gets a tab of its own, "pi · <folder>", and ttt opens
+- In herdr or tmux, the agent gets a tab of its own, "pi · <folder>" or
+  "claude · <folder>", and ttt opens
   here (`--tabs`, the default), in a tab named "ttt · <folder>" ("symbiosis ·
   <folder>" with `--split`, where both share it). The tab gets its old name
-  back when ttt quits. `--split`: this pane splits, ttt left, pi
+  back when ttt quits. `--split`: this pane splits, ttt left, the agent
   right. `--tab`: all of it in a new tab. Outside herdr and tmux, ttt opens
-  alone and symbiosis prints how to start pi.
-- `-c` continues pi's last session there, `--new` opens a second one,
-  `-- <args>` go to pi.
+  alone and symbiosis prints how to start the agent.
+- `-c` continues the agent's last session there (`--continue`), `--new` opens
+  a second one, `-- <args>` go to the agent.
 - A second `symbiosis` for the same folder goes to the tab where the first one
   runs (herdr, tmux), or says where it runs.
-- When ttt quits (`ctrl+q`), pi stays: it is a full pi session in its own pane.
-- `symbiosis close [folder]` ends all of it: pi quits, its tab or pane closes,
-  then ttt quits. Inside ttt it needs no folder, and `ctrl+k z` (or the palette:
-  `symbiosis: Close (pi and ttt)`) does the same after a question. ttt asks about
-  running programs (F5) and unsaved files as for `ctrl+q`. Only the pi that the
-  command started in its own pane is closed; a pi you started yourself stays,
-  and when pi does not quit in 8 s its pane stays and ttt stays too.
+- When ttt quits (`ctrl+q`), the agent stays: it is a full session in its own pane.
+- `symbiosis close [folder]` ends all of it: the agent quits, its tab or pane
+  closes, then ttt quits. Inside ttt it needs no folder, and `ctrl+k z` (or the
+  palette: `symbiosis: Close (the Agent and ttt)`) does the same after a
+  question. ttt asks about running programs (F5) and unsaved files as for
+  `ctrl+q`. Only the agent that the command started in its own pane is closed;
+  one you started yourself stays, and when the agent does not quit in 8 s its
+  pane stays and ttt stays too.
 - `symbiosis version [--check]` shows what runs and whether its parts agree (see Install).
 - Config: `~/.config/symbiosis/config.json`
-  `{"open": "here" | "tab", "layout": "tabs" | "split", "piArgs": [...]}`.
-  A flag wins over the config.
+  `{"open": "here" | "tab", "layout": "tabs" | "split", "agent": "pi" | "claude", "agentArgs": [...]}`.
+  A flag wins over the config. `agentArgs` go to the config's agent only, not
+  to another one that `--agent` names. `piArgs` is the old name of `agentArgs`.
 
 ## Use
 
