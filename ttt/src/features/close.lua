@@ -1,7 +1,8 @@
--- Close symbiosis: ctrl+k z. pi quits, its tab or pane closes, then ttt
--- quits (ctrl+q quits ttt alone and leaves pi). The work is `symbiosis close
--- --keep-editor` (launcher/close.ts): it knows the pane the launcher made for
--- pi. ttt quits itself afterwards, so it asks about unsaved files as for ctrl+q.
+-- Close symbiosis: ctrl+k z. The agent quits, its tab or pane closes, then
+-- ttt quits (ctrl+q quits ttt alone and leaves the agent). The work is
+-- `symbiosis close --keep-editor` (launcher/close.ts): it knows the pane the
+-- launcher made for the agent. ttt quits itself afterwards, so it asks about
+-- unsaved files as for ctrl+q.
 -- When programs run (F5), the question about them is the confirmation.
 --
 -- `symbiosis close` in a terminal does the first half itself and then writes

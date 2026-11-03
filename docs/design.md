@@ -801,17 +801,25 @@ not hidden behind ttt: it runs in its own pane, with its own chat, commands
 and dialogs. (pi in RPC mode behind ttt, with a chat panel in ttt, was built
 and dropped: the panel was a poorer copy of pi's own terminal.)
 
-- **Where pi goes.** In herdr or tmux, by `layout` (config, or `--tabs`,
+- **The agent.** `--agent pi|claude`, or `agent` in the config; pi is the
+  default. claude runs as `env CLAUDE_CODE_ENABLE_TODO_TOOLS=1 claude
+  --plugin-dir <the launcher's checkout>`: the task tools for the plan, and the
+  hooks of the same version as the launcher. `-c` is `--continue` for both.
+  `agentArgs` (old name `piArgs`; both at once is an error) go to the config's
+  agent only, so `--agent claude` with a pi config gives claude none of pi's
+  arguments.
+- **Where the agent goes.** In herdr or tmux, by `layout` (config, or `--tabs`,
   `--split`):
-  - `tabs` (the default): a new tab `pi · <folder>`, not focused; ttt stays
+  - `tabs` (the default): a new tab `<agent> · <folder>`, not focused; ttt stays
     in this pane.
   - `split`: this pane splits, pi on the right, the focus stays on ttt.
   The launcher makes the pane, then types the pi command into its shell, so
   the shell stays when pi quits and its last words can be read.
 - **`--tab`** (or `open: "tab"`): a new focused tab named after the folder;
   symbiosis runs again there with `--here`, and this pane is free. The new
-  tab's shell does not get this environment, so `SYMBIOSIS_PI` and
-  `SYMBIOSIS_TTT` go along on the command line (`env ...`).
+  tab's shell does not get this environment, so `SYMBIOSIS_PI`,
+  `SYMBIOSIS_CLAUDE` and `SYMBIOSIS_TTT` go along on the command line
+  (`env ...`), and `--agent` when it was given.
 - **Demo scenarios.** `demo/scenarios/` has one `Scenario` for each feature
   (`kit.ts` is the shape: title, what to try, the scripted pi's `run`, and a
   `check` for a headless ttt). `npm run demo -- <name>` writes the name into the
@@ -834,10 +842,13 @@ and dropped: the panel was a poorer copy of pi's own terminal.)
   `automatic-rename`) and restores it when ttt ends (tmux: `automatic-rename
   on` when the window had no name of its own).
 - **Close.** `symbiosis close` (launcher/close.ts) ends what the launcher
-  opened. The launcher's record holds the pi pane it made (`pi`). Steps: find
-  the record (inside ttt by the pid in `SYMBIOSIS_SESSION`, else by folder);
-  find the live session registered from that pane; write `close.json`
-  `{id, to}` (PROTOCOL 15); pi's poll calls `ctx.shutdown()`; when the
+  opened. The launcher's record holds the agent pane it made (`agent: {name,
+  pane}`; a record from before has `pi: <pane>`, which close still reads).
+  Steps: find the record (inside ttt by the pid in `SYMBIOSIS_SESSION`, else by
+  folder); find the live session registered from that pane; write `close.json`
+  `{id, to}` (PROTOCOL 15); pi's poll calls `ctx.shutdown()`, Claude's keeper
+  sends SIGTERM to Claude (a session whose `can` has no `close` is not asked,
+  and its pane stays); when the
   process has ended, close the pane (herdr `pane close`, tmux `kill-pane`; the
   tab goes with its last pane). A pi in another pane, or none, is never closed;
   pi that does not quit in 8 s keeps its pane and the command fails. Then ttt:

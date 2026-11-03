@@ -7,16 +7,16 @@ import { parseArgs, UsageError } from '../launcher/args.ts';
 import { ConfigError, DEFAULTS, parseConfig, readConfig } from '../launcher/config.ts';
 import { projectFolder } from '../launcher/folder.ts';
 import { findByPid, findOpen, hostOf, recordPath, removeRecord, writeRecord } from '../launcher/record.ts';
-import { closePi, parseCloseArgs, quitEditor, sessionPid, target } from '../launcher/close.ts';
+import { closeAgent, parseCloseArgs, quitEditor, sessionPid, target } from '../launcher/close.ts';
 import type { Session } from '../core/protocol.ts';
-import { closePane, currentTab, goTo, herdrPlace, label, newTab, noHost, paneFromOutput, piCommand, piStart, renameTab, restoreTab, shellLine, shellQuote, workspaceOf } from '../launcher/layout.ts';
+import { agentCommand, agentStart, closePane, currentTab, goTo, herdrPlace, label, newTab, noHost, paneFromOutput, renameTab, restoreTab, shellLine, shellQuote, workspaceOf } from '../launcher/layout.ts';
 
 function temp(): string {
 	return mkdtempSync(join(tmpdir(), 'symbiosis-launcher-'));
 }
 
-test('arguments: folder, flags, and the rest for pi after --', () => {
-	assert.deepEqual(parseArgs([]), { tab: false, here: false, continue: false, fresh: false, piArgs: [], help: false });
+test('arguments: folder, flags, and the rest for the agent after --', () => {
+	assert.deepEqual(parseArgs([]), { tab: false, here: false, continue: false, fresh: false, agentArgs: [], help: false });
 	assert.equal(parseArgs(['--split']).layout, 'split');
 	assert.equal(parseArgs(['--tabs']).layout, 'tabs');
 	assert.equal(parseArgs(['--here']).here, true);
@@ -26,9 +26,19 @@ test('arguments: folder, flags, and the rest for pi after --', () => {
 	assert.equal(a.tab, true);
 	assert.equal(a.continue, true);
 	assert.equal(a.fresh, true);
-	assert.deepEqual(a.piArgs, ['--model', 'sonnet', '-c']);
+	assert.deepEqual(a.agentArgs, ['--model', 'sonnet', '-c']);
 	assert.throws(() => parseArgs(['--model', 'x']), UsageError);
 	assert.throws(() => parseArgs(['a', 'b']), UsageError);
+});
+
+test('arguments: --agent names a known agent', () => {
+	assert.equal(parseArgs(['--agent', 'claude', 'src']).agent, 'claude');
+	assert.equal(parseArgs(['src', '--agent=pi']).folder, 'src');
+	assert.equal(parseArgs(['--agent=pi']).agent, 'pi');
+	assert.equal(parseArgs(['--', '--agent', 'claude']).agent, undefined, 'after -- it is the agent\'s own');
+	assert.throws(() => parseArgs(['--agent', 'gpt']), /--agent must be pi or claude, not "gpt"/);
+	assert.throws(() => parseArgs(['--agent']), /not nothing/);
+	assert.throws(() => parseArgs(['--agent=']), UsageError);
 });
 
 test('config: defaults, values, and a clear stop on a broken file', () => {
@@ -36,7 +46,12 @@ test('config: defaults, values, and a clear stop on a broken file', () => {
 	try {
 		assert.deepEqual(readConfig(join(dir, 'none.json')), DEFAULTS);
 		assert.equal(DEFAULTS.layout, 'tabs');
-		assert.deepEqual(parseConfig('{"open":"tab","layout":"split","piArgs":["--model","sonnet"]}', 'c'), { open: 'tab', layout: 'split', piArgs: ['--model', 'sonnet'] });
+		assert.equal(DEFAULTS.agent, 'pi');
+		assert.deepEqual(parseConfig('{"open":"tab","layout":"split","piArgs":["--model","sonnet"]}', 'c'), { open: 'tab', layout: 'split', agent: 'pi', agentArgs: ['--model', 'sonnet'] }, 'piArgs: the old name');
+		assert.deepEqual(parseConfig('{"agent":"claude","agentArgs":["--model","opus"]}', 'c'), { ...DEFAULTS, agent: 'claude', agentArgs: ['--model', 'opus'] });
+		assert.throws(() => parseConfig('{"agentArgs":[],"piArgs":[]}', 'c'), /not both/);
+		assert.throws(() => parseConfig('{"agent":"gpt"}', 'c'), /"agent" must be "pi" or "claude"/);
+		assert.throws(() => parseConfig('{"agentArgs":"--model x"}', 'c'), /"agentArgs" must be a list of strings/);
 		assert.throws(() => parseConfig('{"layout":"grid"}', 'c'), /"layout" must be/);
 		assert.throws(() => parseConfig('{"open":"tab",}', 'c'), (e: Error) => e instanceof ConfigError && /not valid JSON/.test(e.message));
 		assert.throws(() => parseConfig('{"open":"split"}', 'c'), /"open" must be/);
@@ -81,26 +96,33 @@ test('record: a live one is found, an old one is removed, a --new run keeps the 
 	}
 });
 
-test('layout: pi in a tab of its own by default, or split to the right', () => {
+test('layout: the agent in a tab of its own by default, or split to the right', () => {
 	const herdr = { kind: 'herdr' as const, pane: 'w4:p1' };
 	const tmux = { kind: 'tmux' as const, pane: '%3' };
-	const pi = piCommand('pi', true, ['--model', 'sonnet'], ['--thinking', 'high']);
+	const pi = agentCommand('pi', 'pi', true, ['--model', 'sonnet'], ['--thinking', 'high'], '/opt/symbiosis');
 	assert.deepEqual(pi, ['pi', '--continue', '--model', 'sonnet', '--thinking', 'high']);
 	assert.equal(label('/home/x/my app', 'pi'), 'pi · my app');
 	assert.equal(workspaceOf('w4:p1'), 'w4');
 
-	const tab = piStart(herdr, 'tabs', '/p/app', pi);
+	const tab = agentStart(herdr, 'tabs', '/p/app', 'pi', pi);
 	assert.deepEqual(tab.create, ['herdr', 'tab', 'create', '--workspace', 'w4', '--cwd', '/p/app', '--label', 'pi · app']);
 	assert.deepEqual(tab.run('w4:pJ'), [['herdr', 'pane', 'run', 'w4:pJ', 'pi --continue --model sonnet --thinking high']]);
-	const split = piStart(herdr, 'split', '/p/app', ['pi']);
+	const split = agentStart(herdr, 'split', '/p/app', 'pi', ['pi']);
 	assert.deepEqual(split.create, ['herdr', 'pane', 'split', 'w4:p1', '--direction', 'right', '--cwd', '/p/app', '--no-focus']);
 
-	assert.deepEqual(piStart(tmux, 'tabs', '/p/app', ['pi']).create, ['tmux', 'new-window', '-d', '-P', '-F', '#{pane_id}', '-c', '/p/app', '-n', 'pi · app']);
-	assert.deepEqual(piStart(tmux, 'split', '/p/app', ['pi']).create, ['tmux', 'split-window', '-h', '-d', '-P', '-F', '#{pane_id}', '-t', '%3', '-c', '/p/app']);
-	assert.deepEqual(piStart(tmux, 'tabs', '/p/app', ['pi']).run('%9'), [
+	assert.deepEqual(agentStart(tmux, 'tabs', '/p/app', 'pi', ['pi']).create, ['tmux', 'new-window', '-d', '-P', '-F', '#{pane_id}', '-c', '/p/app', '-n', 'pi · app']);
+	assert.deepEqual(agentStart(tmux, 'split', '/p/app', 'pi', ['pi']).create, ['tmux', 'split-window', '-h', '-d', '-P', '-F', '#{pane_id}', '-t', '%3', '-c', '/p/app']);
+	assert.deepEqual(agentStart(tmux, 'tabs', '/p/app', 'pi', ['pi']).run('%9'), [
 		['tmux', 'send-keys', '-t', '%9', '-l', 'pi'],
 		['tmux', 'send-keys', '-t', '%9', 'Enter'],
 	]);
+
+	const claude = agentCommand('claude', 'claude', true, ['--model', 'opus'], ['--verbose'], '/opt/my symbiosis');
+	assert.deepEqual(claude, ['env', 'CLAUDE_CODE_ENABLE_TODO_TOOLS=1', 'claude', '--plugin-dir', '/opt/my symbiosis', '--continue', '--model', 'opus', '--verbose']);
+	const claudeTab = agentStart(herdr, 'tabs', '/p/app', 'claude', claude);
+	assert.deepEqual(claudeTab.create.slice(-2), ['--label', 'claude · app']);
+	assert.deepEqual(claudeTab.run('w4:pJ'), [['herdr', 'pane', 'run', 'w4:pJ', "env CLAUDE_CODE_ENABLE_TODO_TOOLS=1 claude --plugin-dir '/opt/my symbiosis' --continue --model opus --verbose"]]);
+	assert.deepEqual(agentStart(tmux, 'tabs', '/p/app', 'claude', claude).create.slice(-2), ['-n', 'claude · app']);
 	// The ttt tab of `open: tab` takes the focus.
 	assert.ok(newTab(herdr, '/p/app', 'app', true, ['x']).create.includes('--focus'));
 	assert.ok(!newTab(tmux, '/p/app', 'app', true, ['x']).create.includes('-d'));
@@ -136,7 +158,8 @@ test('layout: shell quoting for the command typed into the pane', () => {
 	assert.equal(shellQuote('/a b/main.ts'), "'/a b/main.ts'");
 	assert.equal(shellQuote("it's"), "'it'\\''s'");
 	assert.equal(shellLine(['pi', '--append-system-prompt', 'be brief; no $HOME']), "pi --append-system-prompt 'be brief; no $HOME'");
-	assert.match(noHost('/p/my app', ['pi', '-c']), /cd '\/p\/my app' && pi -c/);
+	assert.match(noHost('/p/my app', 'pi', ['pi', '-c']), /Start pi in another terminal:\n {2}cd '\/p\/my app' && pi -c$/);
+	assert.match(noHost('/p', 'claude', ['env', 'CLAUDE_CODE_ENABLE_TODO_TOOLS=1', 'claude']), /Start claude in another terminal:\n {2}cd \/p && env CLAUDE_CODE_ENABLE_TODO_TOOLS=1 claude$/);
 });
 
 test('tab name: read from herdr and tmux, set, and given back', () => {
@@ -175,7 +198,7 @@ test('close: arguments, the launcher of this ttt, and the record by process', ()
 	assert.equal(sessionPid(undefined), undefined);
 	const dir = temp();
 	try {
-		writeRecord(dir, { pid: 4242, folder: '/p', started: 1, host: null, pi: null });
+		writeRecord(dir, { pid: 4242, folder: '/p', started: 1, host: null, agent: null });
 		writeRecord(dir, { pid: 5, folder: '/q', started: 1, host: null });
 		assert.equal(findByPid(dir, 4242, () => true)?.folder, '/p');
 		assert.equal(findByPid(dir, 4242, () => false), undefined);
@@ -190,9 +213,9 @@ test('close: arguments, the launcher of this ttt, and the record by process', ()
 	}
 });
 
-test('close: pi quits first, then its pane closes; a pi that stays keeps its pane', async () => {
+test('close: the agent quits first, then its pane closes; an agent that stays keeps its pane', async () => {
 	const host = { kind: 'herdr', pane: 'w1:p1' } as const;
-	const record = { pid: 1, folder: '/p', started: 1, host, pi: 'w1:pT' };
+	const record = { pid: 1, folder: '/p', started: 1, host, agent: { name: 'pi', pane: 'w1:pT' } };
 	const session = (over: Partial<Session> = {}) => ({ id: 's1', pane: 'w1:pT', host: 'herdr', pid: 900, name: 'p', ...over }) as Session;
 	const make = (sessions: Session[], alivePid: () => boolean) => {
 		const calls: string[] = [];
@@ -215,26 +238,39 @@ test('close: pi quits first, then its pane closes; a pi that stays keeps its pan
 		quits.calls.push(`close ${to}`);
 		up = false;
 	};
-	assert.deepEqual(await closePi(record, quits.deps), { ok: true });
+	assert.deepEqual(await closeAgent(record, quits.deps), { ok: true });
 	assert.deepEqual(quits.calls, ['close s1', 'herdr pane close w1:pT']);
+
+	// A record of a launcher from before `agent`: its `pi` pane.
+	up = true;
+	quits.calls.length = 0;
+	assert.deepEqual(await closeAgent({ pid: 1, folder: '/p', started: 1, host, pi: 'w1:pT' }, quits.deps), { ok: true });
+	assert.deepEqual(quits.calls, ['close s1', 'herdr pane close w1:pT']);
+
+	// A session that cannot be closed: no request, the pane stays.
+	const cannot = make([session({ agent: 'claude', can: ['stop'] })], () => true);
+	assert.deepEqual(await closeAgent(record, cannot.deps), { ok: false });
+	assert.deepEqual(cannot.calls, []);
+	assert.match(cannot.said.join(), /claude \(p\) cannot be closed by symbiosis; its herdr pane w1:pT stays/);
 
 	// pi does not quit in time: the pane stays and the command fails.
 	const stuck = make([session()], () => true);
 	stuck.deps.sleep = () => new Promise((r) => setTimeout(r, 20));
-	assert.deepEqual(await closePi(record, stuck.deps), { ok: false });
+	assert.deepEqual(await closeAgent(record, stuck.deps), { ok: false });
 	assert.deepEqual(stuck.calls, ['close s1']);
-	assert.match(stuck.said.join(), /did not quit/);
+	assert.match(stuck.said.join(), /pi \(p\) did not quit/);
 
 	// Another pane's session, or a session whose process is gone: nothing is closed.
 	const other = make([session({ pane: 'w1:p9' }), session({ id: 's2', pid: 901 })], (pid) => pid === 900);
-	assert.deepEqual(await closePi(record, other.deps), { ok: true });
+	assert.deepEqual(await closeAgent({ ...record, agent: { name: 'claude', pane: 'w1:pT' } }, other.deps), { ok: true });
 	assert.deepEqual(other.calls, []);
-	assert.match(other.said.join(), /does not run in herdr pane w1:pT/);
+	assert.match(other.said.join(), /claude does not run in herdr pane w1:pT/);
 
-	// No pane of ours (no herdr, no tmux): no pi is closed.
+	// No pane of ours (no herdr, no tmux): no agent is closed.
 	const none = make([session()], () => true);
-	assert.deepEqual(await closePi({ ...record, host: null, pi: null }, none.deps), { ok: true });
+	assert.deepEqual(await closeAgent({ ...record, host: null, agent: null }, none.deps), { ok: true });
 	assert.deepEqual(none.calls, []);
+	assert.match(none.said.join(), /no agent pane was made by symbiosis here/);
 });
 
 test('close: ttt is asked to quit, and the command waits for it', async () => {

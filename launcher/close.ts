@@ -1,9 +1,10 @@
 // `symbiosis close [folder] [--keep-editor]`: the other half of `symbiosis`.
 // It ends what the command opened:
 //
-//   1. pi: the session in the pane the launcher made is asked to quit (close.json,
-//      `ctx.shutdown()` in pi), and when it has quit, its pane is closed. A pi
-//      that did not start from this launcher is not touched.
+//   1. The agent: the session in the pane the launcher made is asked to quit
+//      (close.json: `ctx.shutdown()` in pi, SIGTERM from Claude's keeper), and
+//      when it has quit, its pane is closed. An agent that did not start from
+//      this launcher is not touched.
 //   2. ttt: the plugin is asked to quit (quit.json): it quits as ctrl+q does, so
 //      ttt asks about running programs and unsaved files. (SIGTERM would drop
 //      unsaved text without a word.) `--keep-editor` skips this step: the ttt
@@ -13,7 +14,7 @@
 // folder: the session names the launcher's process.
 import { UsageError } from './args.ts';
 import { type Argv, closePane } from './layout.ts';
-import { alive, findByPid, findOpen, type Host, type OpenRecord } from './record.ts';
+import { agentPane, alive, findByPid, findOpen, type Host, type OpenRecord } from './record.ts';
 import type { FileChannel } from '../core/channel/file.ts';
 
 export interface CloseArgs {
@@ -24,8 +25,8 @@ export interface CloseArgs {
 
 export const CLOSE_USAGE = `Usage: symbiosis close [folder] [--keep-editor]
 
-Closes what symbiosis opened for the folder: pi quits and its tab or pane
-closes, then ttt quits. pi sessions you started yourself stay.
+Closes what symbiosis opened for the folder: the agent quits and its tab or
+pane closes, then ttt quits. Agent sessions you started yourself stay.
 
   folder         default: the git root, else this folder; inside ttt: its symbiosis
   --keep-editor  leave ttt open (the ttt plugin runs it this way, then quits itself)
@@ -51,7 +52,7 @@ export function sessionPid(session: string | undefined): number | undefined {
 	return Number.isInteger(pid) && pid > 0 ? pid : undefined;
 }
 
-/** How long pi gets to quit before its pane is left alone. */
+/** How long the agent gets to quit before its pane is left alone. */
 export const QUIT_WAIT_MS = 8000;
 
 export interface CloseDeps {
@@ -66,30 +67,36 @@ export interface CloseDeps {
 }
 
 export interface Closed {
-	/** pi is gone (or was not running), and its pane is closed when there was one. */
+	/** The agent is gone (or was not running), and its pane is closed when there was one. */
 	ok: boolean;
 }
 
-/** Quits the pi that the launcher started in `record.pi` and closes its pane. */
-export async function closePi(record: OpenRecord, deps: CloseDeps): Promise<Closed> {
+/** Quits the agent that the launcher started in `record.agent` and closes its pane. */
+export async function closeAgent(record: OpenRecord, deps: CloseDeps): Promise<Closed> {
 	const isAlive = deps.isAlive ?? alive;
 	const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 	const host: Host | null = record.host;
-	const pane = record.pi ?? null;
-	if (!pane || !host) {
-		deps.say('symbiosis: no pi pane was made by symbiosis here, so no pi is closed.');
+	const placed = agentPane(record);
+	if (!placed || !host) {
+		deps.say('symbiosis: no agent pane was made by symbiosis here, so no agent is closed.');
 		return { ok: true };
 	}
+	const { pane } = placed;
 	const session = deps.channel.sessions().find((s) => s.pane === pane && s.host === host.kind && isAlive(s.pid));
 	if (!session) {
-		deps.say(`symbiosis: pi does not run in ${host.kind} pane ${pane}; the pane stays.`);
+		deps.say(`symbiosis: ${placed.name} does not run in ${host.kind} pane ${pane}; the pane stays.`);
 		return { ok: true };
+	}
+	const name = typeof session.agent === 'string' && session.agent ? session.agent : placed.name;
+	if (Array.isArray(session.can) && !session.can.includes('close')) {
+		deps.say(`symbiosis: ${name} (${session.name}) cannot be closed by symbiosis; its ${host.kind} pane ${pane} stays.`);
+		return { ok: false };
 	}
 	deps.channel.requestClose(session.id);
 	const end = Date.now() + (deps.waitMs ?? QUIT_WAIT_MS);
 	while (isAlive(session.pid)) {
 		if (Date.now() > end) {
-			deps.say(`symbiosis: pi (${session.name}) did not quit in ${Math.round((deps.waitMs ?? QUIT_WAIT_MS) / 1000)} s; its ${host.kind} pane ${pane} stays.`);
+			deps.say(`symbiosis: ${name} (${session.name}) did not quit in ${Math.round((deps.waitMs ?? QUIT_WAIT_MS) / 1000)} s; its ${host.kind} pane ${pane} stays.`);
 			return { ok: false };
 		}
 		await sleep(100);
@@ -97,7 +104,7 @@ export async function closePi(record: OpenRecord, deps: CloseDeps): Promise<Clos
 	try {
 		deps.run(closePane(host, pane));
 	} catch {
-		// The pane is gone already (the shell ended with pi), or the multiplexer is.
+		// The pane is gone already (the shell ended with the agent), or the multiplexer is.
 	}
 	return { ok: true };
 }

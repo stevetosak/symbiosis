@@ -3,6 +3,8 @@
 # they write down how they were called. No model, no tokens, no real tabs.
 #
 #  - herdr, default (tabs): pi in a new tab "pi · ws", ttt here;
+#  - --agent claude, or "agent" in the config: claude in "claude · ws", with
+#    its task tools and the symbiosis plugin; the config's args only for its agent;
 #  - herdr --split: this pane splits, pi on the right;
 #  - herdr --tab: a new tab runs symbiosis again with --here, nothing here;
 #  - tmux, default: a new window that does not take the focus;
@@ -11,6 +13,7 @@
 #    says where it runs when it cannot;
 #  - ttt's own tab is named like pi's ("ttt · ws") and gets its old name back;
 #  - `symbiosis close`: pi quits, its pane closes, then ttt is asked to quit;
+#    the same for a claude pane;
 #  - when ttt quits, the record is gone.
 # Usage: test/e2e/app.sh [out-dir]
 set -euo pipefail
@@ -54,7 +57,7 @@ while [ "$ticks" -gt 0 ] && [ ! -f "$TTT_CONFIG_DIR/plugins/symbiosis/quit.json"
 SH
 chmod +x "$OUT/bin/"*
 export PATH="$OUT/bin:$PATH"
-unset HERDR_PANE_ID HERDR_BIN_PATH TMUX TMUX_PANE SYMBIOSIS_PI SYMBIOSIS_TTT
+unset HERDR_PANE_ID HERDR_BIN_PATH TMUX TMUX_PANE SYMBIOSIS_PI SYMBIOSIS_CLAUDE SYMBIOSIS_TTT
 
 fails=0
 ok() { echo "ok   $1"; }
@@ -72,6 +75,37 @@ has "$CALLS" "herdr pane run w9:pT pi --model fake" "pi with the config's piArgs
 has "$CALLS" "ttt $OUT/ws (in $OUT/ws)" "ttt here, in the folder"
 has "$CALLS" "herdr tab rename w9:t1 ttt · ws" "ttt's tab is named like pi's"
 has "$CALLS" "herdr tab rename w9:t1 2" "and gets its old name back when ttt quits"
+
+echo "== herdr --agent claude -c -- --model haiku"
+HERDR_PANE_ID=w9:p1 run --agent claude -c -- --model haiku
+[ "$code" = 0 ] || bad "exit $code: $(cat "$OUT/out.txt")"
+has "$CALLS" "herdr tab create --workspace w9 --cwd $OUT/ws --label claude · ws" "a tab for claude"
+has "$CALLS" "herdr pane run w9:pT env CLAUDE_CODE_ENABLE_TODO_TOOLS=1 claude --plugin-dir $repo --continue --model haiku" "claude with its task tools, the plugin, -c and the args after --"
+hasnt "$CALLS" "--model fake" "not the config's args: they are pi's"
+has "$CALLS" "herdr tab rename w9:t1 ttt · ws" "ttt's tab is named as with pi"
+
+echo "== the config's agent: claude, with its agentArgs"
+cp "$OUT/xdg/symbiosis/config.json" "$OUT/config.pi.json"
+echo '{"agent": "claude", "agentArgs": ["--model", "opus"]}' > "$OUT/xdg/symbiosis/config.json"
+HERDR_PANE_ID=w9:p1 run --split
+has "$CALLS" "herdr pane run w9:pS env CLAUDE_CODE_ENABLE_TODO_TOOLS=1 claude --plugin-dir $repo --model opus" "claude on the right, with the config's agentArgs"
+HERDR_PANE_ID=w9:p1 run --agent pi
+has "$CALLS" "herdr pane run w9:pT pi" "--agent pi wins over the config"
+hasnt "$CALLS" "opus" "and pi does not get claude's args"
+HERDR_PANE_ID=w9:p1 run --tab
+has "$CALLS" "main.ts $OUT/ws --here --tabs" "--tab: symbiosis again, the config's agent"
+hasnt "$CALLS" "--agent" "no --agent when none was given"
+HERDR_PANE_ID=w9:p1 run --tab --agent pi
+has "$CALLS" "main.ts $OUT/ws --here --tabs --agent pi" "--tab --agent pi: the agent goes along"
+run
+has "$OUT/out.txt" "Start claude in another terminal" "no multiplexer: it names claude"
+has "$OUT/out.txt" "cd $OUT/ws && env CLAUDE_CODE_ENABLE_TODO_TOOLS=1 claude --plugin-dir $repo --model opus" "and how to start it"
+echo '{"agent": "gpt"}' > "$OUT/xdg/symbiosis/config.json"
+run
+has "$OUT/out.txt" '"agent" must be "pi" or "claude"' "an unknown agent in the config: a clear stop"
+HERDR_PANE_ID=w9:p1 run --agent gpt
+[ "$code" = 2 ] && ok "--agent gpt is a usage error" || bad "--agent gpt exits $code"
+cp "$OUT/config.pi.json" "$OUT/xdg/symbiosis/config.json"
 
 echo "== herdr --split -c -- --thinking high"
 HERDR_PANE_ID=w9:p1 run --split -c -- --thinking high
@@ -151,6 +185,31 @@ wait $first && ok "ttt quit, the launcher ended" || bad "the launcher ended with
 [ "$c" = 1 ] && ok "close with nothing open fails" || bad "close with nothing open exits $c"
 has "$OUT/close.txt" "symbiosis does not run for $OUT/ws" "and says so"
 rm -f "$OUT/cfg/plugins/symbiosis/close.json" "$OUT/cfg/plugins/symbiosis/quit.json" # the fake ttt quits at once when one is left
+
+echo "== symbiosis close: claude quits, its pane closes"
+cat > "$OUT/bin/fakeclaude" <<'SH'
+#!/bin/sh
+# A claude session as its keeper writes it: quits when asked (close.json).
+d="$TTT_CONFIG_DIR/plugins/symbiosis"
+mkdir -p "$d/sessions"
+printf '{"id":"c1","agent":"claude","can":["stop","close"],"pane":"w9:pT","host":"herdr","pid":%s,"name":"ws","t":0}' "$$" > "$d/sessions/c1.json"
+until grep -q '"to":"c1"' "$d/close.json" 2> /dev/null; do sleep 0.1; done
+rm -f "$d/sessions/c1.json"
+SH
+chmod +x "$OUT/bin/fakeclaude"
+: > "$CALLS"
+(cd "$OUT/ws" && TTT_HOLD=30 HERDR_PANE_ID=w9:p1 "$repo/bin/symbiosis" --agent claude < /dev/null > /dev/null 2>&1) &
+first=$!
+sleep 1.5
+has "$OUT/state/symbiosis/"*.json '"agent":{"name":"claude","pane":"w9:pT"}' "the record names claude and its pane"
+( "$OUT/bin/fakeclaude" & )
+sleep 0.5
+(cd "$OUT/ws" && timeout 20 "$repo/bin/symbiosis" close < /dev/null > "$OUT/close.txt" 2>&1) && c=0 || c=$?
+[ "$c" = 0 ] && ok "close ends well" || bad "close exits $c: $(cat "$OUT/close.txt")"
+has "$OUT/cfg/plugins/symbiosis/close.json" '"to":"c1"' "claude is asked to quit"
+has "$CALLS" "herdr pane close w9:pT" "its pane is closed once it has quit"
+wait $first && ok "ttt quit, the launcher ended" || bad "the launcher ended with an error"
+rm -f "$OUT/cfg/plugins/symbiosis/close.json" "$OUT/cfg/plugins/symbiosis/quit.json"
 
 echo "== the herdr action runs symbiosis <folder> --tab"
 mkdir -p "$OUT/sbin"

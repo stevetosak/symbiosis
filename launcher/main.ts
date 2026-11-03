@@ -1,27 +1,28 @@
-// `symbiosis`: ttt in the folder, and a real pi beside it.
+// `symbiosis`: ttt in the folder, and a real agent beside it (pi, or claude).
 //
-// In herdr or tmux it starts pi in a pane of its own (launcher/layout.ts):
-// by default a tab "pi · <folder>", or with `split` on the right of this pane.
-// Then it runs ttt here as its child, and ends when ttt quits. pi stays: it is
-// a full pi session in its own pane, to keep talking to or to quit there.
-// Outside herdr and tmux it runs ttt only and says how to start pi.
+// In herdr or tmux it starts the agent in a pane of its own (launcher/layout.ts):
+// by default a tab "<agent> · <folder>", or with `split` on the right of this pane.
+// Then it runs ttt here as its child, and ends when ttt quits. The agent stays:
+// it is a full session in its own pane, to keep talking to or to quit there.
+// Outside herdr and tmux it runs ttt only and says how to start the agent.
 //
 // `symbiosis close` ends all of it again (launcher/close.ts).
 // `symbiosis version [--check]` shows what runs (launcher/version.ts).
 //
-// Environment, for tests and unusual installs: SYMBIOSIS_PI and SYMBIOSIS_TTT
-// name the pi and ttt commands (default: pi, ttt from PATH).
+// Environment, for tests and unusual installs: SYMBIOSIS_PI, SYMBIOSIS_CLAUDE
+// and SYMBIOSIS_TTT name the pi, claude and ttt commands (default: from PATH).
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { constants } from 'node:os';
+import { join } from 'node:path';
 import { parseArgs, USAGE, UsageError } from './args.ts';
 import { ConfigError, configPath, readConfig } from './config.ts';
 import { projectFolder } from './folder.ts';
-import { type Argv, currentTab, goTo, herdrPlace, label, newTab, noHost, type PaneStart, paneFromOutput, piCommand, piStart, renameTab, restoreTab } from './layout.ts';
+import { agentCommand, agentStart, type Argv, currentTab, goTo, herdrPlace, label, newTab, noHost, type PaneStart, paneFromOutput, renameTab, restoreTab } from './layout.ts';
 import { alreadyOpen, findOpen, type Host, hostOf, removeRecord, stateDir, writeRecord } from './record.ts';
 import { pluginDir } from '../core/channel/file.ts';
 import { askStopRuns, runMain } from './run.ts';
-import { CLOSE_USAGE, closePi, parseCloseArgs, quitEditor, target } from './close.ts';
+import { CLOSE_USAGE, closeAgent, parseCloseArgs, quitEditor, target } from './close.ts';
 import { FileChannel } from '../core/channel/file.ts';
 import { versionMain } from './version.ts';
 
@@ -87,7 +88,7 @@ function nameTab(host: Host, name: string): () => void {
 	};
 }
 
-/** `symbiosis close`: pi quits and its pane closes, then ttt quits. */
+/** `symbiosis close`: the agent quits and its pane closes, then ttt quits. */
 async function closeMain(argv: string[]): Promise<number> {
 	let args;
 	try {
@@ -114,7 +115,7 @@ async function closeMain(argv: string[]): Promise<number> {
 	if (!record) fail(`symbiosis does not run for ${named || 'this folder'}.`);
 	const say = (line: string) => process.stderr.write(`${line}\n`);
 	const deps = { channel: new FileChannel(pluginDir()), run: (a: Argv) => void run(a), say };
-	if (!(await closePi(record, deps)).ok) return 1;
+	if (!(await closeAgent(record, deps)).ok) return 1;
 	if (args.keepEditor) return 0;
 	return (await quitEditor(record, deps)).ok ? 0 : 1;
 }
@@ -122,7 +123,7 @@ async function closeMain(argv: string[]): Promise<number> {
 async function main(): Promise<number> {
 	// `symbiosis run ...`: the run configurations, for the ttt plugin (launcher/run.ts).
 	if (process.argv[2] === 'run') return runMain(process.argv.slice(3));
-	// `symbiosis close ...`: pi and ttt end together (launcher/close.ts).
+	// `symbiosis close ...`: the agent and ttt end together (launcher/close.ts).
 	if (process.argv[2] === 'close') return closeMain(process.argv.slice(3));
 	// `symbiosis version [--check]` (launcher/version.ts).
 	if (process.argv[2] === 'version') return versionMain(process.argv.slice(3));
@@ -152,6 +153,7 @@ async function main(): Promise<number> {
 		throw error;
 	}
 	const layout = args.layout ?? config.layout;
+	const agent = args.agent ?? config.agent;
 	const open = args.here ? 'here' : args.tab ? 'tab' : config.open;
 	const host: Host | null = hostOf();
 
@@ -168,15 +170,17 @@ async function main(): Promise<number> {
 	}
 	const plugin = pluginDir();
 	if (!existsSync(plugin)) {
-		fail(`symbiosis: the ttt plugin is not installed (${plugin}).\nRun install.sh from the symbiosis repository, or start pi once: it copies the plugin.`);
+		fail(`symbiosis: the ttt plugin is not installed (${plugin}).\nRun install.sh from the symbiosis repository${agent === 'pi' ? ', or start pi once: it copies the plugin' : ''}.`);
 	}
-	const pi = piCommand(process.env.SYMBIOSIS_PI || 'pi', args.continue, config.piArgs, args.piArgs);
+	const bin = (agent === 'claude' ? process.env.SYMBIOSIS_CLAUDE : process.env.SYMBIOSIS_PI) || agent;
+	const configArgs = agent === config.agent ? config.agentArgs : [];
+	const command = agentCommand(agent, bin, args.continue, configArgs, args.agentArgs, join(import.meta.dirname, '..'));
 
 	if (open === 'tab') {
 		if (host) {
 			// symbiosis again, in the new tab, with this run's choices. The tab's
 			// shell does not get this environment: the command overrides go along.
-			const keep = ['SYMBIOSIS_PI', 'SYMBIOSIS_TTT'].filter((name) => process.env[name]).map((name) => `${name}=${process.env[name]}`);
+			const keep = ['SYMBIOSIS_PI', 'SYMBIOSIS_CLAUDE', 'SYMBIOSIS_TTT'].filter((name) => process.env[name]).map((name) => `${name}=${process.env[name]}`);
 			const again = [
 				...(keep.length ? ['env', ...keep] : []),
 				process.execPath,
@@ -185,9 +189,10 @@ async function main(): Promise<number> {
 				folder,
 				'--here',
 				layout === 'split' ? '--split' : '--tabs',
+				...(args.agent ? ['--agent', args.agent] : []),
 				...(args.continue ? ['-c'] : []),
 				...(args.fresh ? ['--new'] : []),
-				...(args.piArgs.length ? ['--', ...args.piArgs] : []),
+				...(args.agentArgs.length ? ['--', ...args.agentArgs] : []),
 			];
 			try {
 				start(newTab(host, folder, label(folder), true, again));
@@ -199,20 +204,20 @@ async function main(): Promise<number> {
 		process.stderr.write('symbiosis: a new tab needs herdr or tmux; opening here.\n');
 	}
 
-	let piPane: string | null = null;
+	let agentPane: string | null = null;
 	if (host) {
 		try {
-			piPane = start(piStart(host, layout, folder, pi));
+			agentPane = start(agentStart(host, layout, folder, agent, command));
 		} catch (error) {
-			fail(`symbiosis: could not start pi in a ${host.kind} ${layout === 'split' ? 'pane' : 'tab'}: ${why(error)}`);
+			fail(`symbiosis: could not start ${agent} in a ${host.kind} ${layout === 'split' ? 'pane' : 'tab'}: ${why(error)}`);
 		}
 	} else {
-		process.stderr.write(`${noHost(folder, pi)}\n`);
+		process.stderr.write(`${noHost(folder, agent, command)}\n`);
 	}
 
-	// ttt's tab is named like pi's: "ttt · folder"; with `split` it holds both.
+	// ttt's tab is named like the agent's: "ttt · folder"; with `split` it holds both.
 	const restoreTabName = host ? nameTab(host, label(folder, layout === 'split' ? 'symbiosis' : 'ttt')) : () => {};
-	writeRecord(states, { pid: process.pid, folder, started: Date.now(), host, pi: piPane });
+	writeRecord(states, { pid: process.pid, folder, started: Date.now(), host, agent: agentPane ? { name: agent, pane: agentPane } : null });
 	const tttCommand = process.env.SYMBIOSIS_TTT || 'ttt';
 	// The runs ttt starts (`symbiosis run start`) carry this session: at the
 	// end, the ones still going are this ttt's to stop.
