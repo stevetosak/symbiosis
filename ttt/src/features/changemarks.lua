@@ -1,7 +1,7 @@
 -- The lines pi changed, in the open file: a coloured bar ▌ in the gutter on
 -- each of them, one colour for each plan step, and a hint underline over each
 -- run with a hover text (the step and pi's `why`). The lines come from the
--- change log (pi/changelog.ts, core/changelist.lua): where each change put
+-- change log (core/agent/changelog.ts, core/changelist.lua): where each change put
 -- them, moved by the later changes. When you edited the file after pi, the
 -- lines you edited lose their mark and the others keep it. Nothing blocks pi.
 --

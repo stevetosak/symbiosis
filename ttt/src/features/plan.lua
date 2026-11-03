@@ -2,7 +2,7 @@
 -- session record. The status bar shows it as "✓ 3 › ▶ now › next"; ctrl+k v
 -- (or a click) shows the whole plan in a drawer, and under each step the
 -- files pi named for it and the files it changed in it (the change log,
--- pi/changelog.ts; core/changelist.lua builds the list). Enter on a file opens it.
+-- core/agent/changelog.ts; core/changelist.lua builds the list). Enter on a file opens it.
 --
 -- Hooks it takes: "sessions", "start" and "done" (pi's calls), to redraw.
 local ttt = require("ttt")

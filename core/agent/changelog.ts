@@ -1,5 +1,5 @@
-// Every write and edit pi made, in the order it made them, each with the plan
-// step it belonged to, for the change list in ttt. Unlike pi/changes.ts (the
+// Every write and edit the agent made, in the order it made them, each with the plan
+// step it belonged to, for the change list in ttt. Unlike changes.ts (the
 // diff key: the last turn only) it keeps them across turns, until the plugin
 // is told they are seen (a later slice) or the log is full.
 //
@@ -9,8 +9,8 @@
 // The plugin reads only these files: ttt.fs cannot read outside the workspace.
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { hunksOf } from '../core/hunks.ts';
-import type { LoggedChange, Step } from '../core/protocol.ts';
+import { hunksOf } from '../hunks.ts';
+import type { LoggedChange, Step } from '../protocol.ts';
 import { readText } from './changes.ts';
 
 /** The log keeps this many changes; the oldest go first. */

@@ -1,4 +1,4 @@
--- The diff key. pi/changes.ts keeps, per file, the text before pi's last
+-- The diff key. core/agent/changes.ts keeps, per file, the text before pi's last
 -- turn first changed it and the text after (changes/index.json and
 -- changes/<key>.json). ctrl+k w shows that diff for the open file, or for
 -- the last file pi changed, and the `why` pi gave for those changes.

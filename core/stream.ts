@@ -87,6 +87,9 @@ export function utf8Bytes(text: string): number {
 	return Buffer.byteLength(text, 'utf-8');
 }
 
+/** At most one text write per call in this time: the plugin polls every 40 ms. */
+export const FLUSH_MS = 40;
+
 /** A file's text for a `start` event: up to this size. Bigger files get only the sum. */
 export const BEFORE_MAX = 256 * 1024;
 

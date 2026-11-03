@@ -1,5 +1,5 @@
 -- The change list: pi's plan, each step with the files pi named for it and
--- the files it really changed in it (the change log, pi/changelog.ts). Pure:
+-- the files it really changed in it (the change log, core/agent/changelog.ts). Pure:
 -- plan.lua gives it the steps and the log, it gives back the list's nodes and
 -- what each node does when it is activated.
 --
@@ -14,7 +14,7 @@ local util = require("core.util")
 
 local M = {}
 
--- The owner's change log (pi/changelog.ts): the changes, oldest first.
+-- The owner's change log (core/agent/changelog.ts): the changes, oldest first.
 function M.read_log(channel, owner)
 	if not owner then return {} end
 	local index = channel:read_json("log/" .. owner.id .. "/index.json")

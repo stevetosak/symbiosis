@@ -1,5 +1,5 @@
 -- The exact diff of pi's changes: what a change did, from the text before
--- to the text after (pi/changelog.ts keeps both, log/<session>/<id>.json).
+-- to the text after (core/agent/changelog.ts keeps both, log/<session>/<id>.json).
 --
 --   ctrl+k .   the change that wrote the line under the cursor (the bar in the gutter)
 --   plan drawer, `d` on a file row: the file's changes in that step as one diff

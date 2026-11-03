@@ -78,7 +78,7 @@ export interface Hunk {
 }
 
 /**
- * One write or edit pi made, as the change log keeps it (pi/changelog.ts):
+ * One write or edit the agent made, as the change log keeps it (core/agent/changelog.ts):
  * `log/<session>/index.json` lists them, oldest first; the texts before and
  * after are in `log/<session>/<id>.json` ({before, after}) when `texts` is true.
  */

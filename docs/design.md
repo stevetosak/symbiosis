@@ -12,7 +12,8 @@ open each file and type pi's change in it as a preview, at a speed you set.
 
 | Part | File | Job |
 |---|---|---|
-| pi extension | `pi/index.ts` | Reads the tool calls. Writes events. Wires `core/` into pi. |
+| pi extension | `pi/index.ts` | Reads pi's tool calls and turns. Wires `core/` into pi. |
+| Agent side | `core/agent/agent.ts` | For any agent: the session record, the events of each write and edit, the change log (`core/agent/changelog.ts`) and the diff texts (`core/agent/changes.ts`). An adapter gives it its agent's events. |
 | Protocol | `core/protocol.ts` | Types only: every event and record that crosses the channel, and `PROTOCOL`. |
 | Calls | `core/call.ts` | Pure: a call's absolute path, and the first line of a tool result. |
 | Stream | `core/stream.ts` | Pure: a tool call's arguments as pi streams them, as `text` events (what grew since the last); Adler-32 of a file. |
@@ -39,8 +40,9 @@ workspace. Thus the channel is files in the plugin folder.
 guard). It imports nothing from pi, so
 another agent harness, or a socket in place of the files, is a new adapter or
 a new `Channel` implementation, not a change to the rules. `pi/` holds only
-what speaks pi: the extension, its `plan` tool, the change log it keeps for
-the editor, and the setup.
+what speaks pi: the extension, its `plan` tool, and the setup. The session
+record, the events and the change log are `core/agent/`, so every agent
+adapter shares them.
 
 ## The buffer: one rule
 
@@ -323,13 +325,13 @@ change. So five edits to one file show as one diff. The open file, or, if pi
 did not change it, the last file pi changed.
 
 Only the owner keeps these, in `changes/` in the plugin folder
-(`pi/changes.ts`): ttt.fs cannot read outside the workspace, so the
+(`core/agent/changes.ts`): ttt.fs cannot read outside the workspace, so the
 extension writes both texts there. A new turn of the owner drops the last
 one. Files over 1 MB are not kept.
 
 ## The change log
 
-`pi/changelog.ts` keeps every `write` and `edit` of the session, in the order
+`core/agent/changelog.ts` keeps every `write` and `edit` of the session, in the order
 pi made them (`log/<session>/index.json`, oldest first). The diff key keeps
 the last turn only; this log is for the change list and keeps its entries
 across turns, up to 300 (the oldest go first). An entry: `seq`, time, call,
@@ -447,7 +449,7 @@ in its conversation, and streams `ask`, `ask_text` and `ask_done` events
 innermost function around the target (cut at 60 lines) or, for code in no
 function, 12 lines around it; the stub's signature and doc when the target is
 inside a stub; the reasons (`why`) pi gave for its changes to that file in its
-last turn (`pi/changes.ts`); the plan. The answer is 2 to 4 lines, then
+last turn (`core/agent/changes.ts`); the plan. The answer is 2 to 4 lines, then
 `links:` and `terms:` sections, parsed by `parseAskAnswer` while it streams.
 
 **`why!`.** The comment is the question. Code before the comment on the same
@@ -494,7 +496,7 @@ Weak points:
 - The `.gitignore` dialog takes the focus from the drawer, and ttt does not
   give it back (after OK or Cancel). `ctrl+k d` on the line (a click on the
   editor first) opens the drawer with the focus again. Once for each folder.
-- `why` is kept for each file, not each hunk: `pi/changes.ts` records the
+- `why` is kept for each file, not each hunk: `core/agent/changes.ts` records the
   reasons of a turn for the file. A file pi changed in several places sends
   all its reasons.
 - A hash is the line's text, so two equal lines (`}`) cannot tell their notes
