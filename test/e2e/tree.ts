@@ -1,5 +1,5 @@
 // The file tree follows pi: a fake pi writes a file in the folder open in
-// ttt, then, after test/e2e/tree.sh opened the "pi files" panel, a file
+// ttt, then, after test/e2e/tree.sh opened the "agent files" panel, a file
 // outside it. Needs TTT_CONFIG_DIR.
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';

@@ -41,12 +41,12 @@ return {
 
 		local function close_pi_then_quit()
 			closing = true
-			notify("closing pi…")
+			notify("closing the agent…")
 			local ok, err = pcall(system.exec_async, "symbiosis", { "close", "--keep-editor" }, function(result)
 				closing = false
 				if result and result.exit_code == 0 then return quit_editor() end
 				local why = result and ((result.stderr or "") ~= "" and result.stderr or result.error) or "no answer"
-				notify("could not close pi, ttt stays open: " .. tostring(why):gsub("%s+$", ""), "error")
+				notify("could not close the agent, ttt stays open: " .. tostring(why):gsub("%s+$", ""), "error")
 			end)
 			if not ok then
 				closing = false
@@ -62,8 +62,8 @@ return {
 			-- Programs that run: the question about them confirms the close too.
 			if runs.before_quit(close_pi_then_quit) then return end
 			local owner = sessions.owner()
-			local busy = owner and owner.working and (" pi " .. owner.name .. " is working now.") or ""
-			local ok, err = pcall(ttt.confirm, "Close symbiosis? pi quits and its tab closes, then ttt quits." .. busy, close_pi_then_quit)
+			local busy = owner and owner.working and (" " .. sessions.agent() .. " " .. owner.name .. " is working now.") or ""
+			local ok, err = pcall(ttt.confirm, "Close symbiosis? The agent quits and its tab closes, then ttt quits." .. busy, close_pi_then_quit)
 			if not ok then notify("could not ask: " .. tostring(err), "error") end
 		end
 
@@ -76,8 +76,8 @@ return {
 			if not runs.before_quit(quit_editor) then quit_editor() end
 		end)
 
-		app:command({ id = "symbiosis.close", title = "symbiosis: Close (pi and ttt)", key = "ctrl+k z", run = close })
-		app:hint({ key = "ctrl+k z", text = "close symbiosis: pi and ttt (ctrl+q: ttt only)", order = 25 })
+		app:command({ id = "symbiosis.close", title = "symbiosis: Close (the Agent and ttt)", key = "ctrl+k z", run = close })
+		app:hint({ key = "ctrl+k z", text = "close symbiosis: the agent and ttt (ctrl+q: ttt only)", order = 25 })
 		return { close = close }
 	end,
 }

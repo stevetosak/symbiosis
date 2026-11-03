@@ -27,6 +27,7 @@ local buffer = require("core.buffer")
 local folder = require("core.folder")
 local marker = require("core.marker")
 local trigger = require("core.trigger")
+local agent = require("core.agent")
 
 local runes = util.runes
 
@@ -95,11 +96,15 @@ local function setup(app)
 		sessions.refresh()
 		local o = sessions.owner()
 		if not o then
-			ttt.notify("symbiosis: " .. sessions.missing("ask needs a pi session; none runs"), "warning")
+			ttt.notify("symbiosis: " .. sessions.missing("ask needs an agent session; none runs"), "warning")
 			return nil
 		end
 		if o.version ~= sessions.PROTOCOL then
-			ttt.notify("symbiosis: pi " .. o.name .. " runs an old symbiosis: /reload it", "warning")
+			ttt.notify("symbiosis: " .. agent.name(o) .. " " .. o.name .. " runs an old symbiosis: /reload it", "warning")
+			return nil
+		end
+		if not agent.can(o, "ask") then
+			ttt.notify("symbiosis: " .. agent.name(o) .. " " .. o.name .. " cannot answer ask yet", "warning")
 			return nil
 		end
 		return o
@@ -132,7 +137,7 @@ local function setup(app)
 	local function view(opts, o)
 		seq = seq + 1
 		return {
-			id = os.time() .. "-" .. seq, to = o.id, name = o.name, path = opts.path, target = opts.target,
+			id = os.time() .. "-" .. seq, to = o.id, name = o.name, agent = agent.name(o), path = opts.path, target = opts.target,
 			anchor = opts.anchor, anchor_text = opts.anchor_text, word = opts.word, question = opts.question or "",
 			parent = opts.parent, deeper = opts.deeper, text = "", links = {}, terms = {}, status = "wait",
 		}
@@ -155,7 +160,7 @@ local function setup(app)
 		waiting = ttt.set_timeout(TAKE_MS, function()
 			waiting = nil
 			if cur == mine and mine.status == "wait" then
-				mine.status, mine.error = "error", "pi " .. mine.name .. " did not take the question: /reload it?"
+				mine.status, mine.error = "error", mine.agent .. " " .. mine.name .. " did not take the question: /reload it?"
 			end
 		end)
 		show()
@@ -202,7 +207,7 @@ local function setup(app)
 			if #old > 0 then
 				-- The notes of the line: the newest first, the older ones behind Back.
 				stack = {}
-				local o = sessions.owner() or { id = "", name = "" }
+				local o = sessions.owner() or { id = "", name = "", agent = "notes" }
 				for i, n in ipairs(old) do
 					local v = view({ path = opts.path, target = opts.target, anchor = opts.anchor, anchor_text = opts.anchor_text, word = opts.word, question = n.question }, o)
 					v.text, v.links, v.terms, v.status, v.saved = n.answer, n.links, n.terms, "done", true
@@ -334,7 +339,7 @@ local function setup(app)
 		local dir = cur and cur.path and folder.guess(cur.path, function(p) return fs.exists(p) end)
 		local full = path:sub(1, 1) == "/" and path or ((dir or "") .. "/" .. path)
 		if not fs.exists(full) then
-			return ttt.notify("symbiosis: pi pointed to " .. path .. ", which is not there (the model wrote the link)", "warning")
+			return ttt.notify("symbiosis: " .. (cur and cur.agent or "the agent") .. " pointed to " .. path .. ", which is not there (the model wrote the link)", "warning")
 		end
 		ttt.open_file(full, line)
 	end
@@ -377,7 +382,7 @@ local function setup(app)
 		local c = cur
 		if not c then return wrap.label(panel, { text = "Nothing asked.", style = "muted" }) end
 		local where = c.target.startLine == c.target.endLine and ("line " .. c.target.startLine) or ("lines " .. c.target.startLine .. "-" .. c.target.endLine)
-		panel:title({ text = "pi · " .. util.name(c.path) .. " " .. where, badge = STATUS[c.status] ~= "" and STATUS[c.status] or nil })
+		panel:title({ text = c.agent .. " · " .. util.name(c.path) .. " " .. where, badge = STATUS[c.status] ~= "" and STATUS[c.status] or nil })
 		wrap.label(panel, { text = ((c.target.text or ""):match("[^\n]*"):gsub("^%s+", "")), style = "muted" })
 		if c.question ~= "" then wrap.label(panel, { text = "? " .. c.question, style = "bold", margin_top = 1 }) end
 		-- The input comes first, so it has the focus when the answer opens: typing asks a
@@ -392,7 +397,7 @@ local function setup(app)
 		if c.status == "error" then
 			wrap.label(panel, { text = c.error or "failed", style = "error", margin_top = 1 })
 		elseif c.text == "" then
-			wrap.label(panel, { text = c.status == "stopped" and "Stopped before pi answered." or "pi thinks…", style = "muted", margin_top = 1 })
+			wrap.label(panel, { text = c.status == "stopped" and ("Stopped before " .. c.agent .. " answered.") or (c.agent .. " thinks…"), style = "muted", margin_top = 1 })
 		else
 			local text = c.text
 			local urls = {}
@@ -449,7 +454,7 @@ local function setup(app)
 		local path = editor.file_path()
 		if not path or path == "" then return wrap.label(panel, { text = "No file open.", style = "muted" }) end
 		local list = notes.list(path)
-		panel:title({ text = "pi's notes · " .. util.name(path), badge = tostring(#list) })
+		panel:title({ text = "Notes · " .. util.name(path), badge = tostring(#list) })
 		if #list == 0 then return wrap.label(panel, { text = "None yet: ctrl+k d on some code.", style = "muted" }) end
 		local items = {}
 		for i, n in ipairs(list) do
@@ -480,10 +485,10 @@ local function setup(app)
 		ask_here(line)
 	end)
 
-	app:command({ id = "symbiosis.ask", title = "symbiosis: Ask pi About This Code", key = "ctrl+k d", run = function() ask_here() end })
+	app:command({ id = "symbiosis.ask", title = "symbiosis: Ask the Agent About This Code", key = "ctrl+k d", run = function() ask_here() end })
 	app:command({ id = "symbiosis.notes", title = "symbiosis: Notes of This File", run = show_notes })
-	app:hint({ key = "ctrl+k d", text = "ask pi about this code", order = 75 })
-	app:hint({ key = "// … why!", text = "ask pi why: the comment goes", order = 91 })
+	app:hint({ key = "ctrl+k d", text = "ask the agent about this code", order = 75 })
+	app:hint({ key = "// … why!", text = "ask the agent why: the comment goes", order = 91 })
 
 	return { ask_here = ask_here, busy = function() return cur ~= nil and (cur.status == "wait" or cur.status == "text") end }
 end

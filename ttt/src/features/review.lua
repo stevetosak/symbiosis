@@ -114,7 +114,7 @@ local function setup(app)
 	local function render(panel)
 		local l = current
 		if not l then return wrap.label(panel, { text = "Nothing to review.", style = "muted" }) end
-		panel:title({ text = "pi filled " .. (l.name ~= "" and l.name or "a function"), badge = util.name(l.path) })
+		panel:title({ text = (l.agent or "the agent") .. " filled " .. (l.name ~= "" and l.name or "a function"), badge = util.name(l.path) })
 		panel:markdown({ text = "`" .. (l.signature or "") .. "`", padding_left = 1 })
 		if l.intent and l.intent ~= "" then wrap.label(panel, { text = l.intent, style = "muted" }) end
 		panel:markdown({ text = "```" .. (l.path:match("%.(%w+)$") or "") .. "\n" .. (l.body or "") .. "\n```", padding_left = 1 })
@@ -180,8 +180,8 @@ local function setup(app)
 	end)
 	if not fine then app.log("warn", "symbiosis: this ttt has no gutter.click; ctrl+k x shows the body") end
 
-	app:command({ id = "symbiosis.review", title = "symbiosis: Review the Body pi Filled", key = "ctrl+k x", run = show_here })
-	app:hint({ key = "ctrl+k x", text = "review what pi filled", order = 94 })
+	app:command({ id = "symbiosis.review", title = "symbiosis: Review the Body the Agent Filled", key = "ctrl+k x", run = show_here })
+	app:hint({ key = "ctrl+k x", text = "review what the agent filled", order = 94 })
 
 	return { pending = function() return list end, show = show_here }
 end

@@ -122,7 +122,7 @@ argument, else the git root, else this folder.
 ## Use
 
 - `ctrl+k h`: the symbiosis panel. Settings you change in place (Enter
-  cycles a value: preview speed, stub scope, autosave, the editor follows pi), the pi sessions (Enter
+  cycles a value: preview speed, stub scope, autosave, the editor follows the agent), the agent sessions (Enter
   follows one), and every key. Up/Down move, Tab goes to the next list, Esc
   closes.
 
@@ -153,8 +153,8 @@ argument, else the git root, else this folder.
   it, else the most recent one. Its name is pi's session name (`/name`), else
   the folder; two sessions with one name also show their pane. Click it or `ctrl+k g` to go to its herdr
   or tmux pane. `ctrl+k n`: the next session takes over, after the last one the editor is
-  **detached** (`π detached`: it follows no pi, and `helpi!`, ask and fill say
-  so; pi keeps running), then back to automatic. A click on `π detached`, or
+  **detached** (`○ detached`: it follows no agent, and `helpi!`, ask and fill say
+  so; pi keeps running), then back to automatic. A click on `○ detached`, or
   `ctrl+k g` there, follows pi again; the panel lists "detached" too. `ctrl+k q` stops its turn, as Esc in pi does.
 - `π symbiosis ? waits for you`: pi shows a dialog in its own pane (a guard's
   "Allow this one call?", a question) and waits. A notice says so with the
@@ -235,11 +235,11 @@ argument, else the git root, else this folder.
   with the signature, the intent, the body and the reasons pi gave; `a` (the
   Ack button) acks it. Esc hides the drawer, `ctrl+k x` shows it again. A `●` in
   the gutter marks the function until it is acked, the status bar says "● n to
-  review", and the "pi files" tab shows `● n` at the file. An edit does not ack;
+  review", and the "agent files" tab shows `● n` at the file. An edit does not ack;
   a restart of pi forgets what was not acked.
 - The file tree follows pi: when the editor follows pi into a file, ttt's
   tree opens to it, if the file is in a folder open in ttt (start ttt on a
-  folder, or on several: `ttt ~/a ~/b`). The "pi files" tab in the sidebar
+  folder, or on several: `ttt ~/a ~/b`). The "agent files" tab in the sidebar
   shows the files each pi session changed (its last 20), by its folder, at
   any path: `▶` is the session the editor follows, `✎` the file pi changes
   now, Enter opens a file. While that tab is on screen, the tree stays on it.
@@ -406,7 +406,7 @@ bash test/e2e/help.sh      # helpi!: code, note, ask, Esc; only the session the 
 bash test/e2e/scenarios.sh # every demo scenario against a headless ttt (name one to run only it)
 bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the workspace tests must pass
 bash test/e2e/preview.sh   # following: the preview types behind pi, pi does not wait, your typing waits, follow off and on, the buffer ends as the disk
-bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel shows a file outside the folder
+bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "agent files" panel shows a file outside the folder
 bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, tab names, no multiplexer, already open, symbiosis close
 bash test/e2e/close.sh     # ctrl+k n detaches; ctrl+k z asks, runs `symbiosis close`, quits ttt only when it worked (asks about unsaved files); quit.json
 bash test/e2e/changelist.sh # the plan drawer: steps with the files pi named and changed, unplanned, Enter opens a file

@@ -12,6 +12,7 @@ local util = require("core.util")
 
 local function setup(app)
 	local changemarks = app:need("changemarks")
+	local sessions = app:need("sessions")
 	local channel = app.channel
 
 	local function texts(owner, change)
@@ -27,7 +28,7 @@ local function setup(app)
 		if not first then return ttt.notify("symbiosis: no change to show", "info") end
 		local a, b = texts(owner, first), texts(owner, last)
 		if not a or not b then
-			return ttt.notify("symbiosis: pi's text of " .. util.name(first.path) .. " is not kept (the file was too big)", "warning")
+			return ttt.notify("symbiosis: the text of " .. util.name(first.path) .. " is not kept (the file was too big)", "warning")
 		end
 		local before = type(a.before) == "string" and util.split(a.before) or {}
 		local after = util.split(b.after)
@@ -35,26 +36,26 @@ local function setup(app)
 			return ttt.notify("symbiosis: " .. util.name(first.path) .. " is the same after these changes", "info")
 		end
 		local step = first.stepText and (" · " .. util.cut(first.stepText, 30)) or ""
-		ttt.open_diff("pi: " .. util.name(first.path) .. step .. (#changes > 1 and (" (" .. #changes .. " changes)") or ""), before, after, first.path)
+		ttt.open_diff(sessions.agent() .. ": " .. util.name(first.path) .. step .. (#changes > 1 and (" (" .. #changes .. " changes)") or ""), before, after, first.path)
 		local whys = {}
 		for _, c in ipairs(changes) do
 			if type(c.why) == "string" and c.why ~= "" then table.insert(whys, c.why) end
 		end
-		if #whys > 0 then ttt.notify("pi, why: " .. table.concat(whys, " · "), "info") end
+		if #whys > 0 then ttt.notify(sessions.agent() .. ", why: " .. table.concat(whys, " · "), "info") end
 	end
 
 	local function change_here()
 		local line = editor.cursor().line
 		local change, owner = changemarks.at(line)
 		if not change then
-			return ttt.notify("symbiosis: no change of pi on this line (the bar in the gutter shows them)", "info")
+			return ttt.notify("symbiosis: no change of " .. sessions.agent() .. " on this line (the bar in the gutter shows them)", "info")
 		end
 		open(owner, { change })
 	end
 
-	app:command({ id = "symbiosis.changeHere", title = "symbiosis: pi's Change at This Line (diff)", key = "ctrl+k .", run = change_here })
-	app:hint({ key = "ctrl+k .", text = "pi's change at this line (diff)", order = 81 })
+	app:command({ id = "symbiosis.changeHere", title = "symbiosis: The Agent's Change at This Line (diff)", key = "ctrl+k .", run = change_here })
+	app:hint({ key = "ctrl+k .", text = "the agent's change at this line (diff)", order = 81 })
 	return { open = open }
 end
 
-return { name = "changediff", needs = { "changemarks" }, setup = setup }
+return { name = "changediff", needs = { "changemarks", "sessions" }, setup = setup }

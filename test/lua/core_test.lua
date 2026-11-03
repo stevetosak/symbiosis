@@ -292,4 +292,13 @@ return {
 		t.eq(#calls[1][2], 1)
 		t.eq(calls[2][1], "label")
 	end },
+	{ "agent: the name, the mark, and what it can do", function()
+		local agent = require("core.agent")
+		t.eq(agent.name({ agent = "claude" }), "claude")
+		t.eq(agent.name({}), "pi", "a record from before PROTOCOL 18 is pi's")
+		t.eq({ agent.mark({ agent = "pi" }), agent.mark({ agent = "claude" }), agent.mark({ agent = "codex" }) }, { "π", "✻", "codex" })
+		t.ok(agent.can({}, "help"), "a record with no list can do all")
+		t.ok(agent.can({ can = { "stop" } }, "stop"))
+		t.ok(not agent.can({ can = { "stop" } }, "help"))
+	end },
 }

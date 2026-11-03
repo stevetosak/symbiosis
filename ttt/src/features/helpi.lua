@@ -26,6 +26,7 @@ local util = require("core.util")
 local buffer = require("core.buffer")
 local marker = require("core.marker")
 local trigger = require("core.trigger")
+local agent = require("core.agent")
 
 local runes = util.runes
 
@@ -57,7 +58,7 @@ local function render(h, body, final)
 	local closer = CLOSERS[h.opener] or ""
 	if #parts == 0 then parts = { "" } end
 	for i, l in ipairs(parts) do
-		local text = (i == 1 and "pi: " or "") .. l
+		local text = (i == 1 and (h.agent .. ": ") or "") .. l
 		local close = (final or i < #parts) and closer or ""
 		table.insert(out, "\n" .. h.indent .. h.opener .. (text == "" and "" or " " .. text) .. close)
 	end
@@ -93,7 +94,7 @@ local function setup(app)
 
 	-- The waiting line: a comment under the question, with the question's indent.
 	local function loader_text(h)
-		return h.indent .. h.opener .. " pi " .. FRAMES[h.frame] .. " thinking · Esc stops" .. (CLOSERS[h.opener] or "")
+		return h.indent .. h.opener .. " " .. h.agent .. " " .. FRAMES[h.frame] .. " thinking · Esc stops" .. (CLOSERS[h.opener] or "")
 	end
 
 	-- The line the waiting line is on now, if it is still there.
@@ -205,15 +206,21 @@ local function setup(app)
 		asked[key] = true
 		sessions.refresh()
 		local owner = sessions.owner()
-		if not owner then return ttt.notify("symbiosis: " .. sessions.missing("helpi! needs a pi session; none runs"), "warning") end
+		if not owner then return ttt.notify("symbiosis: " .. sessions.missing("helpi! needs an agent session; none runs"), "warning") end
 		if owner.version ~= sessions.PROTOCOL then
-			return ttt.notify("symbiosis: pi " .. owner.name .. " runs an old symbiosis: /reload it", "warning")
+			return ttt.notify("symbiosis: " .. agent.name(owner) .. " " .. owner.name .. " runs an old symbiosis: /reload it", "warning")
 		end
 		if stub_marker(text) then
+			if not agent.can(owner, "fill") then
+				return ttt.notify("symbiosis: " .. agent.name(owner) .. " " .. owner.name .. " cannot fill a stub yet", "warning")
+			end
 			buffer.editing = true
 			editor.set_line(pos.line, unmark(text))
 			buffer.editing = false
 			return fill.fill_at(pos.line, "stub")
+		end
+		if not agent.can(owner, "help") then
+			return ttt.notify("symbiosis: " .. agent.name(owner) .. " " .. owner.name .. " cannot answer helpi! yet", "warning")
 		end
 		local all = editor.buffer_lines()
 		local first, last, head = 1, #all, ""
@@ -224,7 +231,7 @@ local function setup(app)
 		seq = seq + 1
 		help = {
 			id = os.time() .. "-" .. seq, path = path, line = pos.line, text = text,
-			byte = c.byte, col = c.col, opener = c.opener, indent = c.indent, to = owner.id, name = owner.name,
+			byte = c.byte, col = c.col, opener = c.opener, indent = c.indent, to = owner.id, name = owner.name, agent = agent.name(owner),
 		}
 		help_write({
 			id = help.id, to = help.to, path = path, line = pos.line, question = text,
@@ -244,7 +251,7 @@ local function setup(app)
 			wait = nil
 			if help and not help.taken then
 				asked[key] = nil
-				help_end("pi " .. help.name .. " did not take the question: /reload it?", "error")
+				help_end(help.agent .. " " .. help.name .. " did not take the question: /reload it?", "error")
 			end
 		end)
 	end
@@ -254,7 +261,7 @@ local function setup(app)
 		if not help then return end
 		help_write({ id = help.id, to = help.to, cancel = true })
 		help.stopped = true
-		help_end(help.region and "helpi! stopped" or "helpi! stopped before pi answered")
+		help_end(help.region and "helpi! stopped" or ("helpi! stopped before " .. help.agent .. " answered"))
 	end
 
 	-- Missing imports go in at the top. Returns how many lines went in.
@@ -324,7 +331,7 @@ local function setup(app)
 		end
 		buffer.editing = false
 		if ev.kind == "ask" then
-			buffer.set_region(help.region, render(help, "asked " .. help.name .. "; its answer comes in pi", true), help.below)
+			buffer.set_region(help.region, render(help, "asked " .. help.name .. "; its answer comes in " .. help.agent, true), help.below)
 			return help_end()
 		end
 		if ev.kind == "function" then
@@ -387,7 +394,7 @@ local function setup(app)
 	end, 10)
 
 	app:on("tick", spin_loader, 60)
-	app:hint({ key = "// … helpi!", text = "ask pi here: wait, or Enter", order = 90 })
+	app:hint({ key = "// … helpi!", text = "ask the agent here: wait, or Enter", order = 90 })
 	app:hint({ key = "Esc", text = "stop a helpi! answer", order = 100 })
 
 	return {
