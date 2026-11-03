@@ -1,9 +1,7 @@
 // The side call: one question to the session's model, outside pi's
 // conversation. helpi! (core/help.ts) and ask (core/ask.ts) both use it.
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
-
-/** At most one text write per call in this time: the plugin polls every 40 ms. */
-export const FLUSH_MS = 40;
+import { FLUSH_MS } from '../core/stream.ts';
 
 /**
  * Asks the model `prompt` under `system` and calls `onText` with all the

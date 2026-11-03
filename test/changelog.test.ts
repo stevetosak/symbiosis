@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { hunksOf, moveLine } from '../core/hunks.ts';
-import { ChangeLog, MAX_CHANGES, stepOf } from '../pi/changelog.ts';
+import { ChangeLog, MAX_CHANGES, stepOf } from '../core/agent/changelog.ts';
 import type { Step } from '../core/protocol.ts';
 
 const temp = () => mkdtempSync(join(tmpdir(), 'symbiosis-log-'));
