@@ -2,7 +2,7 @@
 -- session record. The status bar shows it as "✓ 3 › ▶ now › next"; ctrl+k v
 -- (or a click) shows the whole plan in a drawer, and under each step the
 -- files pi named for it and the files it changed in it (the change log,
--- pi/changelog.ts; core/changelist.lua builds the list). Enter on a file opens it.
+-- core/agent/changelog.ts; core/changelist.lua builds the list). Enter on a file opens it.
 --
 -- Hooks it takes: "sessions", "start" and "done" (pi's calls), to redraw.
 local ttt = require("ttt")
@@ -75,9 +75,9 @@ return {
 			drawer = panel
 			local owner = sessions.owner()
 			local steps = plan_of(owner)
-			panel:title({ text = "pi plan", badge = owner and owner.name or "no session" })
+			panel:title({ text = sessions.agent("agent") .. " plan", badge = owner and owner.name or "no session" })
 			if #steps == 0 then
-				wrap.label(panel, { text = "No plan yet. pi sends one for a task with several steps.", style = "muted" })
+				wrap.label(panel, { text = "No plan yet. " .. sessions.agent() .. " sends one for a task with several steps.", style = "muted" })
 			end
 			local changes = log_of(owner)
 			if #steps > 0 or #changes > 0 then
@@ -135,8 +135,8 @@ return {
 		app:on("start", touch)
 		app:on("abort", touch)
 		app:on("done", touch)
-		app:command({ id = "symbiosis.showPlan", title = "symbiosis: Show pi's Plan", key = "ctrl+k v", run = function() open() end })
-		app:hint({ key = "ctrl+k v", text = "pi's plan", order = 70 })
+		app:command({ id = "symbiosis.showPlan", title = "symbiosis: Show the Agent's Plan", key = "ctrl+k v", run = function() open() end })
+		app:hint({ key = "ctrl+k v", text = "the agent's plan", order = 70 })
 		return { open = open, plan_of = plan_of }
 	end,
 }

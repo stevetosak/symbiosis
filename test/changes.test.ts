@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { Changes, keyOf } from '../pi/changes.ts';
+import { Changes, keyOf } from '../core/agent/changes.ts';
 
 const temp = () => mkdtempSync(join(tmpdir(), 'symbiosis-'));
 const read = (dir: string, name: string) => JSON.parse(readFileSync(join(dir, name), 'utf-8'));

@@ -24,6 +24,7 @@ local editor = require("ttt.editor")
 local fs = require("ttt.fs")
 local util = require("core.util")
 local wrap = require("core.wrap")
+local agent = require("core.agent")
 
 local SAVE_TICKS = 30 -- how long a fill waits for the save (poll ticks)
 local SCOPES = { "stub", "file", "off" }
@@ -37,7 +38,7 @@ local KIND_TEXT = {
 	new_decl = "a new declaration",
 	signature = "a signature change",
 	dependency = "a new dependency",
-	outside_edit = "an edit outside what pi fills",
+	outside_edit = "an edit outside the fill",
 }
 local WHAT = {
 	stub = function(line) return "the stub at line " .. line end,
@@ -63,7 +64,14 @@ local function setup(app)
 
 	local function owner()
 		local o = sessions.owner()
-		if not o then ttt.notify("symbiosis: " .. sessions.missing("no pi session follows this file"), "warning") end
+		if not o then
+			ttt.notify("symbiosis: " .. sessions.missing("no agent session follows this file"), "warning")
+			return nil
+		end
+		if not agent.can(o, "fill") then
+			ttt.notify("symbiosis: " .. agent.name(o) .. " " .. o.name .. " cannot fill a stub yet", "warning")
+			return nil
+		end
 		return o
 	end
 
@@ -83,7 +91,7 @@ local function setup(app)
 	local function fill_at(line, mode)
 		local path = editor.file_path()
 		if not path or path == "" then return ttt.notify("symbiosis: save the file first", "warning") end
-		if not sessions.owner() then return owner() end
+		if not owner() then return end
 		ttt.exec_command("file.save")
 		saving = { path = path, line = line, mode = mode or "stub", ticks = 0, text = editor.buffer_text() }
 	end
@@ -103,9 +111,9 @@ local function setup(app)
 		local s = saving
 		saving = nil
 		local what = WHAT[s.mode](s.line) .. " of " .. util.name(s.path)
-		if not on_disk then ttt.notify("symbiosis: the file did not save; pi works on " .. what .. " as it is on disk", "warning") end
+		if not on_disk then ttt.notify("symbiosis: the file did not save; " .. sessions.agent() .. " works on " .. what .. " as it is on disk", "warning") end
 		if request({ mode = s.mode, path = s.path, line = s.line, release = false }) then
-			ttt.notify("symbiosis: pi " .. (s.mode == "stub" and "fills " or "writes ") .. what, "info")
+			ttt.notify("symbiosis: " .. sessions.agent() .. " " .. (s.mode == "stub" and "fills " or "writes ") .. what, "info")
 		end
 	end
 
@@ -122,7 +130,7 @@ local function setup(app)
 
 	local function waiting(on)
 		if not on then return ttt.remove_status_item("symbiosis.proposal") end
-		ttt.set_status_item("left", "symbiosis.proposal", "? pi proposes " .. (KIND_TEXT[proposal.kind] or proposal.kind),
+		ttt.set_status_item("left", "symbiosis.proposal", "? " .. sessions.agent() .. " proposes " .. (KIND_TEXT[proposal.kind] or proposal.kind),
 			{ priority = 940, on_click = function() show_proposal() end })
 	end
 
@@ -137,13 +145,13 @@ local function setup(app)
 
 	local function render(panel)
 		local p = proposal
-		if not p then return wrap.label(panel, { text = "pi waits for no answer.", style = "muted" }) end
-		panel:title({ text = "pi proposes", badge = KIND_TEXT[p.kind] or p.kind })
+		if not p then return wrap.label(panel, { text = "No proposal waits for an answer.", style = "muted" }) end
+		panel:title({ text = sessions.agent() .. " proposes", badge = KIND_TEXT[p.kind] or p.kind })
 		wrap.pairs(panel, { { key = "target", value = util.short(p.target) } })
 		wrap.label(panel, { text = p.what, margin_top = 1 })
 		wrap.label(panel, { text = "Why: " .. p.why, style = "muted", margin_top = 1 })
 		panel:input({
-			prefix = "note: ", placeholder = "optional, for pi",
+			prefix = "note: ", placeholder = "optional, for " .. sessions.agent(),
 			on_change = function(text) note = text end,
 			on_submit = function(text) note = text answer(true) end,
 		})
@@ -153,7 +161,7 @@ local function setup(app)
 	end
 
 	function show_proposal()
-		if not proposal then return ttt.notify("symbiosis: pi waits for no answer", "info") end
+		if not proposal then return ttt.notify("symbiosis: no proposal waits for an answer", "info") end
 		-- The input opens empty (measured in ttt 1.7.1): so does the note.
 		note = ""
 		app:open_drawer("proposal", { width = 52, min_width = 30, side = "right", render = render })
@@ -172,7 +180,7 @@ local function setup(app)
 		proposal = nil
 		waiting(false)
 		app:close_drawer("proposal")
-		ttt.notify("symbiosis: pi does not wait for that answer any more", "info")
+		ttt.notify("symbiosis: " .. sessions.agent() .. " does not wait for that answer any more", "info")
 	end)
 
 	-- What pi says about a fill (no stub at that line, the fill is released).
@@ -185,16 +193,16 @@ local function setup(app)
 
 	app:on("shown", function(ev)
 		if type(ev.why) == "string" and ev.why ~= "" then
-			ttt.notify("pi, why (" .. util.name(ev.path) .. "): " .. ev.why, "info")
+			ttt.notify(sessions.agent() .. ", why (" .. util.name(ev.path) .. "): " .. ev.why, "info")
 		end
 	end)
 
 	app:on("tick", send_saved)
 	app:command({ id = "symbiosis.fillStub", title = "symbiosis: Fill This Stub", key = "ctrl+k f", run = function() fill_at(editor.cursor().line, "stub") end })
-	app:command({ id = "symbiosis.showProposal", title = "symbiosis: Answer pi's Proposal", key = "ctrl+k p", run = function() show_proposal() end })
+	app:command({ id = "symbiosis.showProposal", title = "symbiosis: Answer the Agent's Proposal", key = "ctrl+k p", run = function() show_proposal() end })
 	app:command({ id = "symbiosis.releaseStub", title = "symbiosis: Release the Fill", run = release })
-	app:hint({ key = "// TODO(pi) helpi!", text = "pi fills this stub (or ctrl+k f)", order = 92 })
-	app:hint({ key = "ctrl+k p", text = "answer pi's proposal", order = 93 })
+	app:hint({ key = "// TODO(pi) helpi!", text = "the agent fills this stub (or ctrl+k f)", order = 92 })
+	app:hint({ key = "ctrl+k p", text = "answer the agent's proposal", order = 93 })
 
 	return {
 		fill_at = fill_at,

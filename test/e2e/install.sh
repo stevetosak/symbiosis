@@ -1,9 +1,9 @@
 #!/bin/sh
 # Runs install.sh in a throw-away HOME, with no network: curl, ttt and pi
 # are stubs, herdr is the real binary. Runs: no herdr (ttt, pi, the package,
-# the command; herdr is not installed), then herdr there (plugin, key,
-# integration "yes"), again (nothing twice, integration "no"), and a config
-# that already uses the key.
+# the command; herdr is not installed), then herdr and claude there (plugin,
+# key, integration "yes", Claude Code's settings), again (nothing twice,
+# integration "no"), and a config that already uses the key.
 set -eu
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 real_herdr=$(command -v herdr) || { echo "SKIP: needs herdr"; exit 0; }
@@ -56,13 +56,19 @@ else
 	check "$t/out-yes" "herdr: curl -fsSL https://herdr.dev/install.sh | sh"
 fi
 refuse "$t/out-yes" "herdr plugin"
+refuse "$t/out-yes" "Claude Code"
+[ ! -e "$t/home/.claude" ] || { echo "FAIL: Claude Code settings without claude"; exit 1; }
 cmp -s "$repo/ttt/symbiosis/plugin.lua" "$t/home/.config/ttt/plugins/symbiosis/plugin.lua" || { echo "FAIL: ttt plugin not copied"; ls -R "$t/home/.config"; exit 1; }
 [ "$(readlink "$t/home/.local/bin/symbiosis")" = "$repo/bin/symbiosis" ] || { echo "FAIL: no command link"; ls -l "$t/home/.local/bin"; exit 1; }
 check "$t/out-yes" "is not on your PATH"
 echo "no herdr: ttt, pi, pi package, ttt plugin, command; herdr left out"
 
-# 2. herdr there: the plugin, the key, the integration.
+# 2. herdr and claude there: the plugin, the key, the integration, Claude Code's settings.
 ln -s "$real_herdr" "$t/home/.local/bin/herdr"
+printf '#!/bin/sh\necho "claude $*" >>"%s/log"\n' "$t" >"$t/home/.local/bin/claude"
+chmod +x "$t/home/.local/bin/claude"
+mkdir -p "$t/home/.claude"
+printf '{"model": "opus", "env": {"CLAUDE_CODE_PLUGIN_DIRS": "/mine"}}\n' >"$t/home/.claude/settings.json"
 : >"$t/log"
 run yes
 refuse "$t/log" "curl"
@@ -80,7 +86,11 @@ check "$t/out-yes" "herdr key prefix+shift+s opens symbiosis"
 check "$t/out-yes" "In herdr, prefix+shift+s"
 out=$(env -i HOME="$t/home" PATH="$stubs:/usr/bin:/bin" "$real_herdr" config check 2>&1 || true)
 echo "$out" | grep -qi "config: ok" || { echo "FAIL: herdr config check: $out"; exit 1; }
-echo "herdr there: plugin, key, integration"
+check "$t/out-yes" "Claude Code loads symbiosis from $repo"
+check "$t/out-yes" "symbiosis --agent claude"
+dirs=$(node -e 'const s = require(process.argv[1]); console.log(s.model, s.env.CLAUDE_CODE_PLUGIN_DIRS)' "$t/home/.claude/settings.json")
+[ "$dirs" = "opus /mine:$repo" ] || { echo "FAIL: Claude Code settings: $dirs"; exit 1; }
+echo "herdr and claude there: plugin, key, integration, Claude Code's settings"
 
 # 3. Again: nothing twice, the key kept.
 : >"$t/log"
@@ -91,6 +101,7 @@ refuse "$t/log" "curl"
 refuse "$t/log" "pi install"
 check "$t/out-no" "herdr key for Open symbiosis is there: prefix+shift+s"
 [ "$(grep -c 'symbiosis.open' "$cfg")" = 1 ] || { echo "FAIL: key added twice"; cat "$cfg"; exit 1; }
+[ "$(grep -o "$repo" "$t/home/.claude/settings.json" | wc -l | tr -d ' ')" = 1 ] || { echo "FAIL: the plugin folder twice"; cat "$t/home/.claude/settings.json"; exit 1; }
 echo "again: nothing installed twice, key kept"
 
 # 4. A config that already uses the key for something else: left alone.

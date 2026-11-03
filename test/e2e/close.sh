@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Detach and close, in a headless ttt with a idle fake pi (test/e2e/close.ts):
-#   ctrl+k n goes pi → detached → pi again; the bar says "π detached".
+#   ctrl+k n goes pi → detached → pi again; the bar says "○ detached".
 #   ctrl+k z asks, then runs `symbiosis close --keep-editor` (a stub in
 #   PATH logs it) and quits ttt only when the command worked: a first run where
 #   it fails keeps ttt open and says why, a second run where it works quits.
@@ -40,11 +40,11 @@ steps="$steps; key ctrl+k n; wait 300; screenshot $OUT/again.txt; key ctrl+k n; 
 steps="$steps; quit"
 (cd "$OUT/ws" && PATH="$OUT/bin:$PATH" SYMBIOSIS_SESSION=1-x ttt --size 140x24 a.ts --exec "$steps" > /dev/null 2>&1) || true
 grep -q 'π ws' "$OUT/follow.txt" || fail "the bar shows no pi"
-grep -q 'π detached' "$OUT/chosen.txt" && fail "one ctrl+k n detached at once"
+grep -q '○ detached' "$OUT/chosen.txt" && fail "one ctrl+k n detached at once"
 grep -q 'π ws.*(chosen)' "$OUT/chosen.txt" || fail "ctrl+k n did not choose the session"
-grep -q 'π detached' "$OUT/detached.txt" || fail "the next ctrl+k n did not detach"
+grep -q '○ detached' "$OUT/detached.txt" || fail "the next ctrl+k n did not detach"
 grep -q 'π ws ○ idle  ' "$OUT/again.txt" || fail "the cycle did not go back to following by the open file"
-grep -q 'π detached' "$OUT/detached2.txt" || fail "no second detach"
+grep -q '○ detached' "$OUT/detached2.txt" || fail "no second detach"
 grep -q 'π ws' "$OUT/click.txt" || fail "ctrl+k g on detached did not follow pi again"
 echo "ok detach"
 
@@ -55,7 +55,7 @@ touch "$OUT/fail"
 (cd "$OUT/ws" && PATH="$OUT/bin:$PATH" SYMBIOSIS_SESSION=1-x ttt --size 140x24 a.ts --exec "$steps" > /dev/null 2>&1) || true
 grep -q 'Close symbiosis' "$OUT/ask.txt" || fail "no question"
 grep -q 'symbiosis close --keep-editor' "$OUT/calls.txt" || fail "the command did not run: $(cat "$OUT/calls.txt")"
-grep -q 'could not close pi' "$OUT/failed.txt" || fail "no error when the command fails"
+grep -q 'could not close the agent' "$OUT/failed.txt" || fail "no error when the command fails"
 grep -q 'edited' "$OUT/stays.txt" || fail "ttt did not stay open after a failed close"
 
 rm "$OUT/fail"; : > "$OUT/calls.txt"

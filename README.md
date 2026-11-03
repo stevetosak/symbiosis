@@ -21,7 +21,9 @@ curl -fsSL https://raw.githubusercontent.com/stevetosak/symbiosis/main/install.s
 ```
 
 It installs ttt and pi when one is missing, the symbiosis pi package, and the
-command `~/.local/bin/symbiosis`. It uses each tool's own official installer.
+command `~/.local/bin/symbiosis`; with Claude Code there, it also lists the
+package in Claude Code's settings (see Claude Code below). It uses each tool's
+own official installer.
 Each one is a script from the internet that runs on your machine, as this one
 does; read [install.sh](install.sh) first if you want to.
 
@@ -88,41 +90,62 @@ and puts its ttt plugin back at each start). It copies the ttt plugin, links
 load the extension twice). `/reload` in pi after a change.
 `SYMBIOSIS_CHECKOUT=<checkout> sh install.sh` runs the full installer on it.
 
+**Claude Code (preview).** With `claude` on PATH, install.sh (and
+`npm run install:local`, and `bin/setup.sh`) adds the one copy of symbiosis to
+`CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json` (`CLAUDE_CONFIG_DIR`
+moves it); your other folders and settings stay. Then each Claude session
+loads the symbiosis hooks from that copy, and `pi update` updates them with
+the rest. `symbiosis --agent claude` (or `"agent": "claude"` in the config)
+starts Claude beside ttt with `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`, which turns on
+the task tools for the plan; a Claude you start yourself needs that variable
+for the plan. ttt shows the
+session as `✻ <folder>` and follows what Claude writes: the file, the preview,
+the plan from its tasks, the change list, `ctrl+k w`. `ctrl+k q` presses Esc
+in its herdr or tmux pane; `symbiosis close` and `ctrl+k z` quit it. Not yet:
+helpi!, ask and fill. To unload it, take the folder out of
+`CLAUDE_CODE_PLUGIN_DIRS`. An organization policy (`disableSideloadFlags`,
+`CLAUDE_CODE_RESTRICT_PERSONAL_CONFIG`) can block plugin folders. See
+[docs/plan-agents.md](docs/plan-agents.md).
+
 ## The symbiosis command
 
 ```
-symbiosis [folder] [--tab | --here] [--tabs | --split] [-c] [--new] [-- <pi args>]
+symbiosis [folder] [--agent pi|claude] [--tab | --here] [--tabs | --split] [-c] [--new] [-- <agent args>]
 ```
 
-It opens ttt in the folder and a real pi beside it. The folder is the
-argument, else the git root, else this folder.
+It opens ttt in the folder and a real agent beside it: pi (the default), or
+Claude Code with `--agent claude`. The folder is the argument, else the git
+root, else this folder.
 
-- In herdr or tmux, pi gets a tab of its own, "pi · <folder>", and ttt opens
+- In herdr or tmux, the agent gets a tab of its own, "pi · <folder>" or
+  "claude · <folder>", and ttt opens
   here (`--tabs`, the default), in a tab named "ttt · <folder>" ("symbiosis ·
   <folder>" with `--split`, where both share it). The tab gets its old name
-  back when ttt quits. `--split`: this pane splits, ttt left, pi
+  back when ttt quits. `--split`: this pane splits, ttt left, the agent
   right. `--tab`: all of it in a new tab. Outside herdr and tmux, ttt opens
-  alone and symbiosis prints how to start pi.
-- `-c` continues pi's last session there, `--new` opens a second one,
-  `-- <args>` go to pi.
+  alone and symbiosis prints how to start the agent.
+- `-c` continues the agent's last session there (`--continue`), `--new` opens
+  a second one, `-- <args>` go to the agent.
 - A second `symbiosis` for the same folder goes to the tab where the first one
   runs (herdr, tmux), or says where it runs.
-- When ttt quits (`ctrl+q`), pi stays: it is a full pi session in its own pane.
-- `symbiosis close [folder]` ends all of it: pi quits, its tab or pane closes,
-  then ttt quits. Inside ttt it needs no folder, and `ctrl+k z` (or the palette:
-  `symbiosis: Close (pi and ttt)`) does the same after a question. ttt asks about
-  running programs (F5) and unsaved files as for `ctrl+q`. Only the pi that the
-  command started in its own pane is closed; a pi you started yourself stays,
-  and when pi does not quit in 8 s its pane stays and ttt stays too.
+- When ttt quits (`ctrl+q`), the agent stays: it is a full session in its own pane.
+- `symbiosis close [folder]` ends all of it: the agent quits, its tab or pane
+  closes, then ttt quits. Inside ttt it needs no folder, and `ctrl+k z` (or the
+  palette: `symbiosis: Close (the Agent and ttt)`) does the same after a
+  question. ttt asks about running programs (F5) and unsaved files as for
+  `ctrl+q`. Only the agent that the command started in its own pane is closed;
+  one you started yourself stays, and when the agent does not quit in 8 s its
+  pane stays and ttt stays too.
 - `symbiosis version [--check]` shows what runs and whether its parts agree (see Install).
 - Config: `~/.config/symbiosis/config.json`
-  `{"open": "here" | "tab", "layout": "tabs" | "split", "piArgs": [...]}`.
-  A flag wins over the config.
+  `{"open": "here" | "tab", "layout": "tabs" | "split", "agent": "pi" | "claude", "agentArgs": [...]}`.
+  A flag wins over the config. `agentArgs` go to the config's agent only, not
+  to another one that `--agent` names. `piArgs` is the old name of `agentArgs`.
 
 ## Use
 
 - `ctrl+k h`: the symbiosis panel. Settings you change in place (Enter
-  cycles a value: preview speed, stub scope, autosave, the editor follows pi), the pi sessions (Enter
+  cycles a value: preview speed, stub scope, autosave, the editor follows the agent), the agent sessions (Enter
   follows one), and every key. Up/Down move, Tab goes to the next list, Esc
   closes.
 
@@ -153,8 +176,8 @@ argument, else the git root, else this folder.
   it, else the most recent one. Its name is pi's session name (`/name`), else
   the folder; two sessions with one name also show their pane. Click it or `ctrl+k g` to go to its herdr
   or tmux pane. `ctrl+k n`: the next session takes over, after the last one the editor is
-  **detached** (`π detached`: it follows no pi, and `helpi!`, ask and fill say
-  so; pi keeps running), then back to automatic. A click on `π detached`, or
+  **detached** (`○ detached`: it follows no agent, and `helpi!`, ask and fill say
+  so; pi keeps running), then back to automatic. A click on `○ detached`, or
   `ctrl+k g` there, follows pi again; the panel lists "detached" too. `ctrl+k q` stops its turn, as Esc in pi does.
 - `π symbiosis ? waits for you`: pi shows a dialog in its own pane (a guard's
   "Allow this one call?", a question) and waits. A notice says so with the
@@ -235,11 +258,11 @@ argument, else the git root, else this folder.
   with the signature, the intent, the body and the reasons pi gave; `a` (the
   Ack button) acks it. Esc hides the drawer, `ctrl+k x` shows it again. A `●` in
   the gutter marks the function until it is acked, the status bar says "● n to
-  review", and the "pi files" tab shows `● n` at the file. An edit does not ack;
+  review", and the "agent files" tab shows `● n` at the file. An edit does not ack;
   a restart of pi forgets what was not acked.
 - The file tree follows pi: when the editor follows pi into a file, ttt's
   tree opens to it, if the file is in a folder open in ttt (start ttt on a
-  folder, or on several: `ttt ~/a ~/b`). The "pi files" tab in the sidebar
+  folder, or on several: `ttt ~/a ~/b`). The "agent files" tab in the sidebar
   shows the files each pi session changed (its last 20), by its folder, at
   any path: `▶` is the session the editor follows, `✎` the file pi changes
   now, Enter opens a file. While that tab is on screen, the tree stays on it.
@@ -406,7 +429,8 @@ bash test/e2e/help.sh      # helpi!: code, note, ask, Esc; only the session the 
 bash test/e2e/scenarios.sh # every demo scenario against a headless ttt (name one to run only it)
 bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the workspace tests must pass
 bash test/e2e/preview.sh   # following: the preview types behind pi, pi does not wait, your typing waits, follow off and on, the buffer ends as the disk
-bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "pi files" panel shows a file outside the folder
+bash test/e2e/claude.sh    # Claude Code through its real hooks and keeper: the bar, the plan from its tasks, the diff of its turn, idle after Stop; a permission prompt, then ctrl+k q presses Esc in its pane
+bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "agent files" panel shows a file outside the folder
 bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, tab names, no multiplexer, already open, symbiosis close
 bash test/e2e/close.sh     # ctrl+k n detaches; ctrl+k z asks, runs `symbiosis close`, quits ttt only when it worked (asks about unsaved files); quit.json
 bash test/e2e/changelist.sh # the plan drawer: steps with the files pi named and changed, unplanned, Enter opens a file
@@ -417,5 +441,5 @@ bash test/e2e/stubs.sh     # helpi! on a stub: an edit outside it is blocked, th
 bash test/e2e/runconf.sh   # run configurations: the picker, F5, shift+F5, a failing run, ctrl+q keeps a run, back in ttt it shows
 bash test/e2e/runcompound.sh # a compound: its row in the Run panel with its steps under it, the event log, the status bar, s stops all
 bash test/e2e/runinputs.sh # inputs: the drawer asks, F5 runs the pick again, the picker shows it, i asks again, one option asks nothing, an input decided is not listed again
-sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi): without herdr, with it, twice, key taken, own command file
+sh test/e2e/install.sh     # install.sh in a throw-away HOME (stubs for curl, ttt, pi, claude): without herdr, with herdr and claude (Claude Code's settings), twice, key taken, own command file
 ```

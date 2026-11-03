@@ -6,19 +6,26 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 export type Open = 'here' | 'tab';
-/** tabs: pi in a tab of its own; split: ttt left, pi right in one tab. */
+/** tabs: the agent in a tab of its own; split: ttt left, the agent right in one tab. */
 export type Layout = 'tabs' | 'split';
+export type AgentName = 'pi' | 'claude';
+export const AGENTS: readonly AgentName[] = ['pi', 'claude'];
+
+export function isAgent(value: unknown): value is AgentName {
+	return typeof value === 'string' && (AGENTS as readonly string[]).includes(value);
+}
 
 export interface Config {
 	/** Where `symbiosis` opens: in this pane, or in a new tab. */
 	open: Open;
-	/** How ttt and pi sit. */
+	/** How ttt and the agent sit. */
 	layout: Layout;
-	/** Arguments pi always gets, before the ones after `--`. */
-	piArgs: string[];
+	agent: AgentName;
+	/** Arguments this agent always gets, before the ones after `--`. */
+	agentArgs: string[];
 }
 
-export const DEFAULTS: Config = { open: 'here', layout: 'tabs', piArgs: [] };
+export const DEFAULTS: Config = { open: 'here', layout: 'tabs', agent: 'pi', agentArgs: [] };
 
 export class ConfigError extends Error {}
 
@@ -47,6 +54,7 @@ export function parseConfig(text: string, path: string): Config {
 	}
 	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new ConfigError(`symbiosis: ${path} must hold one JSON object`);
 	const config = { ...DEFAULTS };
+	if ('agentArgs' in raw && 'piArgs' in raw) throw new ConfigError(`symbiosis: ${path}: "agentArgs" or "piArgs" (its old name), not both`);
 	for (const [key, value] of Object.entries(raw)) {
 		if (key === 'open') {
 			if (value !== 'here' && value !== 'tab') throw new ConfigError(`symbiosis: ${path}: "open" must be "here" or "tab", not ${JSON.stringify(value)}`);
@@ -54,11 +62,14 @@ export function parseConfig(text: string, path: string): Config {
 		} else if (key === 'layout') {
 			if (value !== 'tabs' && value !== 'split') throw new ConfigError(`symbiosis: ${path}: "layout" must be "tabs" or "split", not ${JSON.stringify(value)}`);
 			config.layout = value;
-		} else if (key === 'piArgs') {
-			if (!Array.isArray(value) || !value.every((v) => typeof v === 'string')) throw new ConfigError(`symbiosis: ${path}: "piArgs" must be a list of strings`);
-			config.piArgs = value;
+		} else if (key === 'agent') {
+			if (!isAgent(value)) throw new ConfigError(`symbiosis: ${path}: "agent" must be ${AGENTS.map((a) => `"${a}"`).join(' or ')}, not ${JSON.stringify(value)}`);
+			config.agent = value;
+		} else if (key === 'agentArgs' || key === 'piArgs') {
+			if (!Array.isArray(value) || !value.every((v) => typeof v === 'string')) throw new ConfigError(`symbiosis: ${path}: "${key}" must be a list of strings`);
+			config.agentArgs = value;
 		} else {
-			throw new ConfigError(`symbiosis: ${path}: unknown key "${key}" (known: open, layout, piArgs)`);
+			throw new ConfigError(`symbiosis: ${path}: unknown key "${key}" (known: open, layout, agent, agentArgs)`);
 		}
 	}
 	return config;

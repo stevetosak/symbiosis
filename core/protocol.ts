@@ -5,7 +5,10 @@
 import type { Landed } from './review.ts';
 
 /** The channel protocol. The plugin flags a session with another one: "/reload". */
-export const PROTOCOL = 17;
+export const PROTOCOL = 18;
+
+export type Capability = 'help' | 'ask' | 'fill' | 'stop' | 'close';
+export const CAPABILITIES: readonly Capability[] = ['help', 'ask', 'fill', 'stop', 'close'];
 
 /** The tools whose calls the editor lists and types as a preview. */
 export type Tool = 'write' | 'edit';
@@ -78,7 +81,7 @@ export interface Hunk {
 }
 
 /**
- * One write or edit pi made, as the change log keeps it (pi/changelog.ts):
+ * One write or edit the agent made, as the change log keeps it (core/agent/changelog.ts):
  * `log/<session>/index.json` lists them, oldest first; the texts before and
  * after are in `log/<session>/<id>.json` ({before, after}) when `texts` is true.
  */
@@ -105,6 +108,8 @@ export interface LoggedChange {
 
 export interface Session {
 	id: string;
+	agent: string;
+	can: Capability[];
 	/** The channel protocol of this extension; the plugin flags an older one. */
 	version: number;
 	/** The pane of this pi, when it runs in herdr or tmux: ctrl+k g goes there. */

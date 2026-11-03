@@ -12,7 +12,8 @@ open each file and type pi's change in it as a preview, at a speed you set.
 
 | Part | File | Job |
 |---|---|---|
-| pi extension | `pi/index.ts` | Reads the tool calls. Writes events. Wires `core/` into pi. |
+| pi extension | `pi/index.ts` | Reads pi's tool calls and turns. Wires `core/` into pi. |
+| Agent side | `core/agent/agent.ts` | For any agent: the session record, the events of each write and edit, the change log (`core/agent/changelog.ts`) and the diff texts (`core/agent/changes.ts`). An adapter gives it its agent's events. |
 | Protocol | `core/protocol.ts` | Types only: every event and record that crosses the channel, and `PROTOCOL`. |
 | Calls | `core/call.ts` | Pure: a call's absolute path, and the first line of a tool result. |
 | Stream | `core/stream.ts` | Pure: a tool call's arguments as pi streams them, as `text` events (what grew since the last); Adler-32 of a file. |
@@ -30,6 +31,7 @@ open each file and type pi's change in it as a preview, at a speed you set.
 | Hunks | `core/hunks.ts` | Pure: the lines a change touched (a line diff, by the `diff` package), and where an old line stands after a later change. |
 | Launcher | `launcher/main.ts` (`bin/symbiosis`) | Starts a real pi in its own herdr or tmux pane, runs ttt here as its child, ends when ttt quits. One record per folder in `~/.local/state/symbiosis/`. |
 | Layout | `launcher/layout.ts` | Pure: the herdr and tmux command lines for a pi tab, a split, or a new tab for symbiosis itself. |
+| Claude Code | `claude/` (`.claude-plugin/plugin.json`) | Hooks (`claude/hook.mjs`) and a keeper process per session (`claude/keeper.ts`) that wire `core/agent/` into Claude Code. See "Claude Code". |
 | ttt plugin | `ttt/src` (bundled into `ttt/symbiosis/plugin.lua`) | Polls every 40 ms. Shows which file pi writes. When you follow pi, types its changes as a preview. Sends helpi! questions and writes the answers. A host (`ttt/src/core`) and one module per feature (`ttt/src/features`); see `ttt/README.md`. |
 
 A ttt plugin cannot open a socket and can read only its own folder and the
@@ -39,8 +41,9 @@ workspace. Thus the channel is files in the plugin folder.
 guard). It imports nothing from pi, so
 another agent harness, or a socket in place of the files, is a new adapter or
 a new `Channel` implementation, not a change to the rules. `pi/` holds only
-what speaks pi: the extension, its `plan` tool, the change log it keeps for
-the editor, and the setup.
+what speaks pi: the extension, its `plan` tool, and the setup. The session
+record, the events and the change log are `core/agent/`, so every agent
+adapter shares them.
 
 ## The buffer: one rule
 
@@ -134,7 +137,7 @@ Operator feedback: the keys were not visible anywhere, and each setting key
 showed a ttt notice that covers the whole status bar for about 4 s (measured),
 so the new value was hidden. Now:
 
-- `ctrl+k h` opens a drawer: Settings (a `list`; Enter cycles the value), pi sessions (Enter follows one, or "automatic"),
+- `ctrl+k h` opens a drawer: Settings (a `list`; Enter cycles the value), agent sessions (Enter follows one, or "automatic"),
   and a key list. ttt calls a drawer's render on every frame, so render
   reads no files. Measured in ttt 1.7.1: a `button` keeps its first label
   after a redraw, a `list` item does not, so the settings are list items;
@@ -183,7 +186,7 @@ choice is saved as `nowrap` in its layout file).
   buffer stays old until you save or close it.
 - Two sessions in the same folder: the most recent one wins until you choose.
 - The reveal moves the sidebar to the explorer, also from Find or Changes.
-- The "pi files" tab is hidden behind `»` in a narrow sidebar.
+- The "agent files" tab is hidden behind `»` in a narrow sidebar.
 
 ## Slice 2: sessions
 
@@ -196,7 +199,7 @@ ttt was tried and dropped: it took space from the code.) Each pi writes
 1. the session you chose with `ctrl+k n` (it cycles through the sessions, then
    to **detached**, then back to automatic). Detached has no owner at all: the
    chosen id is the sentinel `-`, `pick` returns no session, the bar says
-   `π detached` and the features that need a pi say that the editor is
+   `○ detached` and the features that need an agent say that the editor is
    detached. pi itself runs on;
 2. else the session that wrote or edited the open file (each session record
    lists its last 20 files; pi adds a file when it starts to write it, before
@@ -209,7 +212,7 @@ ttt was tried and dropped: it took space from the code.) Each pi writes
    file", also a file pi itself had just written in `/tmp`.)
 
 Only the owner writes events and answers helpi! questions. The status bar shows it:
-`π symbiosis ● working`, `π none`, or `π tosak-docs · old, /reload` for an
+`π symbiosis ● working` (the mark is the agent's: π pi, ✻ claude, else its name), `○ no agent`, or `π tosak-docs · old, /reload` for an
 extension with another protocol. `ctrl+k g` or a click runs
 `herdr agent focus <pane>` (the plugin's `system.exec` permission allows
 `herdr` only). When the owner changes, its first event starts the log again,
@@ -224,6 +227,101 @@ pointer on text that has an empty line. The plugin splits lines with `find`.
 Keys `ctrl+k e t i j o r s u y` belong to ttt (`s` is Save As, `y` the keybindings); plugin chords that work are
 `a d g h n q v w x z` and `.` `/` (`d` asks, see "Ask" below). A `local ready` flag once hid the `ready` handler:
 Lua locals shadow quietly.
+
+## The agent of a session
+
+Each record names its agent (`agent`: `pi`, `claude`) and lists what its
+agent side can do (`can`: `help`, `ask`, `fill`, `stop`, `close`; `PROTOCOL`
+18). The plugin (`ttt/src/core/agent.lua`) shows the agent's mark in the
+status bar (π pi, ✻ claude, else its name), and its name in a text about
+that session (`claude ✎ writing store.ts`, `// claude: …` under a helpi!
+question). A text about no session says "the agent", and the bar says
+`○ no agent`. A feature the agent cannot do says so at once (`claude w cannot
+answer helpi! yet`), with no 3 s wait for an answer. A record without `agent`
+is pi's: only pi wrote records before `PROTOCOL` 18.
+
+## Claude Code
+
+`claude/` is the agent side for Claude Code: a plugin (`.claude-plugin/plugin.json`
+at the repo root, so `core/` comes along) with the hooks in `claude/hooks.json`.
+
+- **How Claude loads it.** From the one copy of symbiosis (pi's package
+  folder, or a checkout), never from a copy of its own. `bin/setup.sh` and
+  `install.ts` run `claude/setup.mjs` when `claude` is on PATH: it adds the
+  copy to `CLAUDE_CODE_PLUGIN_DIRS` in the `env` of Claude's
+  `settings.json`, keeps the other folders and settings, drops another
+  symbiosis copy (by the name in its `plugin.json`), and writes through a
+  linked settings file. Claude loads each folder there as a plugin, as
+  `--plugin-dir` does; the launcher also gives `--plugin-dir`, and Claude
+  loads a folder named in both once (measured, Claude Code 2.1.312). A
+  marketplace install was the plan, and was dropped: Claude copies the plugin
+  into its cache, from GitHub without `node_modules` (the keeper needs
+  `diff`), from a local folder with all 324 MB of them, and that copy updates
+  apart from `pi update`. Two organization policies block plugin folders:
+  `disableSideloadFlags` and `CLAUDE_CODE_RESTRICT_PERSONAL_CONFIG`.
+
+- **The hook** (`claude/hook.mjs`) runs for each event. It is plain JavaScript:
+  any `node` runs it, with no type stripping and no `bin/run-node` (measured:
+  `node` starts in about 20 ms, `bin/run-node` adds 30, and a hook runs twice
+  for each Edit). It sends the hook's JSON to the session's keeper over a Unix
+  socket and waits for `ok`: so the keeper has read the file before Claude runs
+  the tool. It prints nothing, as Claude reads the output of some hooks, and
+  exits 0. With no ttt plugin folder it does nothing.
+- **The keeper** (`claude/keeper.ts`, one per session) holds what
+  `pi/index.ts` holds: an `AgentSide` and the task list. The first hook that
+  finds no socket starts it. The socket is `<session id>.sock` in
+  `/tmp/symbiosis-<uid>` (`$XDG_RUNTIME_DIR/symbiosis` when set): macOS allows
+  104 bytes for its path. A folder that is not the user's own, or that others
+  can write, stops both. The keeper ends on SessionEnd (also `/clear`, which
+  then starts a new session and so a new keeper), on SIGTERM, or when
+  `CLAUDE_PID` is gone.
+
+| Source | The keeper | Channel |
+|---|---|---|
+| SessionStart | The record: `agent: claude`, `pid: CLAUDE_PID`, the pane, cwd, `model`, `title` (`session_title`) | session record |
+| UserPromptSubmit | Working, a new run for `ctrl+k w` | `rotate` |
+| PreToolUse Edit, Write | The input in pi's shape (`claude/map.ts`); the text before | `start`, `text` (all of it), `ready` |
+| PostToolUse Edit, Write | The first changed line from `structuredPatch`; the change log | `done` |
+| PostToolUseFailure | | `done`, not ok |
+| PostToolUse TaskCreate, TaskUpdate | The plan: completed is done, in_progress now, pending next | session record |
+| Notification `permission_prompt` (or a dialog) | `waiting` | session record |
+| Stop, StopFailure | Idle | `stop` |
+| The transcript: a rejected `tool_result` | That call will not run | `abort` |
+| The transcript: `[Request interrupted by user` | Idle | `stop` |
+| Claude's session status `idle`, newer than the turn | Idle | `stop` |
+| Notification `idle_prompt`, no dialog open | Idle | `stop` |
+| SessionEnd | The record goes; the keeper ends | |
+| `stop.json` (`ctrl+k q`), while working | Esc in its pane: `herdr pane send-keys <pane> esc`, `tmux send-keys -t <pane> Escape`. Then the transcript or the session status ends the turn | |
+| `close.json` (`symbiosis close`) | SIGTERM to `CLAUDE_PID`: Claude runs SessionEnd and quits | |
+
+Claude tells no hook about Esc or about a rejected permission, so the keeper
+reads the new lines of `transcript_path` every 200 ms (`claude/transcript.ts`:
+`user` lines only; the `api-request-blob` copies and side chains do not count).
+Esc before Claude wrote anything leaves no line there either: Claude takes the
+prompt back into the input box. No idle notice comes then: Claude sends
+`idle_prompt` once for each completed turn, and this Esc completes none. So
+during a turn the keeper also reads, every second, the status that Claude
+writes for its process: `sessions/<CLAUDE_PID>.json` in `~/.claude` (or
+`CLAUDE_CONFIG_DIR`). `idle` for this session id, written after the turn
+started, ends the turn. Claude writes `busy` before the prompt hook comes, and
+`idle` after Stop.
+
+Weak points:
+
+- The preview starts when the call is complete: no hook sees the arguments
+  while the model writes them.
+- No `why`, and no `files` for a plan step.
+- The timeline needs `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`: the task tools are off
+  by default (Claude Code 2.1.312).
+- Claude's session status is not a documented interface. Without it, Esc
+  before any output shows `● working` until the next prompt. An Esc that
+  comes within milliseconds of the prompt hook can do the same.
+- A keeper that starts in the middle of a session (the plugin came later, or
+  the keeper died) does not know the tasks from before, and the model only
+  comes with SessionStart.
+- Stop needs the pane: outside herdr and tmux, `can` is `close` alone, and
+  `ctrl+k q` says so.
+- helpi!, ask and fill: not yet, so ttt says so.
 
 ## Slice 3: the timeline
 
@@ -323,13 +421,13 @@ change. So five edits to one file show as one diff. The open file, or, if pi
 did not change it, the last file pi changed.
 
 Only the owner keeps these, in `changes/` in the plugin folder
-(`pi/changes.ts`): ttt.fs cannot read outside the workspace, so the
+(`core/agent/changes.ts`): ttt.fs cannot read outside the workspace, so the
 extension writes both texts there. A new turn of the owner drops the last
 one. Files over 1 MB are not kept.
 
 ## The change log
 
-`pi/changelog.ts` keeps every `write` and `edit` of the session, in the order
+`core/agent/changelog.ts` keeps every `write` and `edit` of the session, in the order
 pi made them (`log/<session>/index.json`, oldest first). The diff key keeps
 the last turn only; this log is for the change list and keeps its entries
 across turns, up to 300 (the oldest go first). An entry: `seq`, time, call,
@@ -361,13 +459,13 @@ ttt), so there are two parts:
   `explorer.revealActiveFile`, once for each new file. Only for a file in a
   folder open in ttt: ttt.fs sees only those folders, so `fs.exists` tells.
   Outside them the reveal only says "File is not in the explorer".
-- The "pi files" panel (a sidebar tab): each live session, by name and
+- The "agent files" panel (a sidebar tab): each live session, by name and
   folder, with the files it wrote (`files` in its record, the last 20) as a
   tree under its folder; a file outside the folder goes under its own folder
   by full path. `▶` the session the editor follows, `✎` the file pi changes
   now; Enter opens a file.
 
-The reveal switches the sidebar to the explorer. So while the "pi files" tab
+The reveal switches the sidebar to the explorer. So while the "agent files" tab
 is on screen (ttt draws it on each tick, the plugin notes the tick) there is
 no reveal. ttt has no command to show a plugin's sidebar tab: you choose it.
 
@@ -447,7 +545,7 @@ in its conversation, and streams `ask`, `ask_text` and `ask_done` events
 innermost function around the target (cut at 60 lines) or, for code in no
 function, 12 lines around it; the stub's signature and doc when the target is
 inside a stub; the reasons (`why`) pi gave for its changes to that file in its
-last turn (`pi/changes.ts`); the plan. The answer is 2 to 4 lines, then
+last turn (`core/agent/changes.ts`); the plan. The answer is 2 to 4 lines, then
 `links:` and `terms:` sections, parsed by `parseAskAnswer` while it streams.
 
 **`why!`.** The comment is the question. Code before the comment on the same
@@ -494,7 +592,7 @@ Weak points:
 - The `.gitignore` dialog takes the focus from the drawer, and ttt does not
   give it back (after OK or Cancel). `ctrl+k d` on the line (a click on the
   editor first) opens the drawer with the focus again. Once for each folder.
-- `why` is kept for each file, not each hunk: `pi/changes.ts` records the
+- `why` is kept for each file, not each hunk: `core/agent/changes.ts` records the
   reasons of a turn for the file. A file pi changed in several places sends
   all its reasons.
 - A hash is the line's text, so two equal lines (`}`) cannot tell their notes
@@ -535,7 +633,7 @@ record:
   `anchor`); the mark follows the function when lines move, and goes when the
   line's text changes. The drawing is `core/gutter.lua`, shared with the notes'
   `◆`.
-- **Tree.** The "pi files" tab shows `● n` at a file with n bodies waiting.
+- **Tree.** The "agent files" tab shows `● n` at a file with n bodies waiting.
 - **Ack.** The plugin writes `review.json` (`{id, to, ack}`); pi drops the body
   from its list in the next poll and writes the record at once. `acked` in the
   plugin hides the body until the record agrees.
@@ -718,17 +816,25 @@ not hidden behind ttt: it runs in its own pane, with its own chat, commands
 and dialogs. (pi in RPC mode behind ttt, with a chat panel in ttt, was built
 and dropped: the panel was a poorer copy of pi's own terminal.)
 
-- **Where pi goes.** In herdr or tmux, by `layout` (config, or `--tabs`,
+- **The agent.** `--agent pi|claude`, or `agent` in the config; pi is the
+  default. claude runs as `env CLAUDE_CODE_ENABLE_TODO_TOOLS=1 claude
+  --plugin-dir <the launcher's checkout>`: the task tools for the plan, and the
+  hooks of the same version as the launcher. `-c` is `--continue` for both.
+  `agentArgs` (old name `piArgs`; both at once is an error) go to the config's
+  agent only, so `--agent claude` with a pi config gives claude none of pi's
+  arguments.
+- **Where the agent goes.** In herdr or tmux, by `layout` (config, or `--tabs`,
   `--split`):
-  - `tabs` (the default): a new tab `pi · <folder>`, not focused; ttt stays
+  - `tabs` (the default): a new tab `<agent> · <folder>`, not focused; ttt stays
     in this pane.
   - `split`: this pane splits, pi on the right, the focus stays on ttt.
   The launcher makes the pane, then types the pi command into its shell, so
   the shell stays when pi quits and its last words can be read.
 - **`--tab`** (or `open: "tab"`): a new focused tab named after the folder;
   symbiosis runs again there with `--here`, and this pane is free. The new
-  tab's shell does not get this environment, so `SYMBIOSIS_PI` and
-  `SYMBIOSIS_TTT` go along on the command line (`env ...`).
+  tab's shell does not get this environment, so `SYMBIOSIS_PI`,
+  `SYMBIOSIS_CLAUDE` and `SYMBIOSIS_TTT` go along on the command line
+  (`env ...`), and `--agent` when it was given.
 - **Demo scenarios.** `demo/scenarios/` has one `Scenario` for each feature
   (`kit.ts` is the shape: title, what to try, the scripted pi's `run`, and a
   `check` for a headless ttt). `npm run demo -- <name>` writes the name into the
@@ -751,10 +857,13 @@ and dropped: the panel was a poorer copy of pi's own terminal.)
   `automatic-rename`) and restores it when ttt ends (tmux: `automatic-rename
   on` when the window had no name of its own).
 - **Close.** `symbiosis close` (launcher/close.ts) ends what the launcher
-  opened. The launcher's record holds the pi pane it made (`pi`). Steps: find
-  the record (inside ttt by the pid in `SYMBIOSIS_SESSION`, else by folder);
-  find the live session registered from that pane; write `close.json`
-  `{id, to}` (PROTOCOL 15); pi's poll calls `ctx.shutdown()`; when the
+  opened. The launcher's record holds the agent pane it made (`agent: {name,
+  pane}`; a record from before has `pi: <pane>`, which close still reads).
+  Steps: find the record (inside ttt by the pid in `SYMBIOSIS_SESSION`, else by
+  folder); find the live session registered from that pane; write `close.json`
+  `{id, to}` (PROTOCOL 15); pi's poll calls `ctx.shutdown()`, Claude's keeper
+  sends SIGTERM to Claude (a session whose `can` has no `close` is not asked,
+  and its pane stays); when the
   process has ended, close the pane (herdr `pane close`, tmux `kill-pane`; the
   tab goes with its last pane). A pi in another pane, or none, is never closed;
   pi that does not quit in 8 s keeps its pane and the command fails. Then ttt:

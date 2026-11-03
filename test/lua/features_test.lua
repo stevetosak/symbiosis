@@ -75,6 +75,7 @@ end
 -- The bundle, following pi, with a.ts open as pi found it.
 local function following(text)
 	load_bundle()
+	session()
 	stub.run_timers() -- a tick with no log: what comes next is new
 	command("symbiosis.toggleFollow")
 	stub.set_text("/w/a.ts", text or "old")
@@ -98,9 +99,10 @@ return {
 		t.eq(helpi.helpi("x = helpi!"), nil, "no comment")
 		t.eq(helpi.helpi("// why helpi"), nil)
 		t.eq(helpi.unmark("// why? helpi!"), "// why?")
-		local h = { kind = "note", indent = "  ", opener = "/*" }
+		local h = { kind = "note", indent = "  ", opener = "/*", agent = "pi" }
 		t.eq(helpi.render(h, "one\ntwo", false), "\n  /* pi: one */\n  /* two")
 		t.eq(helpi.render(h, "one\ntwo", true), "\n  /* pi: one */\n  /* two */")
+		t.eq(helpi.render({ kind = "note", indent = "  ", opener = "/*", agent = "claude" }, "one", true), "\n  /* claude: one */")
 		t.eq(helpi.render({ kind = "code", indent = "\t" }, "a()\n\nb()", true), "a()\n\n\tb()")
 		t.eq({ helpi.import_at({ "package x", "import a", "import b", "", "code" }) }, { 3, 1 })
 	end },
@@ -209,7 +211,7 @@ return {
 		local build = require("features.tree").build
 		local items, paths = build({ { id = "s", name = "pi", cwd = "/w", files = { "/w/src/a.ts", "/elsewhere/b.ts" } } }, { id = "s" }, "/w/src/a.ts")
 		t.eq(#items, 1)
-		t.eq(items[1].label, "▶ pi")
+		t.eq(items[1].label, "▶ π pi")
 		t.eq(paths["s|/w/src/a.ts"], "/w/src/a.ts")
 		local labels = {}
 		for _, n in ipairs(items[1].children) do table.insert(labels, n.label) end
@@ -232,9 +234,23 @@ return {
 			["f5"] = "symbiosis.run", ["shift+f5"] = "symbiosis.runStop", ["ctrl+k f5"] = "symbiosis.runPick", ["ctrl+k shift+f5"] = "symbiosis.runPanel",
 		})
 		t.eq(reg.bottom.title, "Run")
-		t.eq(reg.sidebar.title, "pi files")
+		t.eq(reg.sidebar.title, "agent files")
 		t.eq(stub.notices, {}, "no feature is off")
-		t.eq(stub.status.symbiosis, "pi · not following")
+		t.eq(stub.status.symbiosis, "agent · not following")
+	end },
+	{ "bundle: a claude session: its mark, and a stop only when it can stop", function()
+		load_bundle()
+		session({ agent = "claude", can = { "stop" }, working = true })
+		stub.run_timers()
+		t.eq(stub.status["symbiosis.session"], "✻ w ● working")
+		command("symbiosis.stop")
+		t.ok(stub.files["/plugin/stop.json"], "a claude that can stop gets stop.json")
+		stub.files["/plugin/stop.json"] = nil
+		session({ agent = "claude", can = {}, working = true })
+		stub.run_timers()
+		command("symbiosis.stop")
+		t.eq(stub.files["/plugin/stop.json"], nil, "no stop.json for a claude that cannot stop")
+		t.eq(stub.notices[#stub.notices].text, "symbiosis: claude w cannot be stopped from ttt: it does not run in herdr or tmux")
 	end },
 	{ "bundle: ctrl+k n goes through the sessions, then detached, then back; detached follows no pi", function()
 		load_bundle()
@@ -248,11 +264,11 @@ return {
 		command("symbiosis.nextSession")
 		t.eq(stub.status["symbiosis.session"], "π api ○ idle (chosen)")
 		command("symbiosis.nextSession")
-		t.eq(stub.status["symbiosis.session"], "π detached")
+		t.eq(stub.status["symbiosis.session"], "○ detached")
 		command("symbiosis.nextSession")
 		t.eq(stub.status["symbiosis.session"], "π api ○ idle")
 		command("symbiosis.detach")
-		t.eq(stub.status["symbiosis.session"], "π detached")
+		t.eq(stub.status["symbiosis.session"], "○ detached")
 		command("symbiosis.detach")
 		t.eq(stub.status["symbiosis.session"], "π api ○ idle", "the same command follows again")
 	end },
@@ -281,7 +297,7 @@ return {
 			stub.run_timers()
 			command("symbiosis.close")
 			t.eq(#stub.confirms, 1)
-			t.ok(stub.confirms[1].text:find("pi quits", 1, true), "it says what closes")
+			t.ok(stub.confirms[1].text:find("The agent quits", 1, true), "it says what closes")
 			t.ok(stub.confirms[1].text:find("is working now", 1, true), "and that pi is working")
 			t.eq(#closes(), 0, "nothing before the answer")
 			stub.confirms[1].on_ok()
@@ -323,6 +339,7 @@ return {
 	end },
 	{ "bundle: pi writes: the editor stays where you are, and says which file pi writes", function()
 		load_bundle()
+		session()
 		stub.run_timers() -- a tick with no log: what comes next is new
 		send({ { op = "start", call = "c1", tool = "write", path = "/w/a.ts" } })
 		stub.run_timers()
@@ -335,6 +352,7 @@ return {
 	end },
 	{ "bundle: ctrl+k a: the editor follows pi to the file and the line it wrote", function()
 		load_bundle()
+		session()
 		stub.run_timers()
 		send({ { op = "done", call = "c1", tool = "edit", path = "/w/a.ts", line = 7, ok = true } })
 		stub.run_timers()
@@ -488,6 +506,7 @@ return {
 	end },
 	{ "bundle: a done with no start leaves the open calls as they are", function()
 		load_bundle()
+		session()
 		stub.run_timers()
 		send({
 			{ op = "start", call = "c1", tool = "write", path = "/w/a.ts" },
@@ -667,6 +686,7 @@ return {
 	{ "bundle: the why of a change shows when pi finishes it; pi's notices show", function()
 		local util = require("core.util")
 		load_bundle()
+		session()
 		stub.run_timers()
 		stub.set_text("/w/a.ts", "old")
 		send({ { op = "done", call = "c1", tool = "edit", path = "/w/a.ts", line = 1, ok = true, sum = util.adler32("old"), why = "small files" } })

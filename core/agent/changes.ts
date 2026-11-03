@@ -1,5 +1,5 @@
-// What pi changed in the current turn, file by file, for the diff key in ttt
-// (ctrl+k w). The extension keeps, per file, the text from before pi first
+// What the agent changed in the current turn, file by file, for the diff key in ttt
+// (ctrl+k w). The agent side keeps, per file, the text from before the agent first
 // touched it in the turn and the text after its last change. The plugin reads
 // only these files: ttt.fs cannot read outside the workspace.
 //
