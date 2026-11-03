@@ -6,7 +6,9 @@
 #
 # It installs ttt and pi with their own official installers when one is
 # missing, then the symbiosis pi package and the `symbiosis` command
-# (~/.local/bin/symbiosis, a link into pi's copy of the package). Each official
+# (~/.local/bin/symbiosis, a link into pi's copy of the package). With Claude
+# Code there (`claude` on PATH), Claude loads the symbiosis hooks from the same
+# copy: CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json. Each official
 # installer is a script from the internet that runs on this machine, as this
 # one does:
 #   ttt    https://raw.githubusercontent.com/eugenioenko/ttt/main/install.sh
@@ -150,6 +152,9 @@ fi
 say ""
 say "symbiosis is installed. Next:"
 say "  1. Go to a project folder and run: symbiosis"
+if has claude; then
+	say "     With Claude Code beside ttt: symbiosis --agent claude"
+fi
 if has herdr; then
 	if [ -n "$key" ]; then
 		say "     In herdr, $key (prefix is ctrl+b by default) does the same in a new tab."

@@ -7,15 +7,18 @@
 //     (SYMBIOSIS_BIN_DIR changes the folder), as bin/setup.sh does for users.
 //   * removes the old link ~/.pi/agent/extensions/symbiosis -> <repo>/pi, which
 //     would load the extension a second time.
+//   * with `claude` on PATH: this folder in CLAUDE_CODE_PLUGIN_DIRS of Claude
+//     Code's settings (claude/setup.mjs), so Claude loads the hooks from here.
 // Users install with install.sh or `pi install git:github.com/stevetosak/symbiosis`.
-// Honours PI_CODING_AGENT_DIR, TTT_CONFIG_DIR and SYMBIOSIS_BIN_DIR. Usage: bin/run-node install.ts [--check]
+// Honours PI_CODING_AGENT_DIR, TTT_CONFIG_DIR, CLAUDE_CONFIG_DIR and SYMBIOSIS_BIN_DIR. Usage: bin/run-node install.ts [--check]
 import { spawnSync } from 'node:child_process';
-import { lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync } from 'node:fs';
+import { accessSync, constants, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { builtPluginSource, planTttPlugin, type Step } from './pi/setup.ts';
 import { pluginDir } from './core/channel/file.ts';
+import { planPluginDir, settingsPath } from './claude/setup.mjs';
 
 export { planTttPlugin, type Step };
 
@@ -98,6 +101,18 @@ export function planPiPackage(piDir: string, repo: string, pi = 'pi'): Step {
 	};
 }
 
+export function onPath(name: string, path = process.env.PATH ?? ''): boolean {
+	return path.split(delimiter).some((dir) => {
+		if (!dir) return false;
+		try {
+			accessSync(join(dir, name), constants.X_OK);
+			return true;
+		} catch {
+			return false;
+		}
+	});
+}
+
 if (import.meta.main) {
 	const repo = dirname(fileURLToPath(import.meta.url));
 	const piDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), '.pi', 'agent');
@@ -107,6 +122,7 @@ if (import.meta.main) {
 		planPiPackage(piDir, repo),
 		planTttPlugin(pluginDir(), builtPluginSource()),
 		planCommandLink(binDir, join(repo, 'bin', 'symbiosis')),
+		...(onPath('claude') ? [planPluginDir(settingsPath(), repo)] : []),
 	];
 	const check = process.argv.includes('--check');
 	for (const s of steps) {

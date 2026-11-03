@@ -245,6 +245,21 @@ is pi's: only pi wrote records before `PROTOCOL` 18.
 `claude/` is the agent side for Claude Code: a plugin (`.claude-plugin/plugin.json`
 at the repo root, so `core/` comes along) with the hooks in `claude/hooks.json`.
 
+- **How Claude loads it.** From the one copy of symbiosis (pi's package
+  folder, or a checkout), never from a copy of its own. `bin/setup.sh` and
+  `install.ts` run `claude/setup.mjs` when `claude` is on PATH: it adds the
+  copy to `CLAUDE_CODE_PLUGIN_DIRS` in the `env` of Claude's
+  `settings.json`, keeps the other folders and settings, drops another
+  symbiosis copy (by the name in its `plugin.json`), and writes through a
+  linked settings file. Claude loads each folder there as a plugin, as
+  `--plugin-dir` does; the launcher also gives `--plugin-dir`, and Claude
+  loads a folder named in both once (measured, Claude Code 2.1.312). A
+  marketplace install was the plan, and was dropped: Claude copies the plugin
+  into its cache, from GitHub without `node_modules` (the keeper needs
+  `diff`), from a local folder with all 324 MB of them, and that copy updates
+  apart from `pi update`. Two organization policies block plugin folders:
+  `disableSideloadFlags` and `CLAUDE_CODE_RESTRICT_PERSONAL_CONFIG`.
+
 - **The hook** (`claude/hook.mjs`) runs for each event. It is plain JavaScript:
   any `node` runs it, with no type stripping and no `bin/run-node` (measured:
   `node` starts in about 20 ms, `bin/run-node` adds 30, and a hook runs twice

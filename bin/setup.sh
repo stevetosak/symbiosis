@@ -8,8 +8,11 @@
 #   * links the command: ~/.local/bin/symbiosis -> <this copy>/bin/symbiosis,
 #     so the launcher, the pi extension and the ttt plugin come from one copy
 #     and `pi update` updates all three
+#   * with Claude Code there (`claude` on PATH): this copy goes into
+#     CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json, so Claude loads the
+#     symbiosis hooks from it too (claude/setup.mjs)
 #
-# Honours TTT_CONFIG_DIR and SYMBIOSIS_BIN_DIR (default ~/.local/bin).
+# Honours TTT_CONFIG_DIR, CLAUDE_CONFIG_DIR and SYMBIOSIS_BIN_DIR (default ~/.local/bin).
 set -eu
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -43,3 +46,7 @@ case ":${SYMBIOSIS_PATH:-$PATH}:" in
 *":$bindir:"*) ;;
 *) say "  $bindir is not on your PATH: add it, or run $link" ;;
 esac
+
+if command -v claude >/dev/null 2>&1; then
+	node "$repo/claude/setup.mjs" "$repo" || say "  could not add symbiosis to Claude Code's settings (claude/setup.mjs)"
+fi

@@ -17,7 +17,7 @@ thin adapter that turns its own events into the channel's events.
 | 1 | Scope of v1 | Observe (the file it writes, follow preview, plan, change list, `ctrl+k w`, changed lines), then control (stop, close, "waits for you"). helpi!, ask and fill come later. |
 | 2 | Names in ttt | The session record names its agent. The UI shows `claude ✎ writing store.ts`. `helpi!` and `why!` stay for every agent. |
 | 3 | Launcher | `--agent pi\|claude`, config `agent`, default pi. `agentArgs` replaces `piArgs` (piArgs is still read). |
-| 4 | Install | A Claude Code plugin from this repo (`.claude-plugin/`). |
+| 4 | Install | A Claude Code plugin from this repo (`.claude-plugin/`), loaded from the one copy: `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json` (decided 2026-11-03, slice 6; a marketplace install copies the plugin, without `node_modules` from GitHub). |
 | 5 | The long-running process | A detached **keeper** per Claude session. symbiosis starts and ends it. No MCP server. |
 | 6 | Plan timeline | Claude's task tools, TaskCreate and TaskUpdate (TodoWrite is gone). completed=done, in_progress=now, pending=next. They are off by default: the launcher sets `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`. |
 | 7 | `why` | None for Claude in v1. |
@@ -130,11 +130,22 @@ Each slice ends with its check. The next slice starts only after it passes.
    Check: launcher tests, app.sh (claude in a tab, from the config, `--tab`,
    no multiplexer, close); by hand in herdr: `symbiosis --agent claude`, a task
    and a write in ttt, then `symbiosis close`.
-6. **Install.** `.claude-plugin/marketplace.json`; the plugin's root is the repo
-   root, so `core/` comes along; install.sh installs it when `claude` is on PATH.
-   Check: a fresh install in a clean `HOME`.
+6. **Install.** Done. No marketplace: `claude/setup.mjs` puts the one copy into
+   `CLAUDE_CODE_PLUGIN_DIRS` in Claude's settings; `bin/setup.sh` (so
+   install.sh and the herdr build) and `install.ts` run it when `claude` is on
+   PATH. Measured first: a folder there loads as `--plugin-dir` does, a folder
+   in both loads once, an inline plugin wins over an installed one of the same
+   name; a marketplace install copies the plugin, from GitHub without
+   `node_modules`, from a folder with all 324 MB.
+   Check: unit tests for `setup.mjs`; install.sh in a clean `HOME` (without
+   claude, with it, twice); a real `claude -p` with the written settings
+   starts a keeper.
 
 ## Later, not in this plan
+
+- An install for Claude Code without pi: the one copy is pi's package folder,
+  so install.sh still installs pi. Without pi it needs a clone of its own and
+  `npm install`.
 
 - helpi! and ask: a side call by `claude -p --output-format stream-json`.
   First check that it uses the subscription login.
@@ -146,10 +157,10 @@ Each slice ends with its check. The next slice starts only after it passes.
 
 ## Open questions, for their slice
 
-- Slice 6: where the one copy lives when pi is not installed (today it is
-  pi's package folder), and how the plugin gets `node_modules`.
-- Slice 6: the launcher gives claude `--plugin-dir`. With the plugin also
-  installed, check that Claude does not run the hooks twice, or drop the flag.
+- Slice 6, answered: the one copy stays pi's package folder, and Claude loads
+  the plugin from it, so it has `node_modules` (a copy without pi: Later).
+  The launcher's `--plugin-dir` and the settings name the same folder, and
+  Claude loads it once.
 
 ## Is this what you want
 
