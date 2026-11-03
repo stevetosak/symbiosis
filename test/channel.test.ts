@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { githubSources, hasPackage, planCommandLink, planOldLink, planPiPackage, planTttPlugin } from '../install.ts';
 import { syncTttPlugin } from '../pi/setup.ts';
 import { FileChannel } from '../core/channel/file.ts';
-import { paneOf } from '../core/session.ts';
+import { escKeys, paneOf } from '../core/session.ts';
 
 const temp = () => mkdtempSync(join(tmpdir(), 'symbiosis-'));
 
@@ -272,4 +272,12 @@ test('the pane of pi: herdr, tmux, or none', () => {
 	assert.deepEqual(paneOf({ HERDR_PANE_ID: 'w4:p1', TMUX: 'x', TMUX_PANE: '%1' }), { pane: 'w4:p1', host: 'herdr' });
 	assert.deepEqual(paneOf({ TMUX: '/tmp/t,1,0', TMUX_PANE: '%3' }), { pane: '%3', host: 'tmux' });
 	assert.deepEqual(paneOf({ TMUX_PANE: '%3' }), { pane: null, host: null });
+});
+
+test('Esc to the pane of a session: herdr, tmux; no pane or an odd pane id gets none', () => {
+	assert.deepEqual(escKeys({ pane: 'w4:p1', host: 'herdr' }), ['herdr', 'pane', 'send-keys', 'w4:p1', 'esc']);
+	assert.deepEqual(escKeys({ pane: '%3', host: 'tmux' }), ['tmux', 'send-keys', '-t', '%3', 'Escape']);
+	assert.equal(escKeys({ pane: null, host: null }), undefined);
+	assert.equal(escKeys({ pane: '%3', host: null }), undefined);
+	for (const pane of ['-t', '', 'w4:p1 esc', 'w4;p1', 'x'.repeat(65)]) assert.equal(escKeys({ pane, host: 'herdr' }), undefined, pane);
 });

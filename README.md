@@ -92,7 +92,8 @@ load the extension twice). `/reload` in pi after a change.
 copies this checkout's ttt plugin):
 `CLAUDE_CODE_ENABLE_TODO_TOOLS=1 claude --plugin-dir <checkout>`. ttt shows the
 session as `✻ <folder>` and follows what Claude writes: the file, the preview,
-the plan from its tasks, the change list, `ctrl+k w`. Not yet: stop, close,
+the plan from its tasks, the change list, `ctrl+k w`. `ctrl+k q` presses Esc
+in its herdr or tmux pane; `symbiosis close` and `ctrl+k z` quit it. Not yet:
 helpi!, ask and fill. See [docs/plan-agents.md](docs/plan-agents.md).
 
 ## The symbiosis command
@@ -413,7 +414,7 @@ bash test/e2e/help.sh      # helpi!: code, note, ask, Esc; only the session the 
 bash test/e2e/scenarios.sh # every demo scenario against a headless ttt (name one to run only it)
 bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the workspace tests must pass
 bash test/e2e/preview.sh   # following: the preview types behind pi, pi does not wait, your typing waits, follow off and on, the buffer ends as the disk
-bash test/e2e/claude.sh    # Claude Code through its real hooks and keeper: the bar, the plan from its tasks, the diff of its turn, idle after Stop
+bash test/e2e/claude.sh    # Claude Code through its real hooks and keeper: the bar, the plan from its tasks, the diff of its turn, idle after Stop; a permission prompt, then ctrl+k q presses Esc in its pane
 bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "agent files" panel shows a file outside the folder
 bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, tab names, no multiplexer, already open, symbiosis close
 bash test/e2e/close.sh     # ctrl+k n detaches; ctrl+k z asks, runs `symbiosis close`, quits ttt only when it worked (asks about unsaved files); quit.json

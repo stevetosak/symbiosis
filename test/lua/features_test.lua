@@ -250,7 +250,7 @@ return {
 		stub.run_timers()
 		command("symbiosis.stop")
 		t.eq(stub.files["/plugin/stop.json"], nil, "no stop.json for a claude that cannot stop")
-		t.eq(stub.notices[#stub.notices].text, "symbiosis: claude w cannot be stopped from ttt yet")
+		t.eq(stub.notices[#stub.notices].text, "symbiosis: claude w cannot be stopped from ttt: it does not run in herdr or tmux")
 	end },
 	{ "bundle: ctrl+k n goes through the sessions, then detached, then back; detached follows no pi", function()
 		load_bundle()

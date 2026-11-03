@@ -1,11 +1,12 @@
-// A fake Claude Code for test/e2e/claude.sh: it plays one turn through the
-// real hooks (claude/hook.mjs), so the keeper writes what ttt reads. Needs
-// TTT_CONFIG_DIR and SYMBIOSIS_RUN_DIR.
+// A fake Claude Code for test/e2e/claude.sh: it plays two turns through the
+// real hooks (claude/hook.mjs), so the keeper writes what ttt reads. The
+// second turn waits on a permission prompt until ttt stops it. Needs
+// TTT_CONFIG_DIR, SYMBIOSIS_RUN_DIR, and a fake herdr in PATH.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const [ws, transcript] = process.argv.slice(2);
+const [ws, transcript, out] = process.argv.slice(2);
 const session = 'e2e-claude';
 const repo = join(import.meta.dirname, '..', '..');
 const plugin = join(process.env.TTT_CONFIG_DIR ?? '', 'plugins', 'symbiosis');
@@ -59,5 +60,16 @@ console.log('written');
 await sleep(5000);
 status('2', 'completed');
 hook('Stop', { stop_hook_active: false });
-await sleep(6000);
+
+async function until(file: string, ms: number): Promise<boolean> {
+	for (const end = Date.now() + ms; Date.now() < end; await sleep(100)) if (existsSync(file)) return true;
+	return false;
+}
+
+await until(join(out, 'idle.txt'), 15000);
+hook('UserPromptSubmit', { prompt: 'and a test' });
+hook('PreToolUse', { tool_name: 'Write', tool_use_id: 'w2', tool_input: { file_path: join(ws, 'store.test.ts'), content: 'test\n' } });
+hook('Notification', { notification_type: 'permission_prompt', message: 'Claude needs your permission to use Write' });
+console.log(`stopped: ${(await until(join(out, 'esc.txt'), 15000)) ? 'yes' : 'no'}`);
+await sleep(2500);
 hook('SessionEnd', { reason: 'other' });
