@@ -1,0 +1,9 @@
+{
+	"name": "symbiosis",
+	"version": "0.2.0",
+	"description": "Claude Code works beside the ttt editor: you watch each write as it happens.",
+	"repository": "https://github.com/stevetosak/symbiosis",
+	"license": "MIT",
+	"author": { "name": "Stefan Toskovski" },
+	"hooks": "./claude/hooks.json"
+}

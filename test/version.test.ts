@@ -10,20 +10,21 @@ import { gatherFacts, PACKAGE_ROOT, parseVersionArgs, type VersionDeps } from '.
 const root = PACKAGE_ROOT;
 const read = (file: string) => readFileSync(join(root, file), 'utf-8');
 
-test('one version: package.json, the ttt plugin and the herdr plugin carry the same number', () => {
+test('one version: package.json, the ttt plugin, the herdr plugin and the Claude Code plugin carry the same number', () => {
 	const found = {
 		package: jsonVersion(read(VERSION_FILES.package)),
 		plugin: jsonVersion(read(VERSION_FILES.plugin)),
 		herdr: tomlVersion(read(VERSION_FILES.herdr)),
+		claude: jsonVersion(read(VERSION_FILES.claude)),
 	};
 	assert.ok(parseVersion(found.package ?? ''), `package.json has no x.y.z version: ${found.package}`);
-	assert.deepEqual(found, { package: found.package, plugin: found.package, herdr: found.package });
+	assert.deepEqual(found, { package: found.package, plugin: found.package, herdr: found.package, claude: found.package });
 });
 
 test('release-please writes the same files and starts at the package version', () => {
 	const config = JSON.parse(read('release-please-config.json'));
 	const paths = (config.packages['.']['extra-files'] as { path: string }[]).map((f) => f.path).sort();
-	assert.deepEqual(paths, [VERSION_FILES.herdr, VERSION_FILES.plugin].sort());
+	assert.deepEqual(paths, [VERSION_FILES.herdr, VERSION_FILES.plugin, VERSION_FILES.claude].sort());
 	assert.equal(JSON.parse(read('.release-please-manifest.json'))['.'], jsonVersion(read(VERSION_FILES.package)));
 });
 

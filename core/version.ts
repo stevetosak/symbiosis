@@ -9,6 +9,7 @@ export const VERSION_FILES = {
 	package: 'package.json',
 	plugin: 'ttt/symbiosis/plugin.ttt.json',
 	herdr: 'herdr-plugin/herdr-plugin.toml',
+	claude: '.claude-plugin/plugin.json',
 } as const;
 
 export type VersionFile = keyof typeof VERSION_FILES;

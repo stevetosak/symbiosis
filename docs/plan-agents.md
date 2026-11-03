@@ -1,7 +1,7 @@
 # Plan: symbiosis for any agent, Claude Code first
 
 Status: draft, 2026-11-03. Questions 1 to 8 answered by the operator. Slices 0
-to 2 are done; the spike's results changed decision 6 and slices 3 to 5.
+to 3 are done; the spike's results changed decision 6 and slices 3 to 5.
 
 ## What I understood
 
@@ -41,7 +41,7 @@ herdr pane. 73 hook records.
 | A failed call | PostToolUseFailure, with `error`. |
 | Permission | PreToolUse comes first, then PermissionRequest, then Notification `permission_prompt` ("Claude needs your permission"). |
 | A rejected permission (No or Esc) | **No hook.** The transcript gets a rejected `tool_result`. |
-| Esc during a turn | Stops it ("Interrupted"). **No hook**: no PostToolUse, no Stop. The transcript gets `[Request interrupted by user for tool use]`. |
+| Esc during a turn | Stops it ("Interrupted"). **No hook**: no PostToolUse, no Stop. The transcript gets `[Request interrupted by user for tool use]`. Found in slice 3: Esc before Claude wrote anything leaves no transcript line either (the prompt goes back to the input box), and no `idle_prompt` comes (Claude sends it once for each completed turn). Claude's status file `~/.claude/sessions/<CLAUDE_PID>.json` goes to `idle`: the keeper reads it. |
 | Stop from outside | `herdr agent send-keys <pane> esc` works. `kill -INT` does not stop the turn: it quits Claude. |
 | Close from outside | `kill -TERM CLAUDE_PID`: SessionEnd runs (`reason: other`), Claude quits, the pane's shell stays. |
 | Other events | A finished background task comes as UserPromptSubmit (its prompt is a `<task-notification>`). SubagentStop also comes for Claude's prompt-suggestion helper: ignore it. |
@@ -53,12 +53,13 @@ And the task tools are off by default.
 ## How it works
 
 ```
-claude ──hook──▶ claude/hook.ts ──socket──▶ claude/keeper.ts ──▶ channel files ──▶ ttt
+claude ──hook──▶ claude/hook.mjs ──socket──▶ claude/keeper.ts ──▶ channel files ──▶ ttt
                 (one per event)            (one per session)    (as for pi)
 claude ──transcript .jsonl──────────────────▲ (interrupts, rejections)
+claude ──sessions/<pid>.json────────────────▲ (idle after an early Esc)
 ```
 
-- `claude/hook.ts` reads the hook JSON, sends it to the keeper, prints the
+- `claude/hook.mjs` reads the hook JSON, sends it to the keeper, prints the
   reply. With no ttt plugin folder it exits at once. With no keeper it starts
   one and sends once more. It never blocks Claude: a failure is silent.
 - `claude/keeper.ts` holds the state, as the pi extension does: the session
@@ -106,9 +107,10 @@ Each slice ends with its check. The next slice starts only after it passes.
    the agent's name in place of the fixed "pi"; the status bar shows its mark
    (π pi, ✻ claude, `○ no agent`; decided 2026-11-03), and a text with no session says "the agent".
    Check: Lua tests; a pi session looks as before.
-3. **Claude: observe.** `claude/hook.ts`, `claude/keeper.ts`, `claude/map.ts`
+3. **Claude: observe.** Done. `claude/hook.mjs` (plain JS: any `node`, no `run-node`, as it runs twice for each Edit), `claude/keeper.ts`, `claude/map.ts`
    (pure: Claude's input to pi's shape, tasks to steps), `claude/transcript.ts`
    (pure: interrupts and rejections in new transcript lines), the plugin manifest.
+   The keeper also reads Claude's session status, for an Esc before any output.
    Check: unit tests for `map.ts` and `transcript.ts`, with the shapes above;
    an e2e test that plays hook JSON into a keeper and a headless ttt (status
    bar, plan drawer, `ctrl+k w`); by hand: `claude --plugin-dir .` in herdr.
