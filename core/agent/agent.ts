@@ -165,11 +165,12 @@ export class AgentSide {
 		}
 	}
 
-	blocked(call: string, reason: string): void {
+	blocked(call: string, reason?: string): void {
 		const entry = this.live.get(call);
 		this.live.delete(call);
 		if (entry) clearTimeout(entry.timer);
-		if (entry?.tracker.started) this.channel.emit({ op: 'abort', call, reason });
+		this.changeLog.drop(call);
+		if (entry?.tracker.started) this.channel.emit({ op: 'abort', call, ...(reason ? { reason } : {}) });
 	}
 
 	/** Just before the call runs: its final text and `ready`. The agent never waits for the editor. */

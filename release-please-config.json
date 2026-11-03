@@ -16,6 +16,11 @@
           "type": "toml",
           "path": "herdr-plugin/herdr-plugin.toml",
           "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": ".claude-plugin/plugin.json",
+          "jsonpath": "$.version"
         }
       ]
     }

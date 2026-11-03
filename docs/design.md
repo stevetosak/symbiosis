@@ -31,6 +31,7 @@ open each file and type pi's change in it as a preview, at a speed you set.
 | Hunks | `core/hunks.ts` | Pure: the lines a change touched (a line diff, by the `diff` package), and where an old line stands after a later change. |
 | Launcher | `launcher/main.ts` (`bin/symbiosis`) | Starts a real pi in its own herdr or tmux pane, runs ttt here as its child, ends when ttt quits. One record per folder in `~/.local/state/symbiosis/`. |
 | Layout | `launcher/layout.ts` | Pure: the herdr and tmux command lines for a pi tab, a split, or a new tab for symbiosis itself. |
+| Claude Code | `claude/` (`.claude-plugin/plugin.json`) | Hooks (`claude/hook.mjs`) and a keeper process per session (`claude/keeper.ts`) that wire `core/agent/` into Claude Code. See "Claude Code". |
 | ttt plugin | `ttt/src` (bundled into `ttt/symbiosis/plugin.lua`) | Polls every 40 ms. Shows which file pi writes. When you follow pi, types its changes as a preview. Sends helpi! questions and writes the answers. A host (`ttt/src/core`) and one module per feature (`ttt/src/features`); see `ttt/README.md`. |
 
 A ttt plugin cannot open a socket and can read only its own folder and the
@@ -238,6 +239,70 @@ question). A text about no session says "the agent", and the bar says
 `○ no agent`. A feature the agent cannot do says so at once (`claude w cannot
 answer helpi! yet`), with no 3 s wait for an answer. A record without `agent`
 is pi's: only pi wrote records before `PROTOCOL` 18.
+
+## Claude Code
+
+`claude/` is the agent side for Claude Code: a plugin (`.claude-plugin/plugin.json`
+at the repo root, so `core/` comes along) with the hooks in `claude/hooks.json`.
+
+- **The hook** (`claude/hook.mjs`) runs for each event. It is plain JavaScript:
+  any `node` runs it, with no type stripping and no `bin/run-node` (measured:
+  `node` starts in about 20 ms, `bin/run-node` adds 30, and a hook runs twice
+  for each Edit). It sends the hook's JSON to the session's keeper over a Unix
+  socket and waits for `ok`: so the keeper has read the file before Claude runs
+  the tool. It prints nothing, as Claude reads the output of some hooks, and
+  exits 0. With no ttt plugin folder it does nothing.
+- **The keeper** (`claude/keeper.ts`, one per session) holds what
+  `pi/index.ts` holds: an `AgentSide` and the task list. The first hook that
+  finds no socket starts it. The socket is `<session id>.sock` in
+  `/tmp/symbiosis-<uid>` (`$XDG_RUNTIME_DIR/symbiosis` when set): macOS allows
+  104 bytes for its path. A folder that is not the user's own, or that others
+  can write, stops both. The keeper ends on SessionEnd (also `/clear`, which
+  then starts a new session and so a new keeper), on SIGTERM, or when
+  `CLAUDE_PID` is gone.
+
+| Source | The keeper | Channel |
+|---|---|---|
+| SessionStart | The record: `agent: claude`, `pid: CLAUDE_PID`, the pane, cwd, `model`, `title` (`session_title`) | session record |
+| UserPromptSubmit | Working, a new run for `ctrl+k w` | `rotate` |
+| PreToolUse Edit, Write | The input in pi's shape (`claude/map.ts`); the text before | `start`, `text` (all of it), `ready` |
+| PostToolUse Edit, Write | The first changed line from `structuredPatch`; the change log | `done` |
+| PostToolUseFailure | | `done`, not ok |
+| PostToolUse TaskCreate, TaskUpdate | The plan: completed is done, in_progress now, pending next | session record |
+| Notification `permission_prompt` (or a dialog) | `waiting` | session record |
+| Stop, StopFailure | Idle | `stop` |
+| The transcript: a rejected `tool_result` | That call will not run | `abort` |
+| The transcript: `[Request interrupted by user` | Idle | `stop` |
+| Claude's session status `idle`, newer than the turn | Idle | `stop` |
+| Notification `idle_prompt`, no dialog open | Idle | `stop` |
+| SessionEnd | The record goes; the keeper ends | |
+
+Claude tells no hook about Esc or about a rejected permission, so the keeper
+reads the new lines of `transcript_path` every 200 ms (`claude/transcript.ts`:
+`user` lines only; the `api-request-blob` copies and side chains do not count).
+Esc before Claude wrote anything leaves no line there either: Claude takes the
+prompt back into the input box. No idle notice comes then: Claude sends
+`idle_prompt` once for each completed turn, and this Esc completes none. So
+during a turn the keeper also reads, every second, the status that Claude
+writes for its process: `sessions/<CLAUDE_PID>.json` in `~/.claude` (or
+`CLAUDE_CONFIG_DIR`). `idle` for this session id, written after the turn
+started, ends the turn. Claude writes `busy` before the prompt hook comes, and
+`idle` after Stop.
+
+Weak points:
+
+- The preview starts when the call is complete: no hook sees the arguments
+  while the model writes them.
+- No `why`, and no `files` for a plan step.
+- The timeline needs `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`: the task tools are off
+  by default (Claude Code 2.1.312).
+- Claude's session status is not a documented interface. Without it, Esc
+  before any output shows `● working` until the next prompt. An Esc that
+  comes within milliseconds of the prompt hook can do the same.
+- A keeper that starts in the middle of a session (the plugin came later, or
+  the keeper died) does not know the tasks from before, and the model only
+  comes with SessionStart.
+- Stop, close, helpi!, ask and fill: not yet (`can` is empty), so ttt says so.
 
 ## Slice 3: the timeline
 
