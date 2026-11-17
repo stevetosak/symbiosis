@@ -154,6 +154,9 @@ Each slice ends with its check. The next slice starts only after it passes.
 - The fill message and the helpi! `ask` kind into Claude: an `asyncRewake`
   hook, or `herdr agent prompt`.
 - `why` from the transcript: the assistant text just before the tool call.
+- Select any agent from ttt: a palette command that asks pi or claude and
+  starts it with the launcher (a new session, or `-c`), so ttt does not only
+  follow sessions that already run (the panel and `ctrl+k n` do that now).
 
 ## Open questions, for their slice
 
