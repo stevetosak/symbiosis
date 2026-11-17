@@ -14,6 +14,8 @@ import { targetName, targetText, stayInside } from '../core/target.ts';
 import { type ChannelEvent, PROPOSE_KINDS, type ProposalAnswer, type ProposeKind, type Scope, type Session } from '../core/protocol.ts';
 import { namedPath, planned, realPath } from './tools.ts';
 
+export const shownPath = (path: string, cwd: string): string => relative(realPath(cwd), path) || path;
+
 /** How often propose reads the editor's answer. */
 const ANSWER_MS = 100;
 /** How long the editor may not follow this session before propose gives up. */
@@ -92,8 +94,8 @@ export class Filling {
 			return;
 		}
 		const path = realPath(request.path);
-		const started = await Fill.start({ mode: request.mode, path, line: request.line, shown: relative(cwd, path) || path, root: cwd, read: readText }).catch(
-			(error: unknown) => ({ error: `could not read ${relative(cwd, path) || path}: ${error instanceof Error ? error.message : String(error)}` }),
+		const started = await Fill.start({ mode: request.mode, path, line: request.line, shown: shownPath(path, cwd), root: cwd, read: readText }).catch(
+			(error: unknown) => ({ error: `could not read ${shownPath(path, cwd)}: ${error instanceof Error ? error.message : String(error)}` }),
 		);
 		if (generation !== this.requests) return;
 		if ('error' in started) {
@@ -159,7 +161,7 @@ export class Filling {
 		if (!target || before === undefined || readText(target.path) === before) return undefined;
 		writeFileSync(target.path, before);
 		return [
-			`symbiosis undid this call's change to ${relative(cwd, target.path) || target.path}: you are filling ${targetText(target)} there.`,
+			`symbiosis undid this call's change to ${shownPath(target.path, cwd)}: you are filling ${targetText(target)} there.`,
 			'Change that file only with edit or write (the guard checks them), or call propose.',
 			stayInside(target),
 		].join(' ');

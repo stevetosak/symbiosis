@@ -2,12 +2,12 @@
 // real extension; the test plays the editor by writing its files in the
 // plugin folder (ttt.json, fill.json, answer.json) and reading events.jsonl.
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 
-const base = mkdtempSync(join(tmpdir(), 'symbiosis-fill-'));
+const base = realpathSync(mkdtempSync(join(tmpdir(), 'symbiosis-fill-')));
 process.env.TTT_CONFIG_DIR = join(base, 'cfg');
 const plugin = join(base, 'cfg', 'plugins', 'symbiosis');
 const ws = join(base, 'ws');
@@ -16,6 +16,7 @@ mkdirSync(ws);
 
 // After TTT_CONFIG_DIR is set: the extension reads it when it loads.
 const { FakePi, sleep } = await import('../demo/fake-pi.ts');
+const { shownPath } = await import('../pi/fill.ts');
 
 const file = join(ws, 'sample.ts');
 const FILL_OLD = "\t// TODO(pi)\n\tthrow new Error('not written');";
@@ -227,4 +228,11 @@ test('a function needs a free place: not under a comment that is already a funct
 	await until(() => events().some((e) => e.op === 'notice' && /is the comment of `other`: leave a blank line under it/.test(e.text)), 'a notice');
 	request(10, 'function', described);
 	await until(() => events().some((e) => e.op === 'notice' && /no comment at line 10/.test(e.text)), 'a notice');
+});
+
+test('a file is named from the folder pi runs in, also when that folder is a link', () => {
+	const link = join(base, 'ws-link');
+	symlinkSync(ws, link);
+	assert.equal(shownPath(file, link), 'sample.ts');
+	assert.equal(shownPath(file, ws), 'sample.ts');
 });
