@@ -81,5 +81,5 @@ grep -q '? What is "accumulator" here?' "$OUT/1b-drill.txt" || fail "the drill-d
 grep -q '? What is "accumulator" here?' "$OUT/4-note.txt" || fail "the line's newest note is not shown"
 grep -q 'Back' "$OUT/4-note.txt" || fail "no Back to the older note"
 grep -q 'asked: 4$' "$OUT/pi.log" || fail "a letter typed in the input pressed a button, or the noted line asked again"
-[ "$(wc -l < "$OUT/ws/.symbiosis/notes/code.ts.jsonl")" = 4 ] || fail "not four notes in the file"
+[ "$(wc -l < "$OUT/ws/.symbiosis/notes/code.ts.jsonl")" -eq 4 ] || fail "not four notes in the file"
 echo "all passed ($OUT)"

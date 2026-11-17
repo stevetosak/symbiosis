@@ -40,7 +40,7 @@ steps="$steps; wait 2000; screenshot $OUT/waits.txt; key ctrl+k q; wait 2000; sc
 steps="$steps; key ctrl+k a; wait 300; screenshot $OUT/follow-on.txt"
 for i in $(seq -w 1 30); do steps="$steps; wait 200; screenshot $OUT/typed-$i.txt"; done
 steps="$steps; wait 1500; debug $OUT/debug.json; quit"
-(cd "$OUT/ws" && ttt --size 140x30 notes.txt --exec "$steps" > /dev/null 2>&1) &
+(cd "$OUT/ws" && ttt --size 140x30 . notes.txt --exec "$steps" > /dev/null 2>&1) &
 ttt=$!
 sleep 0.4
 HERDR_PANE_ID=e2e:p1 TMUX= PATH="$OUT/bin:$PATH" "$repo/bin/run-node" "$repo/test/e2e/claude.ts" "$OUT/ws" "$OUT/transcript.jsonl" "$OUT" > "$OUT/claude.log" 2>&1 &
