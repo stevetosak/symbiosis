@@ -204,7 +204,7 @@ test('close: arguments, the launcher of this ttt, and the record by process', ()
 		assert.equal(findByPid(dir, 4242, () => false), undefined);
 		assert.equal(findByPid(join(dir, 'none'), 4242, () => true), undefined);
 		// Inside ttt the session names the launcher; a folder on the command line wins.
-		assert.equal(target({ keepEditor: false, help: false }, { SYMBIOSIS_SESSION: '4242-m1' }, dir, () => '/q')?.folder, '/p');
+		assert.equal(target({ keepEditor: false, help: false }, { SYMBIOSIS_SESSION: '4242-m1' }, dir, () => '/q', () => true)?.folder, '/p');
 		writeRecord(dir, { pid: process.pid, folder: '/r', started: 1, host: null });
 		assert.equal(target({ folder: 'x', keepEditor: false, help: false }, { SYMBIOSIS_SESSION: '4242-m1' }, dir, () => '/r')?.folder, '/r', 'a folder on the command line wins');
 		assert.equal(target({ keepEditor: false, help: false }, {}, dir, () => '/nope'), undefined);

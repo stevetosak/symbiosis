@@ -130,11 +130,11 @@ export async function quitEditor(record: OpenRecord, deps: CloseDeps): Promise<C
 }
 
 /** The record this command acts on: the one of this ttt (inside ttt), else the folder's. */
-export function target(args: CloseArgs, env: NodeJS.ProcessEnv, states: string, folder: () => string): OpenRecord | undefined {
+export function target(args: CloseArgs, env: NodeJS.ProcessEnv, states: string, folder: () => string, isAlive: (pid: number) => boolean = alive): OpenRecord | undefined {
 	const pid = args.folder === undefined ? sessionPid(env.SYMBIOSIS_SESSION) : undefined;
 	if (pid !== undefined) {
-		const record = findByPid(states, pid);
+		const record = findByPid(states, pid, isAlive);
 		if (record) return record;
 	}
-	return findOpen(states, folder());
+	return findOpen(states, folder(), isAlive);
 }
