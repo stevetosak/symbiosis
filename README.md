@@ -429,7 +429,7 @@ bash test/e2e/help.sh      # helpi!: code, note, ask, Esc; only the session the 
 bash test/e2e/scenarios.sh # every demo scenario against a headless ttt (name one to run only it)
 bash test/e2e/demo.sh      # the demo, with its three helpi! questions; the workspace tests must pass
 bash test/e2e/preview.sh   # following: the preview types behind pi, pi does not wait, your typing waits, follow off and on, the buffer ends as the disk
-bash test/e2e/claude.sh    # Claude Code through its real hooks and keeper: the bar, the plan from its tasks, the diff of its turn, idle after Stop; a permission prompt, then ctrl+k q presses Esc in its pane
+bash test/e2e/claude.sh    # Claude Code through its real hooks and keeper: the bar, the plan from its tasks, the diff of its turn, idle after Stop; a permission prompt, then ctrl+k q presses Esc in its pane; follow on: the preview types its Write line by line
 bash test/e2e/tree.sh      # ttt's tree opens to pi's file; the "agent files" panel shows a file outside the folder
 bash test/e2e/app.sh       # the symbiosis command, the herdr action and npm run demo, with fake herdr, tmux, pi and ttt: tabs, split, --tab, tab names, no multiplexer, already open, symbiosis close
 bash test/e2e/close.sh     # ctrl+k n detaches; ctrl+k z asks, runs `symbiosis close`, quits ttt only when it worked (asks about unsaved files); quit.json
