@@ -1,7 +1,8 @@
-// A fake Claude Code for test/e2e/claude.sh: it plays two turns through the
+// A fake Claude Code for test/e2e/claude.sh: it plays three turns through the
 // real hooks (claude/hook.mjs), so the keeper writes what ttt reads. The
-// second turn waits on a permission prompt until ttt stops it. Needs
-// TTT_CONFIG_DIR, SYMBIOSIS_RUN_DIR, and a fake herdr in PATH.
+// second turn waits on a permission prompt until ttt stops it; the third
+// writes notes.txt once ttt follows. Needs TTT_CONFIG_DIR, SYMBIOSIS_RUN_DIR,
+// and a fake herdr in PATH.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -71,5 +72,14 @@ hook('UserPromptSubmit', { prompt: 'and a test' });
 hook('PreToolUse', { tool_name: 'Write', tool_use_id: 'w2', tool_input: { file_path: join(ws, 'store.test.ts'), content: 'test\n' } });
 hook('Notification', { notification_type: 'permission_prompt', message: 'Claude needs your permission to use Write' });
 console.log(`stopped: ${(await until(join(out, 'esc.txt'), 15000)) ? 'yes' : 'no'}`);
-await sleep(2500);
+
+await until(join(out, 'follow-on.txt'), 15000);
+const notes = join(ws, 'notes.txt');
+const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1} of the notes\n`).join('');
+hook('UserPromptSubmit', { prompt: 'twenty lines of notes' });
+call('w3', 'Write', { file_path: notes, content: lines }, lines, { type: 'update', structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 20, lines: ['-notes', '+line 1 of the notes'] }] });
+console.log('notes written');
+await sleep(6000);
+hook('Stop', { stop_hook_active: false });
+await sleep(1000);
 hook('SessionEnd', { reason: 'other' });

@@ -5,6 +5,8 @@
 # diff of the turn, and idle after Stop. In the second turn Claude waits on a
 # permission prompt; ctrl+k q presses Esc in its pane (a fake herdr, which
 # writes to the transcript what Claude writes on Esc), and the bar goes idle.
+# In the third, follow is on (ctrl+k a): ttt types Claude's Write of
+# notes.txt line by line, once the call is complete, and ends as the disk.
 # Usage: test/e2e/claude.sh [out-dir]
 set -euo pipefail
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -17,6 +19,7 @@ mkdir -p "$OUT/cfg/plugins/symbiosis" "$OUT/ws" "$OUT/bin"
 mkdir -m 700 "$OUT/run"
 "$repo/bin/run-node" "$repo/ttt/build.ts" >/dev/null
 cp "$repo"/ttt/symbiosis/* "$OUT/cfg/plugins/symbiosis/"
+echo '{"speed":160}' > "$OUT/cfg/plugins/symbiosis/settings.json"
 perms=$(python3 -c "import json; print(json.dumps(json.load(open('$repo/ttt/symbiosis/plugin.ttt.json'))['permissions']))")
 echo "[{\"name\":\"symbiosis\",\"displayName\":\"symbiosis\",\"version\":\"0.1.0\",\"enabled\":true,\"permissions\":$perms}]" > "$OUT/cfg/plugins.ttt.json"
 printf 'notes\n' > "$OUT/ws/notes.txt"
@@ -31,9 +34,12 @@ SH
 chmod +x "$OUT/bin/herdr"
 
 # Claude writes and edits by about 3 s, works until about 8 s, then stops.
-# Its second turn starts when idle.txt is there.
+# Its second turn starts when idle.txt is there, its third when follow-on.txt is.
 steps="wait 4500; screenshot $OUT/working.txt; key ctrl+k v; wait 600; screenshot $OUT/plan.txt; key escape; wait 300; key ctrl+k w; wait 800; screenshot $OUT/diff.txt; wait 4000; screenshot $OUT/idle.txt"
-steps="$steps; wait 2000; screenshot $OUT/waits.txt; key ctrl+k q; wait 2000; screenshot $OUT/stopped.txt; quit"
+steps="$steps; wait 2000; screenshot $OUT/waits.txt; key ctrl+k q; wait 2000; screenshot $OUT/stopped.txt"
+steps="$steps; key ctrl+k a; wait 300; screenshot $OUT/follow-on.txt"
+for i in $(seq -w 1 30); do steps="$steps; wait 200; screenshot $OUT/typed-$i.txt"; done
+steps="$steps; wait 1500; debug $OUT/debug.json; quit"
 (cd "$OUT/ws" && ttt --size 140x30 notes.txt --exec "$steps" > /dev/null 2>&1) &
 ttt=$!
 sleep 0.4
@@ -56,5 +62,19 @@ grep -q 'claude ws waits for you: Claude needs your permission to use Write' "$O
 grep -q 'herdr pane send-keys e2e:p1 esc' "$OUT/esc.txt" || fail "ctrl+k q did not press Esc in claude's pane"
 [ "$(wc -l < "$OUT/esc.txt")" -eq 1 ] || fail "more than one Esc: $(cat "$OUT/esc.txt")"
 grep -q '✻ ws ○ idle' "$OUT/stopped.txt" || fail "the bar does not go idle after the stop"
+grep -q 'following' "$OUT/follow-on.txt" || fail "ctrl+k a did not turn follow on"
+grep -q 'claude ✎ writing notes.txt +' "$OUT"/typed-*.txt || fail "the bar never said claude writes notes.txt"
+python3 - "$OUT" << 'PY' || fail "the preview did not type claude's write"
+import glob, json, re, sys
+out = sys.argv[1]
+seen = sorted({max([int(n) for n in re.findall(r'line (\d+) of the notes', open(f).read())] or [0]) for f in glob.glob(f"{out}/typed-*.txt")})
+partial = [n for n in seen if 0 < n < 20]
+assert len(partial) >= 3, f"the lines did not come in steps: {seen}"
+b = json.load(open(f"{out}/debug.json"))["buffer"]
+disk = open(f"{out}/ws/notes.txt").read()
+assert b["path"].endswith("/notes.txt") and not b["modified"], f"the buffer is {b['path']}, modified {b['modified']}"
+assert "\n".join(b["text"]) == disk, "the buffer is not notes.txt as on disk"
+print(f"typed in steps: {partial[0]} to {partial[-1]} of 20 lines; the buffer ends as the disk")
+PY
 pgrep -f "claude/keeper.ts e2e-claude" > /dev/null && fail "the keeper did not end with the session"
 echo "all passed ($OUT)"
