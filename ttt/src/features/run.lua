@@ -473,11 +473,15 @@ function M.setup(app)
 		return ok and type(d) == "table" and d or nil
 	end
 
-	-- The Run panel tab: brings it up. ttt has no call for it: the panel's
-	-- tabs are cycled with tab.next while the panel has the focus, then the
-	-- focus goes back to the editor.
-	-- With focus, the panel keeps the focus (for its keys).
+	-- The Run panel tab: brings it up. With focus, the panel keeps the focus
+	-- (for its keys). ttt before 1.9 has no show_panel: the panel's tabs are
+	-- cycled with tab.next while the panel has the focus, then the focus goes
+	-- back to the editor.
 	local function reveal(focus)
+		if ttt.show_panel then
+			if focus then ttt.focus_panel("bottom") else ttt.show_panel("bottom") end
+			return
+		end
 		local d = debug_state()
 		local bp = type(d) == "table" and d.bottom_panel or nil
 		if type(bp) ~= "table" then return end

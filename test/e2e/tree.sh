@@ -19,7 +19,7 @@ echo "[{\"name\":\"symbiosis\",\"displayName\":\"symbiosis\",\"version\":\"0.1.0
 echo "notes" > "$OUT/ws/docs/notes.md"
 
 # pi writes src/deep/a.ts at about 2 s and the outside file at about 6.5 s.
-steps="key ctrl+k a; wait 5000; screenshot $OUT/explorer.txt; click 37 2; wait 4500; screenshot $OUT/panel.txt; quit"
+steps="key ctrl+k a; wait 5000; screenshot $OUT/explorer.txt; click 43 2; wait 4500; screenshot $OUT/panel.txt; quit"
 (cd "$OUT/ws" && ttt --size 150x24 . --exec "$steps" > /dev/null 2>&1) &
 ttt=$!
 sleep 1.2
@@ -30,7 +30,7 @@ kill $pi 2> /dev/null || true
 cat "$OUT/pi.log"
 fail() { echo "FAIL: $*"; echo "out: $OUT"; exit 1; }
 side() { cut -c1-72 "$1"; }
-side "$OUT/explorer.txt" | grep -q '▼ deep' || fail "ttt's tree did not open to src/deep"
+side "$OUT/explorer.txt" | grep -qE '(▼|⌄) (src/)?deep' || fail "ttt's tree did not open to src/deep"
 side "$OUT/explorer.txt" | grep -q 'a.ts' || fail "ttt's tree does not show a.ts"
 side "$OUT/panel.txt" | grep -q '▶ π ws' || fail "the panel does not show the session the editor follows"
 side "$OUT/panel.txt" | grep -q 'deep/' || fail "the panel does not show src/deep"
