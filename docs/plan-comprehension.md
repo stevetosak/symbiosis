@@ -255,6 +255,7 @@ need, the workaround, what it unblocks. Start from design.md:
 | A drawer close callback; the command line while a drawer is open; an input's start value | The proposal drawer holds its own note input and buttons; Esc only hides it (`ctrl+k p` shows it again) | Proposals (2b) |
 | A gutter API with more than one mark on a line | One bookmark a line: the mark drawn first stays (note ◆ over review ●) | Review and note marks on one line (4) |
 | Lua 5.1 patterns in full (no `%f` frontier in ttt's Lua; the unit tests run in LuaJIT, which has it) | Check the byte before a match by hand | Markers |
+| A panel's `on_event` that says it took an event (ttt 1.12.1 `dispatch` returns ignored after every Lua call) | Drop the second copy of an event (8 ms); since ttt 1.10 a drag in a raw-cell panel selects text, so the Run panel's `│` does not drag | Run panel resize, mouse in raw-cell panels |
 
 Before any fork: open upstream issues for the top 2–3 needs with the use
 case. A fork, if the operator decides on one, adds generic plugin APIs only
